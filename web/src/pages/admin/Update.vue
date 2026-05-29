@@ -500,24 +500,24 @@ php api/bin/migrate.php</code></pre>
 .release-notes :deep(h2),
 .release-notes :deep(h3) {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--color-neutral-900);
   margin: 1em 0 0.4em;
   line-height: 1.3;
 }
 .release-notes :deep(h1) { font-size: 1.25rem; }
 .release-notes :deep(h2) { font-size: 1.1rem; }
 .release-notes :deep(h3) { font-size: 1rem; }
-.release-notes :deep(p) { margin: 0.4em 0; line-height: 1.55; color: #374151; }
+.release-notes :deep(p) { margin: 0.4em 0; line-height: 1.55; color: var(--color-neutral-700); }
 .release-notes :deep(ul),
 .release-notes :deep(ol) {
   margin: 0.4em 0;
   padding-left: 1.5em;
-  color: #374151;
+  color: var(--color-neutral-700);
 }
 .release-notes :deep(li) { margin: 0.15em 0; }
 .release-notes :deep(code) {
-  background: #f3f4f6;
-  color: #c0392b;
+  background: var(--color-neutral-100);
+  color: var(--color-danger-600);
   padding: 0 4px;
   border-radius: 3px;
   font-size: 0.85em;
@@ -534,8 +534,8 @@ php api/bin/migrate.php</code></pre>
   line-height: 1.5;
 }
 .release-notes :deep(pre code) { background: transparent; color: inherit; padding: 0; }
-.release-notes :deep(strong) { font-weight: 600; color: #1f2937; }
+.release-notes :deep(strong) { font-weight: 600; color: var(--color-neutral-900); }
 .release-notes :deep(em) { font-style: italic; }
-.release-notes :deep(a) { color: #6c5ce7; text-decoration: underline; }
-.release-notes :deep(a:hover) { color: #4c1d95; }
+.release-notes :deep(a) { color: var(--color-primary-600); text-decoration: underline; }
+.release-notes :deep(a:hover) { color: var(--color-primary-700); }
 </style>

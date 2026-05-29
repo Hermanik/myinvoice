@@ -100,6 +100,8 @@
   --color-primary-100: #2C2450;
   --color-primary-600: #7C68C4;   /* primary button */
   --color-primary-700: #9C8FDA;   /* accent text (text-primary-700) — čitelný na tmavém */
+  --color-primary-800: #B7AAE8;   /* silnější accent text (text-primary-800) */
+  --color-primary-900: #D4CCF3;   /* nejsilnější accent text (text-primary-900) */
 
   /* Semantic soft pozadí (-50) → tmavé tinty */
   --color-success-50: #16261D;
