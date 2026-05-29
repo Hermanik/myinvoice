@@ -291,7 +291,7 @@ function fmtDate(s?: string | null): string {
         class="rounded-lg border p-5"
         :class="status.has_update
           ? 'border-primary-300 bg-primary-50/40'
-          : 'border-neutral-200 bg-white'"
+          : 'border-neutral-200 bg-surface'"
       >
         <div class="flex flex-wrap items-baseline justify-between gap-4">
           <div>
@@ -339,7 +339,7 @@ function fmtDate(s?: string | null): string {
             type="button"
             @click="refresh"
             :disabled="checking"
-            class="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-60 disabled:cursor-not-allowed"
+            class="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-surface px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <svg class="w-4 h-4" :class="{ 'animate-spin': checking }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 0 0 4.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 0 1-15.357-2m15.357 2H15"/></svg>
             {{ checking ? t('updates.checking') : t('updates.check_now') }}
@@ -355,7 +355,7 @@ function fmtDate(s?: string | null): string {
             {{ triggering ? t('updates.triggering') : t('updates.trigger_update', { version: status.latest }) }}
           </button>
           <a v-if="status.release_url" :href="status.release_url" target="_blank" rel="noopener"
-            class="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50">
+            class="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-surface px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
             {{ t('updates.release_on_github') }}
           </a>
@@ -391,7 +391,7 @@ function fmtDate(s?: string | null): string {
         <p class="text-sm text-neutral-600 mt-1.5">{{ t('updates.in_progress_desc') }}</p>
         <div class="mt-3 pt-3 border-t border-primary-200/60 flex items-center gap-3 flex-wrap">
           <button type="button" @click="cancelStuckUpgrade" :disabled="cancelling"
-            class="cursor-pointer h-8 px-3 text-sm border border-neutral-300 bg-white hover:bg-neutral-50 rounded-md inline-flex items-center gap-1.5 disabled:opacity-50">
+            class="cursor-pointer h-8 px-3 text-sm border border-neutral-300 bg-surface hover:bg-neutral-50 rounded-md inline-flex items-center gap-1.5 disabled:opacity-50">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
             {{ cancelling ? '…' : t('updates.cancel_stuck') }}
           </button>
@@ -431,13 +431,13 @@ function fmtDate(s?: string | null): string {
 
       <!-- Release notes -->
       <section v-if="status.release_notes_md"
-        class="rounded-lg border border-neutral-200 bg-white p-5">
+        class="rounded-lg border border-neutral-200 bg-surface p-5">
         <h2 class="text-lg font-semibold text-neutral-900 mb-3">{{ t('updates.release_notes') }} (v{{ status.latest }})</h2>
         <div class="release-notes prose prose-sm max-w-none" v-html="renderedNotes"></div>
       </section>
 
       <!-- How upgrade works — vždy viditelné, environment-specific instrukce -->
-      <section class="rounded-lg border border-neutral-200 bg-white p-5">
+      <section class="rounded-lg border border-neutral-200 bg-surface p-5">
         <h2 class="text-lg font-semibold text-neutral-900 mb-3">{{ t('updates.how_it_works') }}</h2>
 
         <template v-if="status.environment === 'docker'">

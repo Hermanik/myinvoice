@@ -12,6 +12,7 @@ import {
   Legend,
   Filler,
 } from 'chart.js'
+import { useChartColors } from '@/composables/useTheme'
 
 Chart.register(LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler)
 
@@ -31,6 +32,7 @@ const props = defineProps<{
 const canvas = ref<HTMLCanvasElement | null>(null)
 let chart: Chart | null = null
 const { locale, t } = useI18n()
+const colors = useChartColors()
 
 const seriesData = computed(() => {
   const now = new Date()
@@ -108,9 +110,9 @@ function build() {
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12, color: '#5A5470' } },
+        legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12, color: colors.value.tick } },
         tooltip: {
-          backgroundColor: '#15131D',
+          backgroundColor: colors.value.tooltipBg,
           callbacks: {
             label: (ctx) => `${ctx.dataset.label}: ${formatVal(Number(ctx.parsed.y || 0))} ${props.currency}`,
           },
@@ -119,10 +121,10 @@ function build() {
       scales: {
         y: {
           beginAtZero: true,
-          ticks: { color: '#7A748C', font: { size: 11 }, callback: (v) => formatTick(Number(v)) },
-          grid: { color: '#E7E3EE' },
+          ticks: { color: colors.value.tick, font: { size: 11 }, callback: (v) => formatTick(Number(v)) },
+          grid: { color: colors.value.grid },
         },
-        x: { ticks: { color: '#7A748C', font: { size: 11 } }, grid: { display: false } },
+        x: { ticks: { color: colors.value.tick, font: { size: 11 } }, grid: { display: false } },
       },
     },
   })
@@ -131,6 +133,7 @@ function build() {
 onMounted(build)
 onBeforeUnmount(() => chart?.destroy())
 watch(() => [props.months, props.prevYear, props.currency, locale.value], build, { deep: true })
+watch(colors, build)
 // Použito jen pro odlišení od dashboard chartu — t() pro budoucí i18n hover labelů.
 void t
 </script>

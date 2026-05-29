@@ -290,7 +290,7 @@ async function submit() {
       <RouterLink to="/clients" class="text-sm text-neutral-600 hover:text-neutral-900">{{ t('client.back_to_list') }}</RouterLink>
     </div>
 
-    <form @submit.prevent="submit" autocomplete="off" class="bg-white border border-neutral-200 rounded-lg shadow-sm">
+    <form @submit.prevent="submit" autocomplete="off" class="bg-surface border border-neutral-200 rounded-lg shadow-sm">
       <div class="p-5 space-y-4">
         <!-- Lookup helpers -->
         <div class="bg-primary-50 border border-primary-200 rounded-md p-3">
@@ -303,7 +303,7 @@ async function submit() {
                   @blur="checkDuplicateIc"
                   class="flex-1 h-9 px-3 border border-neutral-300 rounded-md font-mono text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none" />
                 <button type="button" @click="loadFromAres" :disabled="!form.ic || aresLoading"
-                  class="px-3 h-9 text-sm bg-white border border-primary-300 text-primary-700 rounded-md hover:bg-primary-100 disabled:opacity-50">
+                  class="px-3 h-9 text-sm bg-surface border border-primary-300 text-primary-700 rounded-md hover:bg-primary-100 disabled:opacity-50">
                   {{ aresLoading ? '…' : 'ARES' }}
                 </button>
               </div>
@@ -319,7 +319,7 @@ async function submit() {
                   @blur="checkDuplicateDic"
                   class="flex-1 h-9 px-3 border border-neutral-300 rounded-md font-mono text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none" />
                 <button type="button" @click="checkVies" :disabled="!form.dic || viesLoading"
-                  class="px-3 h-9 text-sm bg-white border border-primary-300 text-primary-700 rounded-md hover:bg-primary-100 disabled:opacity-50">
+                  class="px-3 h-9 text-sm bg-surface border border-primary-300 text-primary-700 rounded-md hover:bg-primary-100 disabled:opacity-50">
                   {{ viesLoading ? '…' : 'VIES' }}
                 </button>
               </div>
@@ -379,7 +379,7 @@ async function submit() {
           <div>
             <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('client.country') }}</label>
             <select v-model="form.country_iso2"
-              class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none">
+              class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-surface focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none">
               <option v-for="c in countries" :key="c.iso2" :value="c.iso2">{{ locale === 'en' ? c.name_en : c.name_cs }}</option>
             </select>
           </div>
@@ -389,7 +389,7 @@ async function submit() {
           <div>
             <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('client.language') }}</label>
             <select v-model="form.language"
-              class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none">
+              class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-surface focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none">
               <option value="cs">Čeština</option>
               <option value="en">English</option>
             </select>
@@ -398,7 +398,7 @@ async function submit() {
             <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('client.payment_due_label') }}</label>
             <div class="flex gap-2">
               <select v-model="clientDuePreset"
-                class="h-10 px-2 border border-neutral-300 rounded-md text-sm bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none"
+                class="h-10 px-2 border border-neutral-300 rounded-md text-sm bg-surface focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none"
                 :class="clientDuePreset === 'custom' ? 'w-48' : 'w-full'">
                 <option value="inherit">{{ t('client.payment_due_inherit', { default: supplierDueLabel }) }}</option>
                 <option value="7">{{ t('client.payment_due_preset_7') }}</option>
@@ -426,7 +426,7 @@ async function submit() {
           <div>
             <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('client.currency_default') }}</label>
             <select v-model.number="form.currency_default_id"
-              class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none">
+              class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-surface focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none">
               <option v-for="c in currencies" :key="c.id" :value="c.id">{{ c.label }}</option>
             </select>
           </div>
@@ -485,7 +485,7 @@ async function submit() {
         <div v-if="form.is_vendor" class="pt-3 border-t border-neutral-100">
           <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('client.default_expense_category') }}</label>
           <select v-model="form.default_expense_category_id"
-            class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none">
+            class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-surface focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none">
             <option :value="null">— {{ t('client.default_expense_category_none') }} —</option>
             <option v-for="c in expenseCategories" :key="c.id" :value="c.id">
               {{ c.label }} ({{ c.code }})
@@ -525,7 +525,7 @@ async function submit() {
             <div>
               <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('client.invoice_number_period') }}</label>
               <select v-model="form.invoice_number_period"
-                class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none">
+                class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-surface focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none">
                 <option :value="null">{{ t('client.numbering_period_inherit') }}</option>
                 <option value="year">{{ t('client.numbering_period_year') }}</option>
                 <option value="month">{{ t('client.numbering_period_month') }}</option>
@@ -543,8 +543,8 @@ async function submit() {
 
       <div class="px-5 py-3 border-t border-neutral-200 bg-neutral-50 flex justify-end gap-3 rounded-b-lg">
         <button v-if="embedded" type="button" @click="emit('cancel')"
-          class="px-4 h-10 border border-neutral-300 rounded-md text-neutral-700 hover:bg-white text-sm font-medium">{{ t('common.cancel') }}</button>
-        <RouterLink v-else to="/clients" class="px-4 h-10 leading-10 border border-neutral-300 rounded-md text-neutral-700 hover:bg-white text-sm font-medium">{{ t('common.cancel') }}</RouterLink>
+          class="px-4 h-10 border border-neutral-300 rounded-md text-neutral-700 hover:bg-surface text-sm font-medium">{{ t('common.cancel') }}</button>
+        <RouterLink v-else to="/clients" class="px-4 h-10 leading-10 border border-neutral-300 rounded-md text-neutral-700 hover:bg-surface text-sm font-medium">{{ t('common.cancel') }}</RouterLink>
         <button type="submit" :disabled="submitting"
           class="px-5 h-10 bg-primary-600 hover:bg-primary-700 disabled:bg-neutral-300 text-white text-sm font-medium rounded-md">
           {{ submitting ? t('common.saving') : (isEdit ? t('common.save') : t('common.create')) }}

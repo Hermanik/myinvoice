@@ -100,7 +100,7 @@ const otherCurrencies = computed(() => {
           <select
             :value="paymentCurrencyId ?? ''"
             @change="emit('update:paymentCurrencyId', ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null)"
-            class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-white text-sm"
+            class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-surface text-sm"
           >
             <option value="">—</option>
             <option v-for="c in otherCurrencies" :key="c.id" :value="c.id">{{ c.code }}</option>

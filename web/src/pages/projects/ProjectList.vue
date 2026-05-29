@@ -85,10 +85,10 @@ watch([status, clientId, sort], () => load(true))
       </i18n-t>
     </div>
 
-    <div class="bg-white border border-neutral-200 rounded-lg shadow-sm">
+    <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm">
       <div class="px-4 py-3 border-b border-neutral-200 flex flex-wrap items-center gap-2">
         <select v-model="status"
-          class="h-9 px-3 border border-neutral-300 rounded-md text-sm bg-white">
+          class="h-9 px-3 border border-neutral-300 rounded-md text-sm bg-surface">
           <option value="">{{ t('invoice.all_statuses') }}</option>
           <option value="active">{{ t('common.active') }}</option>
           <option value="paused">{{ t('project.status_paused') }}</option>
@@ -102,7 +102,7 @@ watch([status, clientId, sort], () => load(true))
             :placeholder="t('project.all_clients')"
           />
         </div>
-        <select v-model="sort" class="h-9 px-3 border border-neutral-300 rounded-md text-sm bg-white ml-auto"
+        <select v-model="sort" class="h-9 px-3 border border-neutral-300 rounded-md text-sm bg-surface ml-auto"
           :title="t('common.sort_by')">
           <option value="name">{{ t('common.sort_name') }}</option>
           <option value="client">{{ t('common.sort_client') }}</option>

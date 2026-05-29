@@ -114,7 +114,7 @@ function openClient(c: Client) {
       </RouterLink>
     </div>
 
-    <div class="bg-white border border-neutral-200 rounded-lg shadow-sm">
+    <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm">
       <!-- Tabs: Klienti / Dodavatelé / Vše -->
       <div class="px-4 pt-2 border-b border-neutral-100 flex items-center gap-1">
         <button
@@ -148,12 +148,12 @@ function openClient(c: Client) {
           {{ t('client.show_archived') }}
         </label>
         <select v-if="roleFilter === 'vendors'" v-model.number="categoryFilter"
-          class="h-9 px-3 border border-neutral-300 rounded-md text-sm bg-white"
+          class="h-9 px-3 border border-neutral-300 rounded-md text-sm bg-surface"
           :title="t('client.default_expense_category')">
           <option :value="null">{{ t('client.filter_category_all') }}</option>
           <option v-for="c in expenseCategories" :key="c.id" :value="c.id">{{ c.label }} ({{ c.code }})</option>
         </select>
-        <select v-model="sort" class="h-9 px-3 border border-neutral-300 rounded-md text-sm bg-white"
+        <select v-model="sort" class="h-9 px-3 border border-neutral-300 rounded-md text-sm bg-surface"
           :title="t('common.sort_by')">
           <option value="name">{{ t('common.sort_name') }}</option>
           <option value="revenue">{{ t('common.sort_revenue') }}</option>

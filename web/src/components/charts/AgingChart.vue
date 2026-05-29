@@ -3,6 +3,7 @@ import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import {
   Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend,
 } from 'chart.js'
+import { useChartColors } from '@/composables/useTheme'
 
 Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend)
 
@@ -20,6 +21,7 @@ const props = defineProps<{
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 let chart: Chart | null = null
+const colors = useChartColors()
 
 const palette = ['#4CAF7A', '#A99CD8', '#E8A547', '#D45B5B', '#7A2E2E']
 const bucketKeys = ['current', 'b1_30', 'b31_60', 'b61_90', 'b90_plus'] as const
@@ -48,9 +50,9 @@ function build() {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, color: '#5A5470' } },
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, color: colors.value.tick } },
         tooltip: {
-          backgroundColor: '#15131D',
+          backgroundColor: colors.value.tooltipBg,
           callbacks: {
             label: (ctx) => {
               const cur = props.rows[ctx.dataIndex]?.currency ?? ''
@@ -60,8 +62,8 @@ function build() {
         },
       },
       scales: {
-        x: { stacked: true, beginAtZero: true, ticks: { color: '#7A748C', font: { size: 11 } }, grid: { color: '#E7E3EE' } },
-        y: { stacked: true, ticks: { color: '#7A748C', font: { size: 11 } }, grid: { display: false } },
+        x: { stacked: true, beginAtZero: true, ticks: { color: colors.value.tick, font: { size: 11 } }, grid: { color: colors.value.grid } },
+        y: { stacked: true, ticks: { color: colors.value.tick, font: { size: 11 } }, grid: { display: false } },
       },
     },
   })
@@ -70,6 +72,7 @@ function build() {
 onMounted(build)
 onBeforeUnmount(() => chart?.destroy())
 watch(() => props.rows, build, { deep: true })
+watch(colors, build)
 </script>
 
 <template>

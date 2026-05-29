@@ -34,7 +34,7 @@ export function useTheme() {
 /**
  * Barvy pro chart.js — ten nečte CSS proměnné, takže je tu zrcadlíme ručně podle režimu.
  * POZOR: hodnoty musí odpovídat tokenům v styles/main.css (.dark scope) — při změně palety
- * srovnej i tady. Sdílený singleton; v komponentě přidej watch(useChartColors(), build).
+ * srovnej i tady. Sdílený singleton; v komponentě: const colors = useChartColors() + watch(colors, build).
  */
 const chartColors = computed(() =>
   isDark.value
