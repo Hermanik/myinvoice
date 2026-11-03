@@ -22,7 +22,7 @@ const annotation = ref('')
 const prepared = ref<PrepareResponse | null>(null)
 
 const sendableBoxes = computed(() => (prefill.value?.boxes ?? []).filter(b => b.is_active && b.can_send))
-const blocked = computed(() => prefill.value?.blocked_reason === 'xsd_failed')
+const blocked = computed(() => prefill.value?.blocked_reason === 'xsd_failed' || prefill.value?.blocked_reason === 'integrity_failed')
 const effectiveRecipient = computed(() => (editRecipient.value || !prefill.value?.recipient.box_id) ? recipientOverride.value.trim() : prefill.value.recipient.box_id)
 const canContinue = computed(() => !busy.value && !blocked.value && boxId.value !== null && effectiveRecipient.value?.length === 7 && annotation.value.trim().length > 0)
 
@@ -70,7 +70,7 @@ const lbl = 'block text-xs font-medium text-neutral-700 mb-1'
     <div v-if="prefill" class="space-y-3 text-sm">
       <p class="font-medium">{{ prefill.submission.form_name }} · {{ prefill.submission.period_label }}</p>
 
-      <p v-if="blocked" class="rounded-md border border-danger-500/40 bg-danger-50 text-danger-500 px-3 py-2 font-medium" data-test="xsd-blocked">{{ t('databox.submission.xsd_failed') }}</p>
+      <p v-if="blocked" class="rounded-md border border-danger-500/40 bg-danger-50 text-danger-500 px-3 py-2 font-medium" data-test="xsd-blocked">{{ t(`databox.submission.${prefill.blocked_reason}`) }}</p>
       <ul v-if="prefill.warnings.length" class="space-y-1">
         <li v-for="w in prefill.warnings" :key="w" class="rounded-md border border-warning-500/50 bg-warning-50 text-warning-600 px-3 py-1.5">{{ warnText(w) }}</li>
       </ul>

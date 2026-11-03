@@ -42,8 +42,13 @@ final class GuzzleIsdsTransport implements IsdsTransport
                 'http_errors' => false,
             ]);
         } catch (GuzzleException $e) {
-            // The exception message may embed the request URL but never the Basic header, still keep it generic.
-            throw new IsdsException('network', 'Datovou schránku se nepodařilo kontaktovat (síťová chyba). Zkuste to později.', previous: $e);
+            // The trace of Guzzle's own exception holds the request options, i.e. the Basic auth pair, as frame arguments:
+            // chain only a copy of its message, whose trace starts here and holds no password.
+            throw new IsdsException(
+                'network',
+                'Datovou schránku se nepodařilo kontaktovat (síťová chyba). Zkuste to později.',
+                previous: new \RuntimeException($e::class . ': ' . $e->getMessage()),
+            );
         }
         return new IsdsTransportResponse($response->getStatusCode(), (string) $response->getBody());
     }

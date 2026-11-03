@@ -20,6 +20,8 @@ final class FakeIsdsTransport implements IsdsTransport
     private array $queues = [];
     /** @var array<string, IsdsTransportResponse> */
     private array $defaults = [];
+    /** @var array<string, array<string, IsdsTransportResponse>> operation => login name => answer */
+    private array $defaultsByUser = [];
 
     /** One-shot answer for the next call of $operation. */
     public function queue(string $operation, IsdsTransportResponse|string $response, int $status = 200): self
@@ -35,6 +37,13 @@ final class FakeIsdsTransport implements IsdsTransport
         return $this;
     }
 
+    /** Answer for every call of $operation made with the login $username that has no queued answer (beats {@see always()}). */
+    public function alwaysFor(string $operation, string $username, IsdsTransportResponse|string $response, int $status = 200): self
+    {
+        $this->defaultsByUser[$operation][$username] = $this->wrap($response, $status);
+        return $this;
+    }
+
     public function post(string $url, IsdsCredentials $credentials, string $soapEnvelope): IsdsTransportResponse
     {
         $operation = $this->operationOf($soapEnvelope);
@@ -42,7 +51,7 @@ final class FakeIsdsTransport implements IsdsTransport
         if (!empty($this->queues[$operation])) {
             return array_shift($this->queues[$operation]);
         }
-        return $this->defaults[$operation] ?? throw new \LogicException("The test scripted no answer for ISDS operation {$operation}.");
+        return $this->defaultsByUser[$operation][$credentials->username] ?? $this->defaults[$operation] ?? throw new \LogicException("The test scripted no answer for ISDS operation {$operation}.");
     }
 
     /** @return list<string> operations called so far, in order */

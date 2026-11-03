@@ -72,10 +72,11 @@ final class DataboxSyncService
         }
 
         try {
-            $box = $this->ensureVerified($box);
+            // Rights are changed in the ISDS portal behind our back: re-read them BEFORE any list call, never trust the cache.
+            $box = $this->withFreshRights($box);
             $refusal = $this->refusal($box);
             if ($refusal !== null) {
-                $this->markFailed($boxId, 'error', $refusal);
+                $this->markFailed($boxId, 'paused', $refusal);
                 $report['status'] = 'refused';
                 $report['message'] = $refusal;
                 return $report;
@@ -100,7 +101,7 @@ final class DataboxSyncService
                 }
             }
 
-            foreach ($this->messages->sentNeedingReceipt($boxId, self::RECEIPTS_PER_RUN) as $sent) {
+            foreach ($this->messages->sentNeedingReceipt($boxId, self::RECEIPTS_PER_RUN, $now) as $sent) {
                 try {
                     $this->receipts->refresh($access, $sent['id'], $sent['dm_id']);
                     $report['receipts']++;
@@ -108,6 +109,7 @@ final class DataboxSyncService
                     if ($e->isAuthFailure()) {
                         throw $e;
                     }
+                    $this->messages->recordReceiptFailure($sent['id'], $now);
                     $this->logger->warning('Data box receipt refresh failed', ['box_id' => $boxId, 'dm_id' => $sent['dm_id'], 'reason' => $e->reason]);
                 }
             }
@@ -125,8 +127,8 @@ final class DataboxSyncService
             $report['message'] = $e->getMessage();
             $pausedUntil = null;
             if ($authFailure) {
+                // The refused login itself was recorded by the access hook (DataboxService::accessFor).
                 $pausedUntil = $e->blockedUntil($now) ?? $now->modify(self::PAUSE_AFTER_AUTH_FAILURE);
-                $this->boxes->recordCheck($boxId, 'sync', $e->reason === 'bad_credentials' ? 'bad_credentials' : 'locked', $e->getMessage());
             }
             $this->markFailed($boxId, $authFailure ? 'paused' : 'error', $e->getMessage(), $pausedUntil);
             $this->logger->warning('Data box sync failed', ['box_id' => $boxId, 'reason' => $e->reason, 'isds_code' => $e->isdsCode]);
@@ -164,14 +166,21 @@ final class DataboxSyncService
         };
     }
 
-    /** First run after the login was stored without privileges: learn them before deciding anything. @param array<string,mixed> $box @return array<string,mixed> */
-    private function ensureVerified(array $box): array
+    /**
+     * Re-read the sync login's rights with the read-only GetUserInfoFromLogin2 and reload the box with them. Skipped when
+     * there is no sync login or ISDS already refused it ({@see refusal()} explains both without an ISDS call).
+     *
+     * @param array<string,mixed> $box
+     * @return array<string,mixed>
+     */
+    private function withFreshRights(array $box): array
     {
-        if (($box['credentials']['sync'] ?? null) !== null && $this->service->privilegesOf($box['credentials']['sync']) === null) {
-            $this->service->refreshPrivileges($box, 'sync');
-            return $this->boxes->find((int) $box['id']) ?? $box;
+        $sync = $box['credentials']['sync'] ?? null;
+        if ($sync === null || $this->service->isFlagged($sync)) {
+            return $box;
         }
-        return $box;
+        $this->service->refreshRights($box, 'sync');
+        return $this->boxes->find((int) $box['id']) ?? $box;
     }
 
     /**

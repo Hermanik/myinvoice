@@ -42,7 +42,8 @@ function apply(d: MessageDetail) {
 
 const isReceived = computed(() => detail.value?.direction === 'received')
 const capableMissing = computed(() => detail.value?.open.has_capable_login === false)
-const canOpen = computed(() => isReceived.value && !detail.value?.open.stored && !capableMissing.value)
+const openBlocked = computed(() => detail.value?.open.blocked_reason ?? null)
+const canOpen = computed(() => isReceived.value && !detail.value?.open.stored && !capableMissing.value && !openBlocked.value)
 
 // Opening: warn first when it would deliver the message; only the confirmation path passes acknowledged=true.
 function openClick() {
@@ -133,6 +134,9 @@ const field = 'text-neutral-500'
         <p v-if="capableMissing && !detail.open.stored" class="rounded-md border border-warning-500/50 bg-warning-50 text-warning-600 px-3 py-2" data-test="no-capable-login">
           {{ t('databox.open.no_capable_login') }}
           <router-link to="/admin/settings#databox" class="underline">{{ t('databox.open.go_settings') }}</router-link>
+        </p>
+        <p v-if="openBlocked && !detail.open.stored" class="rounded-md border border-warning-500/50 bg-warning-50 text-warning-600 px-3 py-2" data-test="open-blocked">
+          {{ t(`databox.open.${openBlocked}`) }}
         </p>
         <button v-if="canOpen" type="button" :disabled="busy"
           class="cursor-pointer h-9 px-4 rounded-md bg-primary-600 text-white text-sm hover:bg-primary-700 disabled:opacity-50" @click="openClick">

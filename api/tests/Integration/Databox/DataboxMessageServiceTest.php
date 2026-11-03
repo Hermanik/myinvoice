@@ -59,6 +59,7 @@ final class DataboxMessageServiceTest extends DataboxIntegrationTestCase
         self::assertTrue($detail['open']['undelivered']);
         self::assertSame('2026-11-06', $detail['open']['fiction_date'], 'put into the box Tue 27.10. + 10 days = Fri 6.11.');
         self::assertTrue($detail['open']['has_capable_login']);
+        self::assertNull($detail['open']['blocked_reason']);
         self::assertSame('kh_change_17d', $detail['tax_office_hints'][0]['code']);
         self::assertNull($detail['attachments']);
         self::assertSame([], $this->isds->requests, 'reading the detail never calls ISDS');
@@ -92,6 +93,10 @@ final class DataboxMessageServiceTest extends DataboxIntegrationTestCase
         // The delivering "login" came first, with the reading action login, and only then the download.
         self::assertSame(['GetListOfReceivedMessages', 'SignedMessageDownload'], $this->isds->operations());
         self::assertSame('action-user', $this->isds->requests[0]['username']);
+        // The delivering listing is as narrow as the second-level timestamps allow: other messages must not be delivered with it.
+        $body = $this->isds->bodyOf('GetListOfReceivedMessages');
+        self::assertMatchesRegularExpression('#<p:dmFromTime>2026-10-27T09:15:28[^<]*</p:dmFromTime>#', $body);
+        self::assertMatchesRegularExpression('#<p:dmToTime>2026-10-27T09:15:32[^<]*</p:dmToTime>#', $body);
 
         self::assertSame('delivered', $detail['state']);
         self::assertSame('2026-11-03 10:00:00', $detail['acceptance_time']);
@@ -108,6 +113,26 @@ final class DataboxMessageServiceTest extends DataboxIntegrationTestCase
 
         // The other envelopes the delivering list returned are refreshed too (they may have been delivered by the same call).
         self::assertSame(6, $this->messages->find($ctx['fiction'])['status']);
+    }
+
+    public function testAnUndeliveredMessageWithoutDeliveryTimeIsNeverOpened(): void
+    {
+        $ctx = $this->syncedBox();
+        $this->db->pdo()->prepare('UPDATE databox_messages SET delivery_time = NULL WHERE id = ?')->execute([$ctx['tax']]);
+        self::assertSame('delivery_time_unknown', $this->messageService->detail($this->supplierId, $ctx['tax'])['open']['blocked_reason'], 'the page can say so before the click');
+
+        foreach ([false, true] as $acknowledged) {
+            try {
+                $this->messageService->open($this->supplierId, $ctx['tax'], $this->userId, $acknowledged);
+                self::fail('expected DataboxException');
+            } catch (DataboxException $e) {
+                self::assertSame('delivery_time_unknown', $e->errorCode);
+                self::assertSame(409, $e->httpStatus);
+            }
+        }
+        self::assertSame([], $this->isds->requests, 'a wide listing would deliver other messages too, so nothing is called');
+        self::assertFalse($this->messages->find($ctx['tax'])['has_zfo']);
+        self::assertSame(4, $this->messages->find($ctx['tax'])['status']);
     }
 
     public function testAnAlreadyDeliveredMessageIsDownloadedWithoutAnyListCall(): void

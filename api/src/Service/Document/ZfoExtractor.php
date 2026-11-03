@@ -184,14 +184,14 @@ final class ZfoExtractor
      */
     private function parseEnvelope(string $xml): array
     {
-        // Anti-XXE: tvrdě odmítni DOCTYPE (žádné entity), zakaž externí loader.
+        // Anti-XXE: reject a DOCTYPE outright (no entities) and disable the external loader.
         if (preg_match('/<!DOCTYPE/i', $xml) === 1) {
             throw new DocumentException('zfo_parse_failed', 'ZFO obsahuje nepovolenou DTD deklaraci.', 422);
         }
 
         $prevLoader = null;
         if (\PHP_VERSION_ID < 80000 && function_exists('libxml_disable_entity_loader')) {
-            libxml_disable_entity_loader(true); // no-op na PHP 8+, ale neškodí
+            libxml_disable_entity_loader(true); // no-op on PHP 8+, harmless
         }
         $prev = libxml_use_internal_errors(true);
         $dom = new \DOMDocument();
@@ -201,6 +201,11 @@ final class ZfoExtractor
 
         if (!$ok) {
             throw new DocumentException('zfo_parse_failed', 'Obsah datové zprávy se nepodařilo přečíst.', 422);
+        }
+        // The byte check above misses a DOCTYPE in another encoding (UTF-16): whatever the encoding, the parsed
+        // document must not have one.
+        if ($dom->doctype !== null) {
+            throw new DocumentException('zfo_parse_failed', 'ZFO obsahuje nepovolenou DTD deklaraci.', 422);
         }
 
         $xp = new \DOMXPath($dom);

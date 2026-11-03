@@ -19,7 +19,7 @@ final class IsdsResponseParser
      */
     public static function operationElement(string $body, string $expectedLocalName): \DOMElement
     {
-        $doc = self::load($body);
+        $doc = self::load($body, true);
         $xp = new \DOMXPath($doc);
 
         $fault = $xp->query("//*[local-name()='Fault']")->item(0);
@@ -209,10 +209,20 @@ final class IsdsResponseParser
 
     // ---- helpers ----
 
-    public static function load(string $xml): \DOMDocument
+    /**
+     * @param bool $soapResponse a SOAP response of ISDS: the only input that may carry the multi-megabyte base64 content
+     *                           of a message, so the only one parsed without libxml's size limits (LIBXML_PARSEHUGE)
+     * @throws IsdsException
+     */
+    public static function load(string $xml, bool $soapResponse = false): \DOMDocument
     {
         if (trim($xml) === '') {
             throw IsdsException::invalidResponse('prázdná odpověď');
+        }
+        // Without the size limits a hostile document could expand without bound while it is parsed, so such a
+        // document must be plain UTF-8: in UTF-16/32 the byte check for a DOCTYPE below would see nothing.
+        if ($soapResponse && !self::isPlainUtf8($xml)) {
+            throw IsdsException::invalidResponse('neočekávané kódování');
         }
         // A DOCTYPE is never legitimate in an ISDS response; refusing it removes the whole XXE class.
         if (stripos($xml, '<!DOCTYPE') !== false) {
@@ -220,13 +230,30 @@ final class IsdsResponseParser
         }
         $previous = libxml_use_internal_errors(true);
         $doc = new \DOMDocument();
-        $ok = $doc->loadXML($xml, LIBXML_NONET | LIBXML_NOBLANKS | LIBXML_COMPACT | LIBXML_PARSEHUGE);
+        $ok = $doc->loadXML($xml, LIBXML_NONET | LIBXML_NOBLANKS | LIBXML_COMPACT | ($soapResponse ? LIBXML_PARSEHUGE : 0));
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
         if (!$ok) {
             throw IsdsException::invalidResponse('neplatné XML');
         }
+        // The byte check above cannot see a DOCTYPE in another encoding (UTF-16): whatever the encoding, the parsed
+        // document must not have one.
+        if ($doc->doctype !== null) {
+            throw IsdsException::invalidResponse('nepovolená DTD');
+        }
         return $doc;
+    }
+
+    /** No NUL byte / byte-order mark (UTF-16, UTF-32) and no encoding declaration other than UTF-8. */
+    private static function isPlainUtf8(string $xml): bool
+    {
+        if (str_contains($xml, "\0") || str_starts_with($xml, "\xFF\xFE") || str_starts_with($xml, "\xFE\xFF")) {
+            return false;
+        }
+        if (preg_match('/^\s*<\?xml[^>]*\sencoding\s*=\s*["\']([^"\']+)["\']/i', $xml, $m) === 1) {
+            return strcasecmp($m[1], 'UTF-8') === 0;
+        }
+        return true;
     }
 
     /** Text of the first direct child with this local name; null when missing, empty or xsi:nil. */

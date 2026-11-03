@@ -78,7 +78,7 @@ final class DataboxServiceTest extends DataboxIntegrationTestCase
     {
         $box = $this->connectBox('user_info_reader');
         $this->sync->syncBox($this->storedBox($box['id']));
-        self::assertSame('error', $this->storedBox($box['id'])['last_sync_status'], 'the refused run was recorded');
+        self::assertSame('paused', $this->storedBox($box['id'])['last_sync_status'], 'the refused run was recorded');
 
         $this->service->update($this->supplierId, $box['id'], ['allow_delivering_sync' => true]);
         $stored = $this->storedBox($box['id']);

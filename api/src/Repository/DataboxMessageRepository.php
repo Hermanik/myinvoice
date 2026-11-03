@@ -24,6 +24,9 @@ final class DataboxMessageRepository
         EXISTS (SELECT 1 FROM databox_message_files f WHERE f.message_id = m.id AND f.kind = \'delivery_zfo\') AS has_delivery_zfo,
         (m.delivery_info_xml IS NOT NULL) AS has_delivery_info';
 
+    /** After this many failed receipt fetches the message is left alone. */
+    public const MAX_RECEIPT_ATTEMPTS = 8;
+
     public function __construct(private readonly Connection $db) {}
 
     /**
@@ -181,19 +184,22 @@ final class DataboxMessageRepository
      *
      * @return list<array{id:int, dm_id:string}>
      */
-    public function sentNeedingReceipt(int $boxId, int $limit): array
+    public function sentNeedingReceipt(int $boxId, int $limit, \DateTimeImmutable $now): array
     {
         $stmt = $this->db->pdo()->prepare(
             "SELECT m.id, m.dm_id FROM databox_messages m
               WHERE m.databox_id = ? AND m.direction = 'sent' AND m.status IN (4, 5, 6, 7, 8)
-                AND COALESCE(m.delivery_time, m.first_seen_at) > DATE_SUB(NOW(), INTERVAL 90 DAY)
+                AND COALESCE(m.delivery_time, m.first_seen_at) > DATE_SUB(?, INTERVAL 90 DAY)
+                AND m.receipt_attempts < " . self::MAX_RECEIPT_ATTEMPTS . "
+                AND (m.receipt_retry_at IS NULL OR m.receipt_retry_at <= ?)
                 AND (m.delivery_info_at IS NULL
                      OR (m.acceptance_time IS NOT NULL AND m.delivery_info_at < m.acceptance_time)
                      OR (m.status IN (5, 6, 7, 8)
                          AND NOT EXISTS (SELECT 1 FROM databox_message_files f WHERE f.message_id = m.id AND f.kind = 'delivery_zfo')))
-              ORDER BY m.id DESC LIMIT " . max(1, $limit)
+              ORDER BY m.receipt_attempts ASC, m.id DESC LIMIT " . max(1, $limit)
         );
-        $stmt->execute([$boxId]);
+        $ts = $now->format('Y-m-d H:i:s');
+        $stmt->execute([$boxId, $ts, $ts]);
         return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'dm_id' => (string) $r['dm_id']], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
@@ -209,6 +215,27 @@ final class DataboxMessageRepository
     public function saveDeliveryInfo(int $messageId, string $xml): void
     {
         $this->db->pdo()->prepare('UPDATE databox_messages SET delivery_info_xml = ?, delivery_info_at = NOW() WHERE id = ?')->execute([$xml, $messageId]);
+    }
+
+    /** Both parts of the receipt (readable XML and sealed copy) are stored: forget the failures. */
+    public function clearReceiptRetry(int $messageId): void
+    {
+        $this->db->pdo()->prepare('UPDATE databox_messages SET receipt_attempts = 0, receipt_retry_at = NULL WHERE id = ?')->execute([$messageId]);
+    }
+
+    /**
+     * A receipt fetch failed: wait 1 h, 2 h, 4 h ... (at most 24 h) before the next try, and give up after
+     * {@see MAX_RECEIPT_ATTEMPTS}. A message that never yields a receipt (e.g. already erased in ISDS, error 1219) must not
+     * occupy the small per-run batch forever.
+     */
+    public function recordReceiptFailure(int $messageId, \DateTimeImmutable $now): void
+    {
+        $ts = $now->format('Y-m-d H:i:s');
+        // retry_at is assigned before the counter so it uses the number of failures that came before this one.
+        $this->db->pdo()->prepare(
+            'UPDATE databox_messages SET receipt_retry_at = DATE_ADD(?, INTERVAL LEAST(3600 * POW(2, LEAST(receipt_attempts, 10)), 86400) SECOND),
+                    receipt_attempts = LEAST(receipt_attempts + 1, 65000) WHERE id = ?'
+        )->execute([$ts, $messageId]);
     }
 
     /** @param array<string,mixed> $payload */

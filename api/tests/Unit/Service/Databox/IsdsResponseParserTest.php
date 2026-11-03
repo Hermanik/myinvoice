@@ -174,6 +174,63 @@ final class IsdsResponseParserTest extends TestCase
         }
     }
 
+    public function testADoctypeHiddenInUtf16IsRejectedByTheParsedDocument(): void
+    {
+        // The byte search for "<!DOCTYPE" cannot see it between the NUL bytes of UTF-16: only the parsed document knows.
+        $xml = DataboxFixtures::utf16('<!DOCTYPE a [<!ENTITY e "x">]><a>&e;</a>');
+        self::assertFalse(stripos($xml, '<!DOCTYPE'), 'precondition: the raw bytes do not contain the marker');
+
+        $this->expectException(IsdsException::class);
+        $this->expectExceptionMessage('nepovolená DTD');
+        IsdsResponseParser::load($xml);
+    }
+
+    public function testAUtf16BillionLaughsPayloadIsRefusedWithoutExpandingIt(): void
+    {
+        $before = memory_get_peak_usage();
+        $bomb = DataboxFixtures::utf16BillionLaughs();
+
+        foreach (['any xml' => static fn () => IsdsResponseParser::load($bomb), 'soap response' => static fn () => IsdsResponseParser::operationElement($bomb, 'AnyResponse')] as $what => $parse) {
+            try {
+                $parse();
+                self::fail("the payload was parsed as {$what}");
+            } catch (IsdsException $e) {
+                self::assertSame('invalid_response', $e->reason, $what);
+            }
+        }
+        self::assertLessThan(32 * 1024 * 1024, memory_get_peak_usage() - $before, 'nothing was expanded');
+    }
+
+    public function testTheLibxmlSizeLimitsAreLiftedForSoapResponsesOnly(): void
+    {
+        // Signed messages arrive as multi-megabyte base64 values, which is why a SOAP response is parsed without libxml's
+        // limits (PARSEHUGE). Any other XML (an archived filing, a stored receipt) keeps them: here the nesting depth limit.
+        $deep = '<?xml version="1.0" encoding="UTF-8"?>' . str_repeat('<a>', 300) . str_repeat('</a>', 300);
+
+        self::assertInstanceOf(\DOMDocument::class, IsdsResponseParser::load($deep, true));
+        try {
+            IsdsResponseParser::load($deep);
+            self::fail('any other XML keeps the size limits');
+        } catch (IsdsException $e) {
+            self::assertSame('invalid_response', $e->reason);
+        }
+    }
+
+    public function testASoapResponseMustBePlainUtf8(): void
+    {
+        $plain = '<?xml version="1.0" encoding="UTF-8"?><a/>';
+        self::assertInstanceOf(\DOMDocument::class, IsdsResponseParser::load($plain, true));
+
+        foreach ([DataboxFixtures::utf16('<a/>'), "<?xml version=\"1.0\" encoding=\"UTF-7\"?><a/>", "<a>\0</a>"] as $odd) {
+            try {
+                IsdsResponseParser::load($odd, true);
+                self::fail('an encoding that hides bytes from the DOCTYPE check was accepted');
+            } catch (IsdsException $e) {
+                self::assertStringContainsString('kódování', $e->getMessage());
+            }
+        }
+    }
+
     public function testStatusCodesMapToReasons(): void
     {
         $cases = [

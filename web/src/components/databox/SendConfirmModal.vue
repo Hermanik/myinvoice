@@ -24,10 +24,13 @@ interface SendResult { message_id: number; dm_id: string; submission_id: number 
 const summary = computed(() => props.prepared.summary)
 const busy = ref(false)
 const resendConfirmed = ref(false)
+const unvalidatedConfirmed = ref(false)
 const error = ref('')
 const result = ref<SendResult | null>(null)
 
-const canSend = computed(() => !busy.value && (!summary.value.requires_resend_confirmation || resendConfirmed.value))
+const canSend = computed(() => !busy.value
+  && (!summary.value.requires_resend_confirmation || resendConfirmed.value)
+  && (!summary.value.requires_unvalidated_confirmation || unvalidatedConfirmed.value))
 
 
 async function send() {
@@ -35,8 +38,9 @@ async function send() {
   busy.value = true
   error.value = ''
   try {
-    const body: { token: string; confirmed: true; resend_confirmed?: boolean } = { token: props.prepared.token, confirmed: true }
+    const body: { token: string; confirmed: true; resend_confirmed?: boolean; unvalidated_confirmed?: boolean } = { token: props.prepared.token, confirmed: true }
     if (summary.value.requires_resend_confirmation) body.resend_confirmed = true
+    if (summary.value.requires_unvalidated_confirmation) body.unvalidated_confirmed = true
     const r = await api.post<SendResult>('/databox/messages/send', body)
     result.value = r.data
     emit('sent', r.data)
@@ -129,6 +133,11 @@ async function send() {
       <label v-if="summary.requires_resend_confirmation" class="flex items-start gap-2 rounded-md border border-danger-500/40 bg-danger-50 px-3 py-2 cursor-pointer">
         <input v-model="resendConfirmed" type="checkbox" class="mt-0.5" />
         <span class="text-danger-500 font-medium">{{ t('databox.send.resend_checkbox') }}</span>
+      </label>
+
+      <label v-if="summary.requires_unvalidated_confirmation" class="flex items-start gap-2 rounded-md border border-danger-500/40 bg-danger-50 px-3 py-2 cursor-pointer" data-test="unvalidated-confirm">
+        <input v-model="unvalidatedConfirmed" type="checkbox" class="mt-0.5" />
+        <span class="text-danger-500 font-medium">{{ t('databox.send.unvalidated_checkbox') }}</span>
       </label>
 
       <p class="text-xs text-neutral-500">{{ t('databox.send.expires', { date: formatDateTime(prepared.expires_at) }) }}</p>

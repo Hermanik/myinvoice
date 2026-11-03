@@ -21,7 +21,7 @@ use Psr\Http\Message\UploadedFileInterface;
  *   POST /api/databox/messages/prepare                multipart: box_id, recipient_box_id, annotation, [to_hands,
  *                                                     sender_ref_number, recipient_ref_number, personal_delivery], files[]
  *                                                     -> {token, expires_at, summary}   (nothing is sent)
- *   POST /api/databox/messages/send                   JSON {token, confirmed: true, resend_confirmed?}  -> the sent message
+ *   POST /api/databox/messages/send                   JSON {token, confirmed: true, resend_confirmed?, unvalidated_confirmed?}  -> the sent message
  *
  *   GET  /api/databox/submissions/{id}/prefill        recipient / annotation / file / boxes for an archived EPO XML
  *   POST /api/databox/submissions/{id}/prepare        JSON {box_id, recipient_box_id?, annotation?} -> {token, summary}
@@ -76,6 +76,7 @@ final class DataboxSendAction extends DataboxActionBase
                 (string) ($body['token'] ?? ''),
                 ($body['confirmed'] ?? false) === true,
                 ($body['resend_confirmed'] ?? false) === true,
+                unvalidatedConfirmed: ($body['unvalidated_confirmed'] ?? false) === true,
             );
             $this->audit($request, 'databox.message_sent', $result['message_id'], [
                 'dm_id' => $result['dm_id'], 'submission_id' => $result['submission_id'],

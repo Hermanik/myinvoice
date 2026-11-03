@@ -123,6 +123,92 @@ final class IsdsClientTest extends TestCase
         }
     }
 
+    /** @return array<string, array{string, \Closure(IsdsClient, IsdsAccess): mixed}> every ISDS operation the application can make */
+    public static function everyOperation(): array
+    {
+        $from = new \DateTimeImmutable('-1 day');
+        $to = new \DateTimeImmutable();
+        $file = [['name' => 'a.txt', 'mime' => 'text/plain', 'meta_type' => 'main', 'bytes' => 'x']];
+        return [
+            'GetOwnerInfoFromLogin2' => ['GetOwnerInfoFromLogin2', static fn (IsdsClient $c, IsdsAccess $a) => $c->ownerInfo($a)],
+            'GetUserInfoFromLogin2' => ['GetUserInfoFromLogin2', static fn (IsdsClient $c, IsdsAccess $a) => $c->userInfo($a)],
+            'GetPasswordInfo' => ['GetPasswordInfo', static fn (IsdsClient $c, IsdsAccess $a) => $c->passwordExpiry($a)],
+            'GetListOfReceivedMessages' => ['GetListOfReceivedMessages', static fn (IsdsClient $c, IsdsAccess $a) => $c->listReceived($a, $from, $to)],
+            'GetListOfSentMessages' => ['GetListOfSentMessages', static fn (IsdsClient $c, IsdsAccess $a) => $c->listSent($a, $from, $to)],
+            'GetDeliveryInfo' => ['GetDeliveryInfo', static fn (IsdsClient $c, IsdsAccess $a) => $c->deliveryInfo($a, '1')],
+            'GetSignedDeliveryInfo' => ['GetSignedDeliveryInfo', static fn (IsdsClient $c, IsdsAccess $a) => $c->signedDeliveryInfo($a, '1')],
+            'SignedMessageDownload' => ['SignedMessageDownload', static fn (IsdsClient $c, IsdsAccess $a) => $c->downloadReceived($a, '1')],
+            'SignedSentMessageDownload' => ['SignedSentMessageDownload', static fn (IsdsClient $c, IsdsAccess $a) => $c->downloadSent($a, '1')],
+            'CreateMessage' => ['CreateMessage', static fn (IsdsClient $c, IsdsAccess $a) => $c->createMessage($a, ['recipient_box_id' => '7nyn2d9', 'annotation' => 'x'], $file)],
+            'FindDataBox2' => ['FindDataBox2', static fn (IsdsClient $c, IsdsAccess $a) => $c->findDataBox($a, ['db_id' => '7nyn2d9'])],
+        ];
+    }
+
+    /** @param \Closure(IsdsClient, IsdsAccess): mixed $operation */
+    #[DataProvider('everyOperation')]
+    public function testARefusedLoginIsReportedToTheAccessHookByEveryOperation(string $name, \Closure $operation): void
+    {
+        $seen = [];
+        $access = new IsdsAccess(IsdsEnvironment::PRODUCTION, new IsdsCredentials('sync-user', 'S3cret-pass!'), function (IsdsException $e) use (&$seen): void {
+            $seen[] = $e->reason;
+        });
+        $this->isds->queue($name, (string) file_get_contents(DataboxFixtures::path('http_401_bad_password.html')), 401);
+
+        try {
+            $operation($this->client, $access);
+            self::fail('expected IsdsException');
+        } catch (IsdsException $e) {
+            self::assertSame('bad_credentials', $e->reason);
+        }
+        self::assertSame(['bad_credentials'], $seen, 'exactly once, and the caller still gets the exception');
+    }
+
+    /** @return array<string, array{string, int, bool}> */
+    public static function hookCases(): array
+    {
+        return [
+            'wrong password' => ['http_401_bad_password.html', 401, true],
+            'locked account' => ['http_401_locked.html', 401, true],
+            'blocked address' => ['http_401_ip_blocked.html', 401, true],
+            'maintenance' => ['http_401_bad_password.html', 503, false],
+            'gateway error' => ['http_401_bad_password.html', 502, false],
+            'other client error' => ['http_401_bad_password.html', 418, false],
+        ];
+    }
+
+    #[DataProvider('hookCases')]
+    public function testOnlyARefusedLoginReachesTheHook(string $fixture, int $status, bool $expected): void
+    {
+        $calls = 0;
+        $access = new IsdsAccess(IsdsEnvironment::PRODUCTION, new IsdsCredentials('u', 'p'), function () use (&$calls): void {
+            $calls++;
+        });
+        $this->isds->queue('GetListOfReceivedMessages', (string) file_get_contents(DataboxFixtures::path($fixture)), $status);
+        try {
+            $this->client->listReceived($access, new \DateTimeImmutable('-1 day'), new \DateTimeImmutable());
+        } catch (IsdsException) {
+        }
+        self::assertSame($expected ? 1 : 0, $calls);
+    }
+
+    public function testASuccessfulCallAndAMissingRightNeverReachTheHook(): void
+    {
+        $calls = 0;
+        $access = new IsdsAccess(IsdsEnvironment::PRODUCTION, new IsdsCredentials('u', 'p'), function () use (&$calls): void {
+            $calls++;
+        });
+        $this->isds->queue('GetListOfReceivedMessages', DataboxFixtures::xml('list_received'));
+        $this->isds->queue('GetListOfReceivedMessages', DataboxFixtures::xml('status_1004'));
+        $this->client->listReceived($access, new \DateTimeImmutable('-1 day'), new \DateTimeImmutable());
+        try {
+            $this->client->listReceived($access, new \DateTimeImmutable('-1 day'), new \DateTimeImmutable());
+            self::fail('expected the missing privilege');
+        } catch (IsdsException $e) {
+            self::assertSame('forbidden', $e->reason, 'a missing right is not a refused password');
+        }
+        self::assertSame(0, $calls);
+    }
+
     public function testLockedAccountReportsUntilWhen(): void
     {
         $this->isds->queue('GetListOfReceivedMessages', file_get_contents(DataboxFixtures::path('http_401_locked.html')), 401);

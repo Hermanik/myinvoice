@@ -6,6 +6,7 @@ namespace MyInvoice\Tests\Unit\Service\Document;
 
 use MyInvoice\Service\Document\DocumentException;
 use MyInvoice\Service\Document\ZfoExtractor;
+use MyInvoice\Tests\Support\Databox\DataboxFixtures;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -114,6 +115,29 @@ final class ZfoExtractorTest extends TestCase
 
         $this->expectException(DocumentException::class);
         (new ZfoExtractor())->extract($der);
+    }
+
+    public function testRejectsADoctypeHiddenInUtf16(): void
+    {
+        // Between the NUL bytes of UTF-16 the byte search for "<!DOCTYPE" finds nothing: the parsed document decides.
+        $der = self::buildZfo(DataboxFixtures::utf16('<!DOCTYPE foo [<!ENTITY e "x">]><foo>&e;</foo>'));
+        self::assertSame(0, preg_match('/<!DOCTYPE/i', $der), 'precondition');
+
+        $this->expectException(DocumentException::class);
+        $this->expectExceptionMessage('DTD');
+        (new ZfoExtractor())->extract($der);
+    }
+
+    public function testUtf16BillionLaughsIsRefusedWithoutExpandingIt(): void
+    {
+        $before = memory_get_peak_usage();
+        try {
+            (new ZfoExtractor())->extract(self::buildZfo(DataboxFixtures::utf16BillionLaughs()));
+            self::fail('expected DocumentException');
+        } catch (DocumentException) {
+            self::addToAssertionCount(1);
+        }
+        self::assertLessThan(32 * 1024 * 1024, memory_get_peak_usage() - $before);
     }
 
     public function testThrowsOnGarbageInput(): void

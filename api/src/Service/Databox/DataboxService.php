@@ -93,7 +93,7 @@ final class DataboxService
         if ($sync === null) {
             return ['state' => 'no_credential', 'delivers' => false];
         }
-        if (in_array($sync['last_check_status'], ['bad_credentials', 'locked'], true)) {
+        if ($this->isFlagged($sync)) {
             return ['state' => 'login_failed', 'delivers' => false];
         }
         $privileges = $this->privilegesOf($sync);
@@ -119,7 +119,7 @@ final class DataboxService
      * @return array<string,mixed> public view
      * @throws DataboxException|IsdsException
      */
-    public function add(int $supplierId, array $input): array
+    public function add(int $supplierId, #[\SensitiveParameter] array $input): array
     {
         $environment = (string) ($input['environment'] ?? IsdsEnvironment::PRODUCTION);
         if (!IsdsEnvironment::isValid($environment)) {
@@ -173,24 +173,35 @@ final class DataboxService
     /**
      * "Ověřit připojení": log in with every stored login (read-only calls), refresh privileges and password expiry.
      *
+     * A login ISDS refused is tried again only after its wait time (5 min, then doubling), so a wrong password cannot be
+     * hammered into an ISDS account lockout by pressing the button.
+     *
      * @return array<string,mixed> public view, plus `check` with the per-login outcome
      */
-    public function verify(int $supplierId, int $boxId): array
+    public function verify(int $supplierId, int $boxId, ?\DateTimeImmutable $now = null): array
     {
+        $now ??= new \DateTimeImmutable();
         $box = $this->requireBox($supplierId, $boxId);
         $results = [];
         foreach ($box['credentials'] as $purpose => $cred) {
+            if ($wait = $this->cooldownMessage($cred, $now)) {
+                $results[$purpose] = ['ok' => false, 'reason' => 'cooldown', 'message' => $wait];
+                continue;
+            }
             try {
-                $probe = $this->probe($this->accessFor($box, $purpose));
+                // The sticky "refused" flag is exactly what this test is allowed to lift.
+                $probe = $this->probe($this->accessFor($box, $purpose, true));
                 $this->assertSameBox($box, $probe);
                 $this->recordOk($boxId, $purpose, $probe);
                 $results[$purpose] = ['ok' => true, 'message' => null];
-            } catch (IsdsException $e) {
-                $this->recordFailure($boxId, $purpose, $e);
-                $results[$purpose] = ['ok' => false, 'reason' => $e->reason, 'message' => $e->getMessage()];
-            } catch (DataboxException $e) {
-                $this->boxes->recordCheck($boxId, $purpose, 'error', $e->getMessage());
-                $results[$purpose] = ['ok' => false, 'reason' => $e->errorCode, 'message' => $e->getMessage()];
+            } catch (IsdsException|DataboxException $e) {
+                // A refused login was already recorded by the access hook. Any other failure says nothing about the
+                // password, so it must not overwrite (and so lift) the sticky "refused" flag of the stored login.
+                $refusedByIsds = $e instanceof IsdsException && $e->isAuthFailure();
+                if (!$refusedByIsds && !$this->isFlagged($cred)) {
+                    $this->boxes->recordCheck($boxId, $purpose, 'error', $e->getMessage());
+                }
+                $results[$purpose] = ['ok' => false, 'reason' => $e instanceof IsdsException ? $e->reason : $e->errorCode, 'message' => $e->getMessage()];
             }
         }
         // A successful test of the sync login lifts the pause that a previous failure put on the cron.
@@ -207,12 +218,25 @@ final class DataboxService
      *
      * @return array<string,mixed> public view
      */
-    public function setCredential(int $supplierId, int $boxId, string $purpose, string $username, #[\SensitiveParameter] string $password): array
+    public function setCredential(int $supplierId, int $boxId, string $purpose, string $username, #[\SensitiveParameter] string $password, ?\DateTimeImmutable $now = null): array
     {
+        $now ??= new \DateTimeImmutable();
         $this->assertPurpose($purpose);
         $box = $this->requireBox($supplierId, $boxId);
+        $stored = $box['credentials'][$purpose] ?? null;
+        if ($stored !== null && $wait = $this->cooldownMessage($stored, $now)) {
+            throw new DataboxException('cooldown', $wait, 429);
+        }
         $login = $this->requireLogin(['username' => $username, 'password' => $password], 'Přihlášení');
-        $probe = $this->probe(new IsdsAccess($box['environment'], $login));
+        try {
+            $probe = $this->probe(new IsdsAccess($box['environment'], $login));
+        } catch (IsdsException $e) {
+            // The typed replacement was refused: count it as an attempt (wait time) without flagging the stored login.
+            if ($e->isAuthFailure() && $stored !== null) {
+                $this->boxes->registerAuthFailure($boxId, $purpose, null, $e->getMessage(), $now, $e->blockedUntil($now));
+            }
+            throw $e;
+        }
         $this->assertSameBox($box, $probe);
         $this->boxes->saveCredential($boxId, $purpose, $login->username, $this->crypto->encrypt($login->password()));
         $this->recordOk($boxId, $purpose, $probe);
@@ -276,39 +300,65 @@ final class DataboxService
 
     // ---- logins for the other services ----
 
-    /** Decrypt one login of the box. @param array<string,mixed> $box */
-    public function accessFor(array $box, string $purpose): IsdsAccess
+    /**
+     * Decrypt one login of the box and bind the lockout protection to it: whatever the caller does with the returned
+     * access, a refused login is recorded against this stored login (see {@see registerAuthFailure()}).
+     *
+     * A login ISDS refused earlier is not handed out at all until {@see verify()} succeeds; repeated wrong passwords lock
+     * the ISDS account.
+     *
+     * @param array<string,mixed> $box
+     * @param bool $ignoreFlag only for the connection test that is meant to lift the flag
+     * @throws DataboxException
+     */
+    public function accessFor(array $box, string $purpose, bool $ignoreFlag = false): IsdsAccess
     {
         $cred = $box['credentials'][$purpose] ?? null;
         if ($cred === null) {
             throw new DataboxException('no_login', 'Pro tuto datovou schránku není uloženo požadované přihlášení.');
+        }
+        if (!$ignoreFlag && $this->isFlagged($cred)) {
+            throw $this->refusedLogin();
         }
         try {
             $password = $this->crypto->decrypt((string) $cred['password_enc']);
         } catch (\RuntimeException) {
             throw new DataboxException('credential_unreadable', 'Uložené heslo se nepodařilo dešifrovat (změnil se šifrovací klíč aplikace). Zadejte přihlášení znovu.', 500);
         }
-        return new IsdsAccess($box['environment'], new IsdsCredentials((string) $cred['username'], $password));
+        $boxId = (int) $box['id'];
+        return new IsdsAccess(
+            $box['environment'],
+            new IsdsCredentials((string) $cred['username'], $password),
+            fn (IsdsException $e) => $this->registerAuthFailure($boxId, $purpose, $e),
+        );
     }
 
     /**
      * The login to use for an explicit user action, chosen by the right it needs. The 'action' login is preferred,
-     * the sync login is the fallback. Unknown privileges are fetched first.
+     * the sync login is the fallback. Unknown privileges are fetched first; logins ISDS refused are skipped.
      *
      * @param array<string,mixed> $box
      * @param callable(DataboxPrivileges):bool $needs
-     * @throws DataboxException when no stored login has the right ("missingRight" is the Czech name of the right)
+     * @throws DataboxException when no usable stored login has the right ("missingRight" is the Czech name of the right)
      */
     public function accessForRight(array $box, callable $needs, string $missingRight): IsdsAccess
     {
+        $refused = false;
         foreach (['action', 'sync'] as $purpose) {
             if (!isset($box['credentials'][$purpose])) {
                 continue;
             }
-            $privileges = $this->privilegesOf($box['credentials'][$purpose]) ?? $this->refreshPrivileges($box, $purpose);
-            if ($privileges !== null && $needs($privileges)) {
+            if ($this->isFlagged($box['credentials'][$purpose])) {
+                $refused = true;
+                continue;
+            }
+            $privileges = $this->privilegesOf($box['credentials'][$purpose]) ?? $this->refreshRights($box, $purpose);
+            if ($needs($privileges)) {
                 return $this->accessFor($box, $purpose);
             }
+        }
+        if ($refused) {
+            throw $this->refusedLogin();
         }
         throw new DataboxException(
             'missing_right',
@@ -318,12 +368,33 @@ final class DataboxService
         );
     }
 
-    /** Fetch and persist the privileges of one stored login. @param array<string,mixed> $box */
-    public function refreshPrivileges(array $box, string $purpose): ?DataboxPrivileges
+    /**
+     * Re-read the rights of one stored login with the read-only GetUserInfoFromLogin2 (no privilege needed, never
+     * delivers) and cache them. The background sync calls this before every run: rights are changed in the ISDS portal
+     * without this application noticing.
+     *
+     * @param array<string,mixed> $box
+     */
+    public function refreshRights(array $box, string $purpose): DataboxPrivileges
     {
-        $probe = $this->probe($this->accessFor($box, $purpose));
-        $this->recordOk((int) $box['id'], $purpose, $probe);
-        return $probe['privileges'];
+        $user = $this->isds->userInfo($this->accessFor($box, $purpose));
+        $this->boxes->saveRights((int) $box['id'], $purpose, $user['user_type'], $user['privileges']);
+        return DataboxPrivileges::fromUserInfo($user['user_type'], $user['privileges']);
+    }
+
+    private function refusedLogin(): DataboxException
+    {
+        return new DataboxException(
+            'login_failed',
+            'Systém datových schránek toto přihlášení odmítl, proto ho aplikace nepoužije, dokud ho v nastavení neověříte (Ověřit připojení) – opakované chybné pokusy účet zamknou.',
+            422,
+        );
+    }
+
+    /** @param array<string,mixed> $cred a databox_credentials row */
+    public function isFlagged(array $cred): bool
+    {
+        return in_array($cred['last_check_status'], ['bad_credentials', 'locked'], true);
     }
 
     /** @param array<string,mixed> $cred a databox_credentials row */
@@ -390,18 +461,33 @@ final class DataboxService
         ]);
     }
 
-    private function recordFailure(int $boxId, string $purpose, IsdsException $e): void
+    /** Invoked by {@see IsdsClient} for every refused login of a stored credential, whoever made the call. */
+    private function registerAuthFailure(int $boxId, string $purpose, IsdsException $e): void
     {
-        $status = match ($e->reason) {
-            'bad_credentials' => 'bad_credentials',
-            'account_locked', 'ip_blocked' => 'locked',
-            default => 'error',
-        };
-        $this->boxes->recordCheck($boxId, $purpose, $status, $e->getMessage());
+        $now = new \DateTimeImmutable();
+        $this->boxes->registerAuthFailure(
+            $boxId,
+            $purpose,
+            $e->reason === 'bad_credentials' ? 'bad_credentials' : 'locked',
+            $e->getMessage(),
+            $now,
+            $e->blockedUntil($now),
+        );
+    }
+
+    /** Czech notice when a manual login attempt must still wait, else null. @param array<string,mixed> $cred */
+    private function cooldownMessage(array $cred, \DateTimeImmutable $now): ?string
+    {
+        $until = $cred['retry_after'] !== null ? new \DateTimeImmutable((string) $cred['retry_after']) : null;
+        if ($until === null || $until <= $now) {
+            return null;
+        }
+        return 'Poslední přihlášení bylo odmítnuto. Další pokus je možný po ' . $until->format('H:i')
+            . ' – opakované chybné pokusy by účet v datových schránkách zamkly.';
     }
 
     /** @param mixed $login @throws DataboxException */
-    private function requireLogin(mixed $login, string $what): IsdsCredentials
+    private function requireLogin(#[\SensitiveParameter] mixed $login, string $what): IsdsCredentials
     {
         $username = trim((string) ($login['username'] ?? ''));
         $password = (string) ($login['password'] ?? '');

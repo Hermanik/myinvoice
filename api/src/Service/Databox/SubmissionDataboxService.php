@@ -37,6 +37,11 @@ final class SubmissionDataboxService
         'dppdp9' => 'Přiznání k dani z příjmů PO',
     ];
 
+    private const BLOCKED_MESSAGES = [
+        'xsd_failed' => 'XML výkazu neprošlo validací proti schématu EPO. Takové podání by bylo neúčinné (§ 101a odst. 4 zákona o DPH), proto se neodešle. Opravte údaje a výkaz vygenerujte znovu.',
+        'integrity_failed' => 'Archivované XML neodpovídá uloženému kontrolnímu součtu (SHA-256), takže ho nelze odeslat jako původní výkaz. Výkaz vygenerujte znovu.',
+    ];
+
     public function __construct(
         private readonly TaxSubmissionRepository $submissions,
         private readonly DataboxMessageRepository $messages,
@@ -81,7 +86,7 @@ final class SubmissionDataboxService
             'file_size' => $submission['xml_size_bytes'],
             'boxes' => $candidates,
             'recommended_box_id' => $this->recommendedBox($boxes),
-            'blocked_reason' => $submission['validation_status'] === 'failed' ? 'xsd_failed' : null,
+            'blocked_reason' => self::blockedReason($submission),
             'warnings' => $this->warnings($submission, $office, null),
             'previous_sends' => $this->messages->activeSendsOfSubmission($submissionId, $supplierId),
         ];
@@ -98,12 +103,9 @@ final class SubmissionDataboxService
     public function prepare(int $supplierId, int $userId, int $submissionId, int $boxId, array $overrides = []): array
     {
         $submission = $this->requireSubmission($supplierId, $submissionId);
-        if ($submission['validation_status'] === 'failed') {
-            throw new DataboxException(
-                'xsd_failed',
-                'XML výkazu neprošlo validací proti schématu EPO. Takové podání by bylo neúčinné (§ 101a odst. 4 zákona o DPH), proto se neodešle. Opravte údaje a výkaz vygenerujte znovu.',
-                409,
-            );
+        $blocked = self::blockedReason($submission);
+        if ($blocked !== null) {
+            throw new DataboxException($blocked, self::BLOCKED_MESSAGES[$blocked], 409);
         }
         $box = $this->service->requireBox($supplierId, $boxId);
         $supplier = $this->supplierRow($supplierId);
@@ -121,6 +123,8 @@ final class SubmissionDataboxService
             'is_tax_office' => TaxOfficeCodebook::isTaxOfficeBox($recipient),
             'warnings' => $this->warnings($submission, $office, $box, $recipient),
             'previous_sends' => $previous,
+            // A filing that was never validated against the EPO schema may be ineffective: sending it takes its own confirmation.
+            'requires_unvalidated_confirmation' => self::isUnvalidated($submission),
             'form' => [
                 'form_code' => $submission['form_code'], 'form_name' => self::formName($submission['form_code']),
                 'period' => self::periodLabel($submission), 'xml_sha256' => $submission['xml_sha256'], 'submission_id' => $submission['id'],
@@ -175,6 +179,28 @@ final class SubmissionDataboxService
             $period .= '-Q' . $submission['period_quarter'];
         }
         return strtolower((string) $submission['form_code']) . '-' . $period . '.xml';
+    }
+
+    /** The EPO schema validation never ran for this XML (so the filing may be ineffective). @param array<string,mixed> $submission */
+    private static function isUnvalidated(array $submission): bool
+    {
+        return $submission['validation_status'] === 'skipped';
+    }
+
+    /**
+     * Why this archived XML must not be sent at all: it failed the EPO schema validation, or it is no longer the XML whose
+     * SHA-256 was stored when it was archived.
+     *
+     * @param array<string,mixed> $submission
+     * @return 'xsd_failed'|'integrity_failed'|null
+     */
+    private static function blockedReason(array $submission): ?string
+    {
+        if ($submission['validation_status'] === 'failed') {
+            return 'xsd_failed';
+        }
+        $intact = hash_equals(strtolower((string) $submission['xml_sha256']), hash('sha256', (string) $submission['xml_content']));
+        return $intact ? null : 'integrity_failed';
     }
 
     /** The `c_ufo` the XML names, or null. */
@@ -250,7 +276,7 @@ final class SubmissionDataboxService
     private function warnings(array $submission, array $office, ?array $box, ?string $recipient = null): array
     {
         $w = [];
-        if ($submission['validation_status'] === 'skipped') {
+        if (self::isUnvalidated($submission)) {
             $w[] = 'xsd_skipped';
         }
         if ($office['box_id'] === null) {

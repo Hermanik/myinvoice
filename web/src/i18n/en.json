@@ -4723,6 +4723,7 @@
       "confirm": "Open message",
       "fiction_date": "Without opening, the message is delivered by fiction on {date}.",
       "no_capable_login": "No stored login may read received messages - add one in Settings or open the message in the portal.",
+      "delivery_time_unknown": "The message has no delivery time, so it cannot be opened without delivering other messages. Open it in the data box portal.",
       "go_settings": "Open Settings"
     },
     "field": {
@@ -4761,6 +4762,7 @@
       "total": "Total",
       "previous": "Previous sends",
       "resend_checkbox": "This form was already sent, I want to send it again",
+      "unvalidated_checkbox": "I understand the XML was not validated against the EPO schema and the filing may be ineffective. I still want to send it.",
       "expires": "The confirmation is valid until {date}. After that the message has to be prepared again.",
       "submit": "Send",
       "sending": "Sending…",
@@ -4782,6 +4784,7 @@
     "submission": {
       "title": "Send the filing via data box",
       "xsd_failed": "The XML failed the EPO schema validation and must not be sent. A filing without the prescribed format is ineffective.",
+      "integrity_failed": "The archived XML does not match its stored checksum (SHA-256) and must not be sent. Generate the form again.",
       "recipient": "Recipient",
       "source_xml": "from the filing XML",
       "source_supplier": "from company settings",
@@ -4798,7 +4801,10 @@
       "databox_login_failed": "Login to the data box failed. Check the username and password and do not retry repeatedly.",
       "token_invalid": "The confirmation expired or was already used. Prepare the message again.",
       "confirmation_required": "Sending requires confirmation.",
-      "resend_confirmation_required": "The filing was already sent; confirm the re-send."
+      "resend_confirmation_required": "The filing was already sent; confirm the re-send.",
+      "unvalidated_confirmation_required": "The XML was not validated against the EPO schema; sending needs its own confirmation.",
+      "integrity_failed": "The file to send does not match its checksum. Nothing was sent, prepare the sending again.",
+      "delivery_time_unknown": "The message has no delivery time, so it cannot be opened without delivering other messages. Open it in the data box portal."
     },
     "indicator": {
       "ok_title": "Safe for sync",

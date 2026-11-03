@@ -25,6 +25,9 @@ use Psr\Log\LoggerInterface;
  */
 final class DataboxMessageService
 {
+    /** Half-width of the listing window around the delivery time (seconds): the narrowest one that still matches. */
+    private const DELIVERY_WINDOW_SECONDS = 2;
+
     public function __construct(
         private readonly DataboxRepository $boxes,
         private readonly DataboxMessageRepository $messages,
@@ -91,6 +94,13 @@ final class DataboxMessageService
         }
 
         $plan = $this->openPlan($message, $box);
+        if ($plan['blocked_reason'] === 'delivery_time_unknown') {
+            throw new DataboxException(
+                'delivery_time_unknown',
+                'U zprávy chybí čas dodání, takže ji nelze otevřít bez doručení dalších zpráv. Zprávu otevřete v datovce nebo na portálu datových schránek.',
+                409,
+            );
+        }
         if ($plan['needs_acknowledgement'] && !$acknowledgeDelivery) {
             throw new DataboxException(
                 'delivery_ack_required',
@@ -107,7 +117,7 @@ final class DataboxMessageService
             $personal ? 'Číst přijaté zprávy do vlastních rukou' : 'Číst přijaté zprávy',
         );
 
-        if (DeliveryDates::needsLoginBeforeDownload($message['status'])) {
+        if ($plan['needs_acknowledgement']) {
             $this->deliverByLogin($access, $box, $message);
         }
 
@@ -193,9 +203,10 @@ final class DataboxMessageService
      */
     private function deliverByLogin(IsdsAccess $access, array $box, array $message): void
     {
-        $at = $message['delivery_time'] !== null ? new \DateTimeImmutable((string) $message['delivery_time']) : null;
-        $from = $at !== null ? $at->modify('-2 minutes') : new \DateTimeImmutable('-' . DataboxSyncService::FIRST_SYNC_DAYS . ' days');
-        $to = $at !== null ? $at->modify('+2 minutes') : new \DateTimeImmutable('+1 day');
+        // The caller guarantees the delivery time; the window is as narrow as the second-level timestamps allow.
+        $at = new \DateTimeImmutable((string) $message['delivery_time']);
+        $from = $at->modify('-' . self::DELIVERY_WINDOW_SECONDS . ' seconds');
+        $to = $at->modify('+' . self::DELIVERY_WINDOW_SECONDS . ' seconds');
         $now = new \DateTimeImmutable();
 
         $delivered = false;
@@ -237,9 +248,14 @@ final class DataboxMessageService
             }
         }
 
+        $needsLogin = $received && !$message['has_zfo'] && DeliveryDates::needsLoginBeforeDownload($status);
+
         return [
             'stored' => (bool) $message['has_zfo'],
-            'needs_acknowledgement' => $received && !$message['has_zfo'] && DeliveryDates::needsLoginBeforeDownload($status),
+            'needs_acknowledgement' => $needsLogin,
+            // Without the delivery time the login cannot be narrowed to this one message, and a wider listing would
+            // deliver (start the legal deadlines of) other undelivered messages as well: such a message is not opened here.
+            'blocked_reason' => $needsLogin && $message['delivery_time'] === null ? 'delivery_time_unknown' : null,
             'undelivered' => $undelivered,
             'fiction_date' => $undelivered && ($message['allow_subst_delivery'] ?? true) !== false && $message['delivery_time'] !== null
                 ? DeliveryDates::fictionDate(new \DateTimeImmutable((string) $message['delivery_time']))->format('Y-m-d')

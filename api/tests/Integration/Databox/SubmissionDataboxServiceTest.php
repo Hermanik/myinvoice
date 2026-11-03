@@ -99,12 +99,104 @@ final class SubmissionDataboxServiceTest extends DataboxIntegrationTestCase
         self::assertSame([], $this->isds->requests);
     }
 
-    public function testAnUnvalidatedXmlIsAllowedWithAWarning(): void
+    public function testAnUnvalidatedXmlCanBePreparedButOnlyGoesOutWithItsOwnConfirmation(): void
     {
         $box = $this->sendingBox();
         $id = $this->archiveSubmission('dphdp3', self::epoXml(), 'skipped');
+        self::assertContains('xsd_skipped', $this->submissions->prefill($this->supplierId, $id)['warnings']);
+
         $prepared = $this->submissions->prepare($this->supplierId, $this->userId, $id, $box['id']);
         self::assertContains('xsd_skipped', $prepared['summary']['warnings']);
+        self::assertTrue($prepared['summary']['requires_unvalidated_confirmation']);
+
+        // The ordinary confirmation (even with the re-send one) is not enough.
+        $this->forgetOperations();
+        foreach ([[false], [true]] as [$resend]) {
+            try {
+                $this->sender->send($this->supplierId, $this->userId, $prepared['token'], true, $resend);
+                self::fail('expected DataboxException');
+            } catch (DataboxException $e) {
+                self::assertSame('unvalidated_confirmation_required', $e->errorCode);
+                self::assertSame(409, $e->httpStatus);
+                self::assertStringContainsString('§ 101a', $e->getMessage());
+            }
+        }
+        self::assertSame([], $this->isds->requests, 'nothing was sent');
+
+        // The refusal did not burn the payload: the same token works with the separate confirmation.
+        $this->scriptSend();
+        $result = $this->sender->send($this->supplierId, $this->userId, $prepared['token'], true, false, null, true);
+        self::assertSame('4102002', $result['dm_id']);
+    }
+
+    public function testAValidatedXmlNeedsNoExtraConfirmation(): void
+    {
+        $box = $this->sendingBox();
+        $id = $this->archiveSubmission('dphdp3', self::epoXml(), 'passed');
+        self::assertNotContains('xsd_skipped', $this->submissions->prefill($this->supplierId, $id)['warnings']);
+        $prepared = $this->submissions->prepare($this->supplierId, $this->userId, $id, $box['id']);
+        self::assertFalse($prepared['summary']['requires_unvalidated_confirmation']);
+        $this->scriptSend();
+        self::assertSame('4102002', $this->sender->send($this->supplierId, $this->userId, $prepared['token'], true)['dm_id']);
+    }
+
+    public function testAnArchivedXmlThatNoLongerMatchesItsChecksumIsNeverSent(): void
+    {
+        $box = $this->sendingBox();
+        $id = $this->archiveSubmission('dphdp3', self::epoXml());
+        $this->db->pdo()->prepare('UPDATE tax_submissions SET xml_content = REPLACE(xml_content, ?, ?) WHERE id = ?')->execute(['rok="2026"', 'rok="2025"', $id]);
+
+        self::assertSame('integrity_failed', $this->submissions->prefill($this->supplierId, $id)['blocked_reason']);
+        $this->forgetOperations();
+        try {
+            $this->submissions->prepare($this->supplierId, $this->userId, $id, $box['id']);
+            self::fail('expected DataboxException');
+        } catch (DataboxException $e) {
+            self::assertSame('integrity_failed', $e->errorCode);
+            self::assertSame(409, $e->httpStatus);
+        }
+        self::assertSame([], $this->isds->requests);
+    }
+
+    public function testAReplacedAttachmentWithAMatchingSummaryStillDoesNotPassForTheArchivedFiling(): void
+    {
+        $box = $this->sendingBox();
+        $id = $this->archiveSubmission('dphdp3', self::epoXml());
+        $prepared = $this->submissions->prepare($this->supplierId, $this->userId, $id, $box['id']);
+
+        // Both the staged bytes and the checksum shown in the summary are replaced; only the filing's own hash is left.
+        $other = self::epoXml('999');
+        $pdo = $this->db->pdo();
+        $pdo->prepare('UPDATE databox_outbox_files SET content = ?, sha256 = ? WHERE token = ?')->execute([$other, hash('sha256', $other), $prepared['token']]);
+        $pdo->prepare("UPDATE databox_outbox SET summary_json = JSON_SET(summary_json, '$.files[0].sha256', ?) WHERE token = ?")->execute([hash('sha256', $other), $prepared['token']]);
+
+        $this->forgetOperations();
+        try {
+            $this->sender->send($this->supplierId, $this->userId, $prepared['token'], true);
+            self::fail('expected DataboxException');
+        } catch (DataboxException $e) {
+            self::assertSame('integrity_failed', $e->errorCode);
+        }
+        self::assertSame(0, $this->isds->count('CreateMessage'));
+    }
+
+    public function testAStagedPayloadThatChangedSincePrepareIsNeverSent(): void
+    {
+        $box = $this->sendingBox();
+        $id = $this->archiveSubmission('dphdp3', self::epoXml());
+        $prepared = $this->submissions->prepare($this->supplierId, $this->userId, $id, $box['id']);
+
+        // Someone edits the staged attachment between "prepare" and the confirmation.
+        $this->db->pdo()->prepare('UPDATE databox_outbox_files SET content = REPLACE(content, ?, ?) WHERE token = ?')->execute(['rok="2026"', 'rok="2025"', $prepared['token']]);
+
+        $this->forgetOperations();
+        try {
+            $this->sender->send($this->supplierId, $this->userId, $prepared['token'], true);
+            self::fail('expected DataboxException');
+        } catch (DataboxException $e) {
+            self::assertSame('integrity_failed', $e->errorCode);
+        }
+        self::assertSame(0, $this->isds->count('CreateMessage'), 'what was shown is not what would have been sent');
     }
 
     public function testSendingTheFilingStoresTheMessageAndLinksItToTheSubmission(): void

@@ -58,6 +58,8 @@ test('only SendConfirmModal posts to the send endpoint', async () => {
   assert.doesNotMatch(modal, /onMounted|setTimeout|setInterval/, 'never sends on its own')
   assert.match(modal, /:disabled="!canSend"/)
   assert.match(modal, /requires_resend_confirmation/)
+  assert.match(modal, /summary\.value\.requires_unvalidated_confirmation \|\| unvalidatedConfirmed\.value/, 'a never validated filing needs its own checkbox')
+  assert.match(modal, /body\.unvalidated_confirmed = true/)
 })
 
 test('acknowledge_delivery is only sent from the confirmation path of the open flow', async () => {
@@ -107,6 +109,7 @@ test('TaxSubmissions offers the data box send only to admins', async () => {
   assert.match(src, /if \(!isAdmin\.value \|\| items\.value\.length === 0\) return/)
   const modal = await read('components/databox/SubmissionSendModal.vue')
   assert.match(modal, /blocked_reason === 'xsd_failed'/)
+  assert.match(modal, /blocked_reason === 'integrity_failed'/)
   assert.match(modal, /prepareSubmission\(/)
   assert.match(modal, /<SendConfirmModal/)
 })

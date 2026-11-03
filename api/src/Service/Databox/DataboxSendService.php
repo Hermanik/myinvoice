@@ -107,6 +107,7 @@ final class DataboxSendService
             'warnings' => $warnings,
             'previous_sends' => $previous,
             'requires_resend_confirmation' => $previous !== [],
+            'requires_unvalidated_confirmation' => (bool) ($context['requires_unvalidated_confirmation'] ?? false),
             'form' => $context['form'] ?? null,
         ];
 
@@ -122,7 +123,7 @@ final class DataboxSendService
      * @return array{message_id:int, dm_id:string, submission_id:?int, receipt:bool, zfo:bool}
      * @throws DataboxException|IsdsException
      */
-    public function send(int $supplierId, int $userId, string $token, bool $confirmed, bool $resendConfirmed = false, ?\DateTimeImmutable $now = null): array
+    public function send(int $supplierId, int $userId, string $token, bool $confirmed, bool $resendConfirmed = false, ?\DateTimeImmutable $now = null, bool $unvalidatedConfirmed = false): array
     {
         $now ??= new \DateTimeImmutable();
         if (!$confirmed) {
@@ -141,11 +142,19 @@ final class DataboxSendService
         if ($header['submission_id'] !== null && !$resendConfirmed && $this->messages->activeSendsOfSubmission($header['submission_id'], $supplierId) !== []) {
             throw new DataboxException('resend_confirmation_required', 'Tento výkaz už byl datovou schránkou odeslán. Potvrďte, že ho chcete odeslat znovu.', 409);
         }
+        if (($header['summary']['requires_unvalidated_confirmation'] ?? false) === true && !$unvalidatedConfirmed) {
+            throw new DataboxException(
+                'unvalidated_confirmation_required',
+                'XML výkazu nebylo ověřeno proti schématu EPO, takže podání může být neúčinné (§ 101a odst. 4 zákona o DPH). Potvrďte zvlášť, že ho přesto chcete odeslat.',
+                409,
+            );
+        }
         $box = $this->service->requireBox($supplierId, $header['databox_id']);
         $access = $this->service->accessForRight($box, static fn (DataboxPrivileges $p): bool => $p->canSend(), 'Posílat zprávy a číst odeslané');
         $staged = $this->outbox->consume($token, $now)
             ?? throw new DataboxException('token_invalid', 'Zprávu mezitím odeslal jiný požadavek. Zkontrolujte záložku Odeslané.', 410);
 
+        $this->assertPayloadIntact($staged);
         $files = [];
         foreach ($staged['files'] as $i => $file) {
             $files[] = ['name' => $file['name'], 'mime' => $file['mime'], 'meta_type' => $i === 0 ? 'main' : 'enclosure', 'bytes' => $file['bytes']];
@@ -213,6 +222,24 @@ final class DataboxSendService
     }
 
     // ---- internals ----
+
+    /**
+     * What is about to leave must be byte for byte what the user saw in the summary (and, for a tax filing, what the
+     * archive recorded): compare the staged bytes with the checksums of the summary before the ISDS call.
+     *
+     * @param array{files:list<array{name:string, mime:string, bytes:string}>, summary:array<string,mixed>} $staged
+     * @throws DataboxException
+     */
+    private function assertPayloadIntact(array $staged): void
+    {
+        $actual = array_map(static fn (array $f): string => hash('sha256', $f['bytes']), $staged['files']);
+        $shown = array_column($staged['summary']['files'] ?? [], 'sha256');
+        $filing = $staged['summary']['form']['xml_sha256'] ?? null; // a tax filing is always the first file
+        $intact = $actual === $shown && ($filing === null || hash_equals(strtolower((string) $filing), $actual[0] ?? ''));
+        if (!$intact) {
+            throw new DataboxException('integrity_failed', 'Uložená zpráva neodpovídá souhrnu, který jste potvrzovali, a proto se neodešle. Připravte odeslání znovu.', 409);
+        }
+    }
 
     /**
      * @param list<array{name:string, bytes:string}> $files

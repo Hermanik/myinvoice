@@ -1010,6 +1010,7 @@ final class CrmAggregationService
         ?int $userId = null,
         ?\DateTimeImmutable $now = null,
         ?string $userRole = null,
+        bool $interactive = false,
     ): array {
         $items = [];
         $pdo = $this->db->pdo();
@@ -1036,7 +1037,9 @@ final class CrmAggregationService
 
         // 0b. Data boxes: new messages (tax office first, high severity) and a broken synchronisation.
         // Admin only, like the pages the items link to; also keeps the extra queries off everybody else's dashboard.
-        if ($userRole === 'admin') {
+        // Interactive (browser session) callers only: the items reveal who writes to the company's data box (the tax
+        // office above all), which an API token or MCP client has no business reading.
+        if ($userRole === 'admin' && $interactive) {
             foreach ($this->databoxItems($supplierId) as $databoxItem) {
                 if (!$this->isFullyDismissed($dismissals, (string) $databoxItem['type'])) {
                     $items[] = $databoxItem;

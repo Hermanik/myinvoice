@@ -74,6 +74,38 @@ final class DataboxSafetyTest extends TestCase
         }
     }
 
+    /** @return array<string, array{string, bool}> */
+    public static function authMethods(): array
+    {
+        return ['browser session' => ['session', true], 'API token' => ['bearer', false], 'no method' => ['', false]];
+    }
+
+    /**
+     * GET /api/v1/crm/action-items is open to API tokens; the data box items (who writes to the company's box, the tax
+     * office above all) may only be built for a browser session.
+     */
+    #[DataProvider('authMethods')]
+    public function testTheDashboardFeedAsksForDataBoxItemsOnlyForABrowserSession(string $method, bool $expected): void
+    {
+        $crm = $this->createMock(\MyInvoice\Service\Crm\CrmAggregationService::class);
+        $crm->expects(self::once())->method('actionItems')
+            ->with(self::anything(), self::anything(), null, 'admin', $expected)
+            ->willReturn(['items' => [], 'total' => 0]);
+        $request = (new ServerRequestFactory())->createServerRequest('GET', '/api/v1/crm/action-items')
+            ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => 1, 'role' => 'admin']);
+        if ($method !== '') {
+            $request = $request->withAttribute(AuthMiddleware::ATTR_METHOD, $method);
+        }
+        (new \MyInvoice\Action\Crm\CrmDashboardAction($crm))->actionItems($request, (new ResponseFactory())->createResponse());
+    }
+
+    public function testTheAggregationBuildsDataBoxItemsOnlyForInteractiveAdmins(): void
+    {
+        $source = (string) file_get_contents(self::SRC . '/Service/Crm/CrmAggregationService.php');
+        self::assertStringContainsString("if (\$userRole === 'admin' && \$interactive) {\n            foreach (\$this->databoxItems(", $source);
+        self::assertSame(1, substr_count($source, '$this->databoxItems('), 'databoxItems() must have a single, gated call site');
+    }
+
     public function testEveryDataBoxRouteIsRegisteredBehindTheDataboxPrefixOnly(): void
     {
         $routes = (string) file_get_contents(self::SRC . '/Routes.php');
@@ -134,6 +166,60 @@ final class DataboxSafetyTest extends TestCase
         $source = (string) file_get_contents(self::SRC . '/Service/Databox/DataboxSyncService.php');
         self::assertLessThan(strpos($source, '$this->window('), strpos($source, '$this->refusal($box)'));
         self::assertSame(1, substr_count($source, '$this->isds->listReceived('), 'a single received-list call site, behind the guard');
+    }
+
+    public function testTheSyncReadsTheLiveRightsBeforeItDecidesAnything(): void
+    {
+        $source = (string) file_get_contents(self::SRC . '/Service/Databox/DataboxSyncService.php');
+        $fresh = strpos($source, '$box = $this->withFreshRights($box);');
+        self::assertNotFalse($fresh);
+        self::assertLessThan(strpos($source, '$this->refusal($box)'), $fresh, 'the cached rights are never what the refusal rests on');
+        self::assertLessThan(strpos($source, '$this->window('), $fresh);
+        self::assertSame(1, substr_count($source, '$this->service->refreshRights('), 'the rights are re-read with the read-only GetUserInfoFromLogin2 only');
+        // ... and that call is the read-only one: nothing in it lists, downloads or sends.
+        $service = (string) file_get_contents(self::SRC . '/Service/Databox/DataboxService.php');
+        preg_match('/function refreshRights\(.*?\n    }\n/s', $service, $m);
+        self::assertStringContainsString('$this->isds->userInfo(', $m[0] ?? '');
+        self::assertDoesNotMatchRegularExpression('/->(list|download|create)\w*\(/', $m[0] ?? '');
+    }
+
+    public function testEveryIsdsCallGoesThroughTheOneWrapperThatRecordsRefusedLogins(): void
+    {
+        $callers = [];
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(self::SRC, \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if ($file->getExtension() === 'php' && preg_match('/IsdsTransport\b|->transport->post\(/', (string) file_get_contents($file->getPathname())) === 1) {
+                $callers[] = basename($file->getPathname());
+            }
+        }
+        sort($callers);
+        // The interface, its Guzzle implementation, the container wiring and the only caller.
+        self::assertSame(['Bootstrap.php', 'GuzzleIsdsTransport.php', 'IsdsClient.php', 'IsdsTransport.php'], $callers);
+
+        $client = (string) file_get_contents(self::SRC . '/Service/Databox/IsdsClient.php');
+        self::assertSame(1, substr_count($client, '->transport->post('), 'a single choke point');
+        self::assertLessThan(strpos($client, '($access->onAuthFailure)($e)'), strpos($client, '->transport->post('));
+        self::assertStringContainsString('if ($e->isAuthFailure() && $access->onAuthFailure !== null)', $client);
+
+        // A stored login is only ever handed out by accessFor(), which binds the hook and honours the flag.
+        $service = (string) file_get_contents(self::SRC . '/Service/Databox/DataboxService.php');
+        self::assertSame(1, substr_count($service, '->decrypt('), 'one place decrypts a stored password');
+        self::assertStringContainsString('fn (IsdsException $e) => $this->registerAuthFailure($boxId, $purpose, $e)', $service);
+        self::assertStringContainsString('if (!$ignoreFlag && $this->isFlagged($cred)) {', $service);
+        self::assertSame(1, substr_count($service, 'accessFor($box, $purpose, true)'), 'only the connection test may ignore the flag');
+        $constructing = [];
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(self::SRC . '/Service/Databox', \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if (str_contains((string) file_get_contents($file->getPathname()), 'new IsdsAccess(')) {
+                $constructing[] = $file->getFilename();
+            }
+        }
+        self::assertSame(['DataboxService.php'], $constructing, 'every other service gets its access from DataboxService::accessFor()');
+    }
+
+    public function testTheDatabaseDumpOfTheBackupCanCarryAWholeSignedMessage(): void
+    {
+        $source = (string) file_get_contents(self::SRC . '/../bin/cron-backup.php');
+        self::assertSame(1, substr_count($source, 'escapeshellcmd($tool)'), 'a single dump command');
+        self::assertStringContainsString('--single-transaction --quick --max-allowed-packet=512M', $source, 'a ZFO is one LONGBLOB row of up to ~26 MB');
     }
 
     public function testTheBackgroundJobIsInTheCronCatalogWithBothWrappers(): void

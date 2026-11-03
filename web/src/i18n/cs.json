@@ -4732,6 +4732,7 @@
       "confirm": "Otevřít zprávu",
       "fiction_date": "Bez otevření se zpráva doručí fikcí dne {date}.",
       "no_capable_login": "Žádné uložené přihlášení nemá právo číst přijaté zprávy – doplňte v Nastavení nebo otevřete v portálu.",
+      "delivery_time_unknown": "U zprávy chybí čas dodání, takže ji nelze otevřít bez doručení dalších zpráv. Otevřete ji na portálu datových schránek.",
       "go_settings": "Otevřít Nastavení"
     },
     "field": {
@@ -4770,6 +4771,7 @@
       "total": "Celkem",
       "previous": "Předchozí odeslání",
       "resend_checkbox": "Tento výkaz už byl odeslán, chci ho odeslat znovu",
+      "unvalidated_checkbox": "Chápu, že XML nebylo ověřeno proti schématu EPO a podání může být neúčinné. Přesto ho chci odeslat.",
       "expires": "Potvrzení platí do {date}. Po vypršení je nutné zprávu připravit znovu.",
       "submit": "Odeslat",
       "sending": "Odesílám…",
@@ -4791,6 +4793,7 @@
     "submission": {
       "title": "Odeslat podání datovou schránkou",
       "xsd_failed": "XML neprošlo kontrolou proti schématu EPO, a proto se nesmí odeslat. Podání bez předepsaného formátu je neúčinné.",
+      "integrity_failed": "Archivované XML neodpovídá uloženému kontrolnímu součtu (SHA-256), a proto se nesmí odeslat. Výkaz vygenerujte znovu.",
       "recipient": "Příjemce",
       "source_xml": "podle XML podání",
       "source_supplier": "podle nastavení firmy",
@@ -4807,7 +4810,10 @@
       "databox_login_failed": "Přihlášení do datové schránky se nezdařilo. Zkontrolujte jméno a heslo a nezkoušejte je opakovaně.",
       "token_invalid": "Potvrzení vypršelo nebo už bylo použito. Připravte zprávu k odeslání znovu.",
       "confirmation_required": "Odeslání vyžaduje potvrzení.",
-      "resend_confirmation_required": "Podání už bylo odesláno, je nutné potvrdit opětovné odeslání."
+      "resend_confirmation_required": "Podání už bylo odesláno, je nutné potvrdit opětovné odeslání.",
+      "unvalidated_confirmation_required": "XML nebylo ověřeno proti schématu EPO, odeslání vyžaduje samostatné potvrzení.",
+      "integrity_failed": "Odesílaný soubor neodpovídá kontrolnímu součtu. Nic se neodeslalo, připravte odeslání znovu.",
+      "delivery_time_unknown": "U zprávy chybí čas dodání, takže ji nelze otevřít bez doručení dalších zpráv. Otevřete ji na portálu datových schránek."
     },
     "indicator": {
       "ok_title": "Bezpečné pro synchronizaci",

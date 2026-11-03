@@ -109,6 +109,7 @@ export interface MessageDetail extends DataboxMessage {
     undelivered: boolean
     fiction_date: string | null
     has_capable_login: boolean | null
+    blocked_reason: 'delivery_time_unknown' | null
   }
   file: null | { size_bytes: number; sha256: string; stored_at: string }
 }
@@ -160,6 +161,7 @@ export interface PrepareSummary {
   warnings: string[]
   previous_sends: PreviousSend[]
   requires_resend_confirmation: boolean
+  requires_unvalidated_confirmation: boolean
   form: null | { form_code: string; form_name: string; period: string; xml_sha256: string; submission_id: number }
 }
 
@@ -173,7 +175,7 @@ export interface SubmissionPrefill {
   file_size: number
   boxes: Array<{ id: number; label: string | null; db_id: string; db_type: string; environment: DataboxEnvironment; is_active: boolean; can_send: boolean }>
   recommended_box_id: number | null
-  blocked_reason: 'xsd_failed' | null
+  blocked_reason: 'xsd_failed' | 'integrity_failed' | null
   warnings: string[]
   previous_sends: PreviousSend[]
 }

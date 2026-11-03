@@ -156,19 +156,27 @@ final class IsdsClient
      */
     private function call(IsdsAccess $access, string $service, string $envelope, string $responseElement): \DOMElement
     {
-        $url = IsdsEnvironment::endpoint($access->environment, $service);
-        $response = $this->transport->post($url, $access->credentials, $envelope);
+        try {
+            $url = IsdsEnvironment::endpoint($access->environment, $service);
+            $response = $this->transport->post($url, $access->credentials, $envelope);
 
-        if ($response->status !== 200) {
-            // SOAP faults come with HTTP 500; prefer their text, otherwise map the HTTP status.
-            if ($response->status >= 500 && $response->status !== 503 && stripos($response->body, 'Fault') !== false) {
-                IsdsResponseParser::operationElement($response->body, $responseElement); // throws the fault
+            if ($response->status !== 200) {
+                // SOAP faults come with HTTP 500; prefer their text, otherwise map the HTTP status.
+                if ($response->status >= 500 && $response->status !== 503 && stripos($response->body, 'Fault') !== false) {
+                    IsdsResponseParser::operationElement($response->body, $responseElement); // throws the fault
+                }
+                throw IsdsException::fromHttp($response->status, $response->body);
             }
-            throw IsdsException::fromHttp($response->status, $response->body);
-        }
 
-        $element = IsdsResponseParser::operationElement($response->body, $responseElement);
-        IsdsResponseParser::assertSuccess($element);
-        return $element;
+            $element = IsdsResponseParser::operationElement($response->body, $responseElement);
+            IsdsResponseParser::assertSuccess($element);
+            return $element;
+        } catch (IsdsException $e) {
+            // The single choke point of every ISDS call: a refused login is recorded before anything else can retry it.
+            if ($e->isAuthFailure() && $access->onAuthFailure !== null) {
+                ($access->onAuthFailure)($e);
+            }
+            throw $e;
+        }
     }
 }

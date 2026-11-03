@@ -113,7 +113,17 @@ schránky nebo její administrátor.
    - **červený — „Nelze vypsat seznam"**: chybí právo „Zobrazovat seznamy…";
    - u přihlášení pro akce vidíš, jestli smí **odesílat**, **hledat** a **číst**.
 5. Tlačítko **Ověřit připojení** kdykoliv znovu otestuje přihlášení (jen čtecí volání),
-   obnoví zjištěná práva a datum vypršení hesla. Po změně práv v ISDS ho spusť.
+   obnoví zjištěná práva a datum vypršení hesla. Po změně práv v ISDS ho spusť —
+   synchronizace si ale práva přečte sama **před každým během**, takže práva přidaná
+   v portálu ji zastaví dřív, než by cokoliv doručila.
+
+**Odmítnuté přihlášení se nezkouší znovu.** Jakmile systém datových schránek odmítne
+heslo (špatné heslo, zamčený účet), aplikace si to pamatuje u přihlášení — a to při
+**jakékoliv** akci (synchronizace, otevření zprávy, odeslání, načtení doručenky) — a
+dokud ho neověříš, nepoužije ho. Další ruční pokus (**Ověřit připojení**, uložení nového
+hesla) je možný až po čekací době: 5 minut, po každém dalším neúspěchu dvakrát déle
+(nejvýše 24 hodin), u zamčeného účtu nejméně do konce zámku. Důvod: pár chybných pokusů
+za sebou účet v ISDS zamkne.
 
 **Povolit doručování synchronizací** je výslovná výjimka pro uživatele, který čte:
 synchronizace pak zprávy **doručí hned po jejich příchodu** a lhůty začnou běžet bez
@@ -140,6 +150,12 @@ zprávu poslal, věc, datum dodání, stav. **Obsah ani přílohy nestahuje.**
   **pozastaví** a nezkouší hesla dál — opakované chybné pokusy účet v ISDS zamknou.
   Na dashboardu se objeví upozornění; po opravě hesla a **Ověřit připojení** se
   synchronizace obnoví.
+- **Každý běh začíná čtecím dotazem na práva** přihlášení (nic nedoručuje). Pokud mezitím
+  v ISDS přibylo právo číst zprávy a doručování synchronizací není povolené, schránka se
+  **pozastaví dřív, než načte jakýkoliv seznam**, a na dashboardu se objeví upozornění.
+- Doručenka, kterou se nedaří načíst (například zpráva už v ISDS neexistuje), se zkouší
+  po 1, 2, 4 … hodinách (nejvýše jednou denně) a po 8 neúspěšných pokusech se přestane
+  zkoušet — nezdržuje ostatní zprávy.
 
 ## Stránka Datové schránky
 
@@ -167,6 +183,11 @@ Důvod: systém datových schránek zprávu nevydá, dokud není doručená, a d
 může jen přihlášení uživatele, který zprávu smí číst. Zprávy, které jsou už
 doručené (včetně doručení fikcí), se stahují **bez jakéhokoli vedlejšího účinku**.
 Uložené ZFO si můžeš kdykoliv stáhnout i s doručenkou.
+
+Aplikace při doručení vypíše jen **dvousekundové okno** kolem času, kdy zpráva dorazila do
+schránky, aby se nedoručily zbytečně i jiné zprávy. Pokud u zprávy čas dodání chybí,
+aplikace ji **neotevře** (chyba 409 „U zprávy chybí čas dodání") — otevři ji ve
+vlastní datovce nebo na portálu datových schránek.
 
 Zpráva označená **do vlastních rukou** vyžaduje přihlášení s právem „Číst přijaté
 zprávy do vlastních rukou"; jinak ji otevři v oficiálním portálu.
@@ -225,6 +246,12 @@ kontrolní hlášení, souhrnné hlášení, přiznání k dani z příjmů) tla
   z osobní schránky FO — aplikace u osobní schránky upozorní.
 - **XML, které neprošlo kontrolou proti schématu EPO, se neodešle** — podání, které
   nemá předepsaný formát a strukturu, je podle § 101a odst. 4 zákona o DPH neúčinné.
+  Pokud se kontrola při generování vůbec **neprovedla** (stav „přeskočeno"), jde podání
+  připravit, ale odeslat až po **samostatném zaškrtnutí** potvrzení, že rozumíš riziku
+  neúčinného podání.
+- Před odesláním aplikace ověří, že archivované XML sedí s uloženým **kontrolním součtem
+  (SHA-256)** a že to, co se odesílá, je přesně to, co ukazuje souhrn k potvrzení. Při
+  neshodě se nic neodešle (hláška „neodpovídá uloženému kontrolnímu součtu").
 - Je-li podání **už odeslané**, ukáže aplikace předchozí odeslání (číslo zprávy,
   stav, doručenku) a druhé odeslání vyžaduje **navíc potvrzení** („odeslat znovu"),
   aby nevznikly omylem duplicity.
@@ -239,7 +266,9 @@ Lhůta pro podání se plní dnem, kdy zpráva **dojde** správci daně — odes
 - Hesla se ukládají **šifrovaně** (stejný mechanismus jako u ostatních uložených
   přihlášení v aplikaci); API je nikdy nevrací a do logů se nezapisují.
 - Celá sekce je dostupná **jen z webového rozhraní administrátorovi**. API tokeny
-  a MCP (AI asistenti) k datovým schránkám **nemají přístup**.
+  a MCP (AI asistenti) k datovým schránkám **nemají přístup** — ani k upozorněním
+  z datových schránek v seznamu úkolů na dashboardu (`/api/v1/crm/action-items`).
+- Hesla jsou v aplikaci označená tak, aby se **nikdy neobjevila ve výpisu chyby** (stack trace).
 - Zprávy a podepsané soubory jsou uložené v databázi aplikace, tedy i v **zálohách
   databáze**. Příloha se vždy nabízí ke stažení, nikdy se nezobrazuje přímo v prohlížeči.
 - Server komunikuje s ISDS přes HTTPS (TLS 1.2+) s ověřením certifikátu.
@@ -261,6 +290,8 @@ až s `--allow-delivery`. Nikdy nestahuje obsah ani nic neodesílá.
 |---|---|
 | *Přihlášení se nezdařilo: neplatné jméno nebo heslo* | Špatné jméno / heslo, vypršelé heslo, nebo má uživatel v ISDS zapnutý certifikát či jiný způsob přihlášení. Přihlas se jednou v portálu a ověř. |
 | *Přihlášení je dočasně zablokované* | Příliš mnoho chybných pokusů. Počkej na uvedený čas, **nezkoušej hesla dál**. Synchronizace je pozastavená. |
+| *Toto přihlášení systém datových schránek odmítl, proto ho aplikace nepoužije …* | Heslo bylo odmítnuto a aplikace ho nezkouší, aby účet nezamkla. Oprav heslo v nastavení (po uplynutí čekací doby) a spusť **Ověřit připojení**. |
+| *Další pokus je možný po HH:MM* | Čekací doba po odmítnutém přihlášení (5 min, pak dvojnásobně). Do té doby aplikace ISDS nevolá. |
 | *Systém datových schránek zablokoval přihlášení z adresy serveru* | Zavolej na infolinku 954 200 200. |
 | *Synchronizace by zprávy doručovala* | Přihlášení pro synchronizaci smí číst zprávy. Odeber v ISDS práva „Číst přijaté zprávy…", nebo doručování výslovně povol. |
 | *Zpráva dosud nebyla doručena* (kód 1222) | Zprávu lze stáhnout až po doručení. Otevři ji tlačítkem v aplikaci (s potvrzením), nebo v portálu. |

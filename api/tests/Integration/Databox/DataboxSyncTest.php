@@ -140,9 +140,9 @@ final class DataboxSyncTest extends DataboxIntegrationTestCase
 
         self::assertSame('refused', $report['status']);
         self::assertStringContainsString('doručovala', $report['message']);
-        self::assertSame([], $this->isds->requests, 'not a single ISDS call - listing would have delivered the messages');
+        self::assertSame(['GetUserInfoFromLogin2'], $this->isds->operations(), 'only the read-only rights check - listing would have delivered the messages');
         self::assertSame(0, $this->messages->list($box['id'], [], 50, 0)['total']);
-        self::assertSame('error', $this->storedBox($box['id'])['last_sync_status']);
+        self::assertSame('paused', $this->storedBox($box['id'])['last_sync_status']);
     }
 
     public function testTheOwnersPrimaryLoginIsRefusedToo(): void
@@ -150,7 +150,7 @@ final class DataboxSyncTest extends DataboxIntegrationTestCase
         $box = $this->connectBox('user_info_primary');
         $this->forgetOperations();
         self::assertSame('refused', $this->sync->syncBox($this->storedBox($box['id']))['status']);
-        self::assertSame([], $this->isds->requests);
+        self::assertSame(['GetUserInfoFromLogin2'], $this->isds->operations());
     }
 
     public function testAReadingLoginRunsAfterTheExplicitOptIn(): void
@@ -171,7 +171,7 @@ final class DataboxSyncTest extends DataboxIntegrationTestCase
         $report = $this->sync->syncBox($this->storedBox($box['id']));
         self::assertSame('refused', $report['status']);
         self::assertStringContainsString('Zobrazovat seznamy', $report['message']);
-        self::assertSame([], $this->isds->requests);
+        self::assertSame(['GetUserInfoFromLogin2'], $this->isds->operations());
     }
 
     public function testUnknownPrivilegesAreFetchedBeforeAnyListCall(): void
@@ -214,7 +214,7 @@ final class DataboxSyncTest extends DataboxIntegrationTestCase
 
         // The owner enters the right password: the box works again.
         $this->scriptLogin('owner_info_pfo', 'user_info_list_only');
-        $this->service->setCredential($this->supplierId, $box['id'], 'sync', 'sync-user', 'new-good-password');
+        $this->service->setCredential($this->supplierId, $box['id'], 'sync', 'sync-user', 'new-good-password', new \DateTimeImmutable('+1 day')); // past the real-clock wait time
         $this->scriptMailbox();
         self::assertSame('ok', $this->sync->syncBox($this->storedBox($box['id']), $now->modify('+8 hours'))['status']);
     }
@@ -260,6 +260,172 @@ final class DataboxSyncTest extends DataboxIntegrationTestCase
 
         $second = $this->sync->syncBox($this->storedBox($box['id']));
         self::assertSame(0, $second['receipts'], 'a receipt that is complete is not fetched again');
+    }
+
+    // ---- item 1: the rights are read from ISDS before every run ----
+
+    public function testEveryRunReadsTheRightsFirstAndRefreshesTheCache(): void
+    {
+        $box = $this->connectBox();
+        $this->db->pdo()->prepare('UPDATE databox_credentials SET user_privils = 255, user_type = ? WHERE databox_id = ?')->execute(['STALE', $box['id']]);
+        $this->scriptMailbox();
+        $this->forgetOperations();
+
+        $report = $this->sync->syncBox($this->storedBox($box['id']));
+
+        self::assertSame('ok', $report['status'], 'the live rights are list-only, whatever the cache said');
+        self::assertSame('GetUserInfoFromLogin2', $this->isds->operations()[0], 'before any list call');
+        self::assertSame(1, $this->isds->count('GetUserInfoFromLogin2'));
+        $cred = $this->storedBox($box['id'])['credentials']['sync'];
+        self::assertSame(8, (int) $cred['user_privils'], 'the cache follows the portal');
+        self::assertNotSame('STALE', $cred['user_type']);
+    }
+
+    public function testRightsGrantedInThePortalAfterwardsStopTheSyncBeforeItDelivers(): void
+    {
+        $box = $this->connectBox();
+        self::assertSame('ok', $box['sync']['state'], 'precondition: the cache says list-only');
+        // The owner gave the login the right to read in the ISDS portal; this application was not told.
+        $this->isds->alwaysFor('GetUserInfoFromLogin2', 'sync-user', DataboxFixtures::xml('user_info_reader'));
+        $this->scriptMailbox();
+        $this->forgetOperations();
+
+        $report = $this->sync->syncBox($this->storedBox($box['id']));
+
+        self::assertSame('refused', $report['status']);
+        self::assertStringContainsString('doručovala', $report['message']);
+        self::assertSame(['GetUserInfoFromLogin2'], $this->isds->operations(), 'no list call - it would have delivered the messages');
+        self::assertSame(0, $this->messages->list($box['id'], [], 50, 0)['total']);
+
+        $stored = $this->storedBox($box['id']);
+        self::assertSame('paused', $stored['last_sync_status'], 'shown on the dashboard as a broken synchronisation');
+        self::assertSame('blocked_delivers', $this->service->syncState($stored)['state'], 'the refreshed cache is what the settings page shows now');
+        self::assertContains($box['id'], array_column($this->messages->brokenSyncs($this->supplierId), 'id'));
+    }
+
+    public function testTheOptInStillLetsAReadingLoginSyncAfterTheRefresh(): void
+    {
+        $box = $this->connectBox('user_info_list_only', null, 'owner_info_pfo', true);
+        $this->isds->alwaysFor('GetUserInfoFromLogin2', 'sync-user', DataboxFixtures::xml('user_info_reader'));
+        $this->scriptMailbox();
+
+        self::assertSame('ok', $this->sync->syncBox($this->storedBox($box['id']))['status']);
+        self::assertSame(1, (int) $this->storedBox($box['id'])['credentials']['sync']['user_privils'] & 1, 'the rights were refreshed: the login can read now');
+    }
+
+    public function testAFailingRightsCheckStopsTheRunInsteadOfTrustingTheCache(): void
+    {
+        $box = $this->connectBox();
+        $this->scriptMailbox();
+        $this->isds->queue('GetUserInfoFromLogin2', 'maintenance', 503);
+        $this->forgetOperations();
+
+        $report = $this->sync->syncBox($this->storedBox($box['id']));
+
+        self::assertSame('error', $report['status']);
+        self::assertSame(['GetUserInfoFromLogin2'], $this->isds->operations());
+        self::assertNull($this->storedBox($box['id'])['sync_paused_until'], 'a transient failure does not pause the box');
+    }
+
+    public function testARefusedPasswordOnTheRightsCheckPausesTheBox(): void
+    {
+        $box = $this->connectBox();
+        $this->isds->queue('GetUserInfoFromLogin2', (string) file_get_contents(DataboxFixtures::path('http_401_bad_password.html')), 401);
+        $this->forgetOperations();
+
+        $report = $this->sync->syncBox($this->storedBox($box['id']), new \DateTimeImmutable('2026-11-03 10:00:00'));
+
+        self::assertSame('paused', $report['status']);
+        self::assertSame(['GetUserInfoFromLogin2'], $this->isds->operations());
+        self::assertSame('bad_credentials', $this->storedBox($box['id'])['credentials']['sync']['last_check_status']);
+    }
+
+    // ---- item 9: a receipt that cannot be fetched backs off ----
+
+    /** @return array{receipt_attempts:int, receipt_retry_at:?string} */
+    private function receiptState(int $messageId): array
+    {
+        $row = $this->db->pdo()->query("SELECT receipt_attempts, receipt_retry_at FROM databox_messages WHERE id = {$messageId}")->fetch(\PDO::FETCH_ASSOC);
+        return ['receipt_attempts' => (int) $row['receipt_attempts'], 'receipt_retry_at' => $row['receipt_retry_at']];
+    }
+
+    public function testAReceiptThatKeepsFailingBacksOffAndIsEventuallyGivenUp(): void
+    {
+        $box = $this->connectBox();
+        $this->scriptMailbox();
+        $this->isds->always('GetDeliveryInfo', 'gone', 503);
+        $now = new \DateTimeImmutable('2026-11-03 10:00:00');
+
+        $report = $this->sync->syncBox($this->storedBox($box['id']), $now);
+        $sent = $this->messages->findByDmId($box['id'], 'sent', '4102001')['id'];
+        self::assertSame('ok', $report['status'], 'a receipt problem is not a failed run');
+        self::assertSame(0, $report['receipts']);
+        self::assertSame(['receipt_attempts' => 1, 'receipt_retry_at' => '2026-11-03 11:00:00'], $this->receiptState($sent));
+
+        // Inside the wait the receipt is not even asked for.
+        $before = $this->isds->count('GetDeliveryInfo');
+        $this->sync->syncBox($this->storedBox($box['id']), $now->modify('+30 minutes'));
+        self::assertSame($before, $this->isds->count('GetDeliveryInfo'));
+
+        // After it: tried again, the next wait doubles.
+        $this->sync->syncBox($this->storedBox($box['id']), $now->modify('+61 minutes'));
+        self::assertSame(2, $this->receiptState($sent)['receipt_attempts']);
+        self::assertSame('2026-11-03 13:01:00', $this->receiptState($sent)['receipt_retry_at']);
+
+        // The waits grow to at most a day and the message is finally left alone.
+        $at = $now->modify('+61 minutes');
+        for ($i = 0; $i < 12; $i++) {
+            $at = $at->modify('+25 hours');
+            $this->sync->syncBox($this->storedBox($box['id']), $at);
+        }
+        self::assertSame(\MyInvoice\Repository\DataboxMessageRepository::MAX_RECEIPT_ATTEMPTS, $this->receiptState($sent)['receipt_attempts']);
+        $calls = $this->isds->count('GetDeliveryInfo');
+        $this->sync->syncBox($this->storedBox($box['id']), $at->modify('+3 days'));
+        self::assertSame($calls, $this->isds->count('GetDeliveryInfo'), 'given up: no more calls');
+    }
+
+    public function testAFailingReceiptDoesNotKeepAnotherOneFromBeingFetched(): void
+    {
+        $box = $this->connectBox();
+        $this->scriptMailbox();
+        $this->sync->syncBox($this->storedBox($box['id']));
+        $now = new \DateTimeImmutable();
+        $stuck = $this->messages->findByDmId($box['id'], 'sent', '4102001')['id'];
+        $fresh = $this->messages->upsertEnvelope($box['id'], 'sent', ['dm_id' => '4102009', 'status' => 6, 'delivery_time' => $now->modify('-1 day')], $now)['id'];
+        $this->db->pdo()->prepare('UPDATE databox_messages SET delivery_info_at = NULL, receipt_attempts = 3, receipt_retry_at = NULL WHERE id = ?')->execute([$stuck]);
+
+        $order = array_column($this->messages->sentNeedingReceipt($box['id'], 5, $now), 'id');
+        self::assertSame([$fresh, $stuck], $order, 'a message with fewer failed attempts goes first');
+        self::assertSame([$fresh], array_column($this->messages->sentNeedingReceipt($box['id'], 1, $now), 'id'), 'and a small batch is not taken by the stuck one');
+    }
+
+    public function testASuccessfulReceiptForgetsTheEarlierFailures(): void
+    {
+        $box = $this->connectBox();
+        $this->scriptMailbox();
+        $this->isds->queue('GetDeliveryInfo', 'gone', 503);
+        $now = new \DateTimeImmutable('2026-11-03 10:00:00');
+        $this->sync->syncBox($this->storedBox($box['id']), $now);
+        $sent = $this->messages->findByDmId($box['id'], 'sent', '4102001')['id'];
+        self::assertSame(1, $this->receiptState($sent)['receipt_attempts']);
+
+        $report = $this->sync->syncBox($this->storedBox($box['id']), $now->modify('+2 hours'));
+
+        self::assertSame(1, $report['receipts']);
+        self::assertSame(['receipt_attempts' => 0, 'receipt_retry_at' => null], $this->receiptState($sent));
+    }
+
+    public function testARefusedPasswordWhileFetchingReceiptsStillPausesTheBox(): void
+    {
+        $box = $this->connectBox();
+        $this->scriptMailbox();
+        $this->isds->queue('GetDeliveryInfo', (string) file_get_contents(DataboxFixtures::path('http_401_bad_password.html')), 401);
+
+        $report = $this->sync->syncBox($this->storedBox($box['id']), new \DateTimeImmutable('2026-11-03 10:00:00'));
+
+        self::assertSame('paused', $report['status']);
+        $sent = $this->messages->findByDmId($box['id'], 'sent', '4102001')['id'];
+        self::assertSame(0, $this->receiptState($sent)['receipt_attempts'], 'a refused password is not the message\'s fault');
     }
 
     public function testInactiveBoxesAreNotSynchronised(): void

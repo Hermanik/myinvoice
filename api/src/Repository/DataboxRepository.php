@@ -128,7 +128,7 @@ final class DataboxRepository
     }
 
     /** Insert or replace the login of one purpose. The check columns are reset by the caller via {@see recordCheck()}. */
-    public function saveCredential(int $boxId, string $purpose, string $username, string $passwordEnc): void
+    public function saveCredential(int $boxId, string $purpose, string $username, #[\SensitiveParameter] string $passwordEnc): void
     {
         $stmt = $this->db->pdo()->prepare(
             'INSERT INTO databox_credentials (databox_id, purpose, username, password_enc)
@@ -153,12 +153,40 @@ final class DataboxRepository
         $sets = 'last_check_at = NOW(), last_check_status = ?, last_check_message = ?';
         $params = [$status, $message !== null ? mb_substr($message, 0, 500) : null];
         if ($status === 'ok') {
-            $sets .= ', user_type = ?, user_privils = ?, password_expires_at = ?';
+            // A working login clears the lockout protection (sticky flag, failure counter, wait time).
+            $sets .= ', auth_failures = 0, retry_after = NULL, user_type = ?, user_privils = ?, password_expires_at = ?';
             array_push($params, $info['user_type'] ?? null, $info['user_privils'] ?? null, $info['password_expires_at'] ?? null);
         }
         $params[] = $boxId;
         $params[] = $purpose;
         $this->db->pdo()->prepare("UPDATE databox_credentials SET {$sets} WHERE databox_id = ? AND purpose = ?")->execute($params);
+    }
+
+    /**
+     * ISDS refused a login. Counts the failure and sets the wait before the next MANUAL attempt (5 min, then doubling up
+     * to 24 h; for a locked account at least until ISDS unblocks it). Pass `$status` to flag the stored login (sticky until
+     * a successful login) or null when the refused password was a replacement the owner just typed.
+     */
+    public function registerAuthFailure(int $boxId, string $purpose, ?string $status, string $message, \DateTimeImmutable $now, ?\DateTimeImmutable $blockedUntil = null): void
+    {
+        $ts = $now->format('Y-m-d H:i:s');
+        // retry_after is assigned before auth_failures so it uses the count of the failures that came before this one.
+        $sql = 'UPDATE databox_credentials SET last_check_at = ?,
+                    retry_after = GREATEST(DATE_ADD(?, INTERVAL LEAST(300 * POW(2, LEAST(auth_failures, 10)), 86400) SECOND), ?),
+                    auth_failures = LEAST(auth_failures + 1, 65000)';
+        $params = [$ts, $ts, ($blockedUntil ?? $now)->format('Y-m-d H:i:s')];
+        if ($status !== null) {
+            $sql .= ', last_check_status = ?, last_check_message = ?';
+            array_push($params, $status, mb_substr($message, 0, 500));
+        }
+        $this->db->pdo()->prepare($sql . ' WHERE databox_id = ? AND purpose = ?')->execute([...$params, $boxId, $purpose]);
+    }
+
+    /** Cached rights of a login, refreshed by a read-only GetUserInfoFromLogin2 call. */
+    public function saveRights(int $boxId, string $purpose, ?string $userType, int $privileges): void
+    {
+        $this->db->pdo()->prepare('UPDATE databox_credentials SET user_type = ?, user_privils = ? WHERE databox_id = ? AND purpose = ?')
+            ->execute([$userType, $privileges, $boxId, $purpose]);
     }
 
     /**

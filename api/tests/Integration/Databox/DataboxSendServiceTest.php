@@ -69,6 +69,22 @@ final class DataboxSendServiceTest extends DataboxIntegrationTestCase
         self::assertNull($unverified['summary']['recipient']['name']);
     }
 
+    public function testWhatLeavesIsWhatTheSummaryShowed(): void
+    {
+        $box = $this->senderBox();
+        $prepared = $this->sender->prepare($this->supplierId, $this->userId, $box['id'], $this->envelope(), [self::PDF]);
+        $this->db->pdo()->prepare('UPDATE databox_outbox_files SET content = ? WHERE token = ?')->execute(["%PDF-1.4 swapped\n", $prepared['token']]);
+        $this->forgetOperations();
+
+        try {
+            $this->sender->send($this->supplierId, $this->userId, $prepared['token'], true);
+            self::fail('expected DataboxException');
+        } catch (DataboxException $e) {
+            self::assertSame('integrity_failed', $e->errorCode);
+        }
+        self::assertSame(0, $this->isds->count('CreateMessage'));
+    }
+
     public function testSendingRequiresTheExplicitConfirmation(): void
     {
         $box = $this->senderBox();

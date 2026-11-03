@@ -138,6 +138,11 @@ abstract class DataboxIntegrationTestCase extends TestCase
         }
         $box = $this->service->add($supplierId ?? $this->supplierId, $input);
         $this->createdBoxes[] = $box['id'];
+        // Every sync re-reads the rights of its login (GetUserInfoFromLogin2): by default it still sees what the login had.
+        $this->isds->alwaysFor('GetUserInfoFromLogin2', 'sync-user', DataboxFixtures::xml($syncUser));
+        if ($actionUser !== null) {
+            $this->isds->alwaysFor('GetUserInfoFromLogin2', 'action-user', DataboxFixtures::xml($actionUser));
+        }
         return $box;
     }
 

@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS databox_credentials (
     last_check_at       DATETIME NULL,
     last_check_status   ENUM('ok','bad_credentials','locked','error') NULL,
     last_check_message  VARCHAR(500) NULL,
+    auth_failures       SMALLINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Consecutive refused logins; reset by a successful login',
+    retry_after         DATETIME NULL COMMENT 'Manual login attempts (verify / replace) wait until then - protects the ISDS account from lockout',
 
     UNIQUE KEY uq_databox_credentials_purpose (databox_id, purpose),
     CONSTRAINT fk_databox_credentials_box FOREIGN KEY (databox_id) REFERENCES databoxes(id) ON DELETE CASCADE
@@ -93,6 +95,8 @@ CREATE TABLE IF NOT EXISTS databox_messages (
     delivery_info_at     DATETIME NULL,
     sent_by              BIGINT UNSIGNED NULL,
     sent_payload_json    JSON NULL COMMENT 'Sent messages: names, sizes and SHA-256 of the attachments as handed to ISDS',
+    receipt_attempts     SMALLINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Failed delivery receipt fetches; drives the retry back-off',
+    receipt_retry_at     DATETIME NULL,
 
     UNIQUE KEY uq_databox_message (databox_id, direction, dm_id),
     KEY idx_databox_messages_list (databox_id, direction, delivery_time),

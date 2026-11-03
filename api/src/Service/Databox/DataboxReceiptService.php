@@ -31,14 +31,9 @@ final class DataboxReceiptService
         $info = $this->isds->deliveryInfo($access, $dmId);
         $this->messages->saveDeliveryInfo($messageId, $info['xml']);
         $this->messages->updateState($messageId, $info['status'], $info['delivery_time'], $info['acceptance_time']);
-        try {
-            $this->messages->storeFile($messageId, 'delivery_zfo', $this->isds->signedDeliveryInfo($access, $dmId));
-        } catch (IsdsException $e) {
-            // The readable receipt is already saved; the sealed copy is fetched again on the next refresh.
-            if ($e->isAuthFailure()) {
-                throw $e;
-            }
-        }
+        // The readable receipt is saved even when the sealed copy fails; the failure then reaches the caller's back-off.
+        $this->messages->storeFile($messageId, 'delivery_zfo', $this->isds->signedDeliveryInfo($access, $dmId));
+        $this->messages->clearReceiptRetry($messageId);
         return ['status' => $info['status'], 'acceptance_time' => $info['acceptance_time']];
     }
 }

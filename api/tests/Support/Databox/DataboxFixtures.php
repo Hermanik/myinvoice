@@ -64,6 +64,22 @@ final class DataboxFixtures
         return self::cms($xml);
     }
 
+    /** UTF-16LE document with a byte-order mark: its "<!DOCTYPE" is invisible to a byte search on the raw string. */
+    public static function utf16(string $xmlWithoutDeclaration): string
+    {
+        return "\xFF\xFE" . mb_convert_encoding('<?xml version="1.0" encoding="UTF-16"?>' . $xmlWithoutDeclaration, 'UTF-16LE', 'UTF-8');
+    }
+
+    /** The "billion laughs" expansion (10^9 times "lol"), hidden in UTF-16. Never expand it: it must be refused unparsed. */
+    public static function utf16BillionLaughs(): string
+    {
+        $defs = '<!ENTITY l0 "lol">';
+        for ($i = 1; $i <= 9; $i++) {
+            $defs .= "<!ENTITY l{$i} \"" . str_repeat('&l' . ($i - 1) . ';', 10) . '">';
+        }
+        return self::utf16('<!DOCTYPE lolz [' . $defs . ']><lolz>&l9;</lolz>');
+    }
+
     private static function cms(string $xml): string
     {
         $encap = Asn1::tlv(0x30, Asn1::tlv(0x06, Asn1::oid('1.2.840.113549.1.7.1')) . Asn1::tlv(0xA0, Asn1::tlv(0x04, $xml)));

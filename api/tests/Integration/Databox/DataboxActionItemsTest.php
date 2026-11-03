@@ -26,7 +26,7 @@ final class DataboxActionItemsTest extends DataboxIntegrationTestCase
     private function databoxItems(): array
     {
         $items = [];
-        foreach ($this->crm->actionItems($this->supplierId, $this->userId, null, 'admin')['items'] as $item) {
+        foreach ($this->crm->actionItems($this->supplierId, $this->userId, null, 'admin', true)['items'] as $item) {
             if (str_starts_with((string) $item['type'], 'databox_')) {
                 $items[$item['type']] = $item;
             }
@@ -112,9 +112,19 @@ final class DataboxActionItemsTest extends DataboxIntegrationTestCase
         $box = $this->connectBox();
         $this->sync($box['id']);
         foreach (['accountant', 'readonly', null] as $role) {
-            $types = array_column($this->crm->actionItems($this->supplierId, $this->userId, null, $role)['items'], 'type');
+            $types = array_column($this->crm->actionItems($this->supplierId, $this->userId, null, $role, true)['items'], 'type');
             self::assertSame([], array_filter($types, static fn (string $t): bool => str_starts_with($t, 'databox_')), (string) $role);
         }
+    }
+
+    public function testANonInteractiveCallerNeverSeesTheDataBoxItemsEvenAsAdmin(): void
+    {
+        $box = $this->connectBox();
+        $this->sync($box['id']);
+        self::assertNotSame([], $this->databoxItems(), 'precondition: the session view does list them');
+
+        $types = array_column($this->crm->actionItems($this->supplierId, $this->userId, null, 'admin')['items'], 'type');
+        self::assertSame([], array_filter($types, static fn (string $t): bool => str_starts_with($t, 'databox_')));
     }
 
     public function testTheItemsCanBeDismissedLikeTheOthers(): void
@@ -138,7 +148,7 @@ final class DataboxActionItemsTest extends DataboxIntegrationTestCase
         $box = $this->connectBox();
         $this->sync($box['id']);
         $items = [];
-        foreach ($this->crm->actionItems($this->otherSupplierId, $this->userId, null, 'admin')['items'] as $item) {
+        foreach ($this->crm->actionItems($this->otherSupplierId, $this->userId, null, 'admin', true)['items'] as $item) {
             $items[] = $item['type'];
         }
         self::assertNotContains('databox_tax_office', $items);

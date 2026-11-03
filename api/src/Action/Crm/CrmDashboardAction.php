@@ -169,7 +169,9 @@ final class CrmDashboardAction
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
         $userId = isset($user['id']) ? (int) $user['id'] : null;
         $userRole = isset($user['role']) ? (string) $user['role'] : null;
-        return Json::ok($response, $this->crm->actionItems($supplierId, $userId, null, $userRole));
+        // Data box items are for the browser session only, never for API tokens or MCP.
+        $interactive = $request->getAttribute(AuthMiddleware::ATTR_METHOD) === 'session';
+        return Json::ok($response, $this->crm->actionItems($supplierId, $userId, null, $userRole, $interactive));
     }
 
     /** Dismiss action item (day / week / forever / historical). */
