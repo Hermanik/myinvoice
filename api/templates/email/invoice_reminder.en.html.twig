@@ -49,9 +49,15 @@
     <td style="padding:16px 20px;">
       <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:14px;color:#403B52;">
         <tr>
-          <td style="padding:4px 0;color:#7A748C;width:42%;">Late-payment interest as of {{ late_interest.as_of|date('M j, Y') }}</td>
+          <td style="padding:4px 0;color:#7A748C;width:42%;">Late-payment interest as of {{ late_interest.as_of|date('M j, Y') }}{% if late_interest.billed_interest > 0 %} – not yet invoiced{% endif %}</td>
           <td style="padding:4px 0;font-weight:600;font-family:monospace;color:#15131D;">{{ late_interest.interest|number_format(2, '.', ',') }} {{ invoice.currency }}</td>
         </tr>
+        {% if late_interest.billed_interest > 0 %}
+        <tr>
+          <td style="padding:4px 0;color:#7A748C;width:42%;">Already invoiced separately up to {{ late_interest.billed_through|date('M j, Y') }}</td>
+          <td style="padding:4px 0;font-weight:600;font-family:monospace;color:#15131D;">{{ late_interest.billed_interest|number_format(2, '.', ',') }} {{ invoice.currency }}</td>
+        </tr>
+        {% endif %}
         {% if late_interest.fixed_cost.claimable %}
         <tr>
           <td style="padding:4px 0;color:#7A748C;width:42%;">Fixed compensation of the costs of claiming the receivable</td>

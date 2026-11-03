@@ -41,12 +41,93 @@ final class LateInterestInvoiceCreator
     ) {}
 
     /**
-     * @param array<string,mixed> $source stored overdue invoice (InvoiceRepository::find)
+     * @param array<string,mixed> $source stored overdue invoice (InvoiceRepository::find); the invoice is
+     *        re-read under a row lock and all billing decisions are made from that fresh read — the caller's
+     *        copy only supplies the currency (fixed once an invoice is issued) for the CNB quote
      * @return array{invoice_id: int, period_from: string, period_to: string, interest: float,
      *         fixed_cost: ?float, warnings: list<string>}
      * @throws LateInterestException when there is nothing (valid) to bill
      */
     public function create(array $source, string $asOf, bool $includeFixedCost, int $userId): array
+    {
+        $sourceId = (int) $source['id'];
+        $quote = $this->fixedCostQuote($source, $asOf, $includeFixedCost);
+
+        $pdo = $this->db->pdo();
+        $ownTransaction = !$pdo->inTransaction();
+        if ($ownTransaction) {
+            $pdo->beginTransaction();
+        }
+        try {
+            // Two concurrent requests must not bill the same days: serialise per source invoice, then
+            // decide on what is already billed from a fresh read (payments and claims included).
+            $pdo->prepare('SELECT id FROM invoices WHERE id = ? FOR UPDATE')->execute([$sourceId]);
+            $fresh = $this->invoices->find($sourceId) ?? throw new LateInterestException('Faktura nenalezena.');
+            $plan = $this->plan($fresh, $asOf, $includeFixedCost, $quote);
+
+            $id = $this->invoices->createDraft($plan['body'], $userId);
+            $this->invoices->replaceItems($id, $plan['body']['items']);
+            $this->calc->recompute($id);
+            $this->recordClaim($fresh, $id, $plan, $userId);
+            if ($ownTransaction) {
+                $pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($ownTransaction && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            // Backstop of the unique key (source invoice, period start) should the lock ever be bypassed.
+            if ($e instanceof \PDOException && $e->getCode() === '23000' && str_contains($e->getMessage(), 'uq_lic_source_from')) {
+                throw new LateInterestException('Úrok za toto období už vyúčtoval jiný požadavek. Obnovte kartu a zkuste to znovu.', 0, $e);
+            }
+            throw $e;
+        }
+
+        // Network call (CNB) stays outside the transaction.
+        $this->rateApplier->applyToInvoice($id);
+
+        return [
+            'invoice_id'  => $id,
+            'period_from' => (string) $plan['billable']['from'],
+            'period_to'   => (string) $plan['billable']['to'],
+            'interest'    => (float) $plan['billable']['interest'],
+            'fixed_cost'  => $plan['cost_amount'],
+            'warnings'    => $plan['warnings'],
+        ];
+    }
+
+    /**
+     * The CZK fixed cost in the invoice currency, fetched BEFORE the row lock (it can be network I/O). A foreign
+     * currency is only quoted when a pre-read says the cost is claimable at all; CZK is an identity conversion.
+     *
+     * @param array<string,mixed> $source
+     * @return array{amount: float, cross_rate: float, rate_date: string, source: string}|null
+     */
+    private function fixedCostQuote(array $source, string $asOf, bool $includeFixedCost): ?array
+    {
+        $currency = strtoupper((string) $source['currency']);
+        if (!$includeFixedCost) {
+            return null;
+        }
+        if ($currency !== 'CZK' && !($this->interest->evaluate($source, $asOf)['summary']['fixed_cost']['claimable'] ?? false)) {
+            return null;
+        }
+        return $this->currencies->convert(
+            LateInterestCalculator::FIXED_COST_CZK, 'CZK', $currency,
+            new DateTimeImmutable('today'), (int) ($source['currency_decimals'] ?? 2),
+        );
+    }
+
+    /**
+     * Decides what to bill from the (locked, freshly read) source invoice and builds the draft.
+     *
+     * @param array<string,mixed> $source
+     * @param array<string,mixed>|null $quote CurrencyConversionService::convert() of the CZK fixed cost
+     * @return array{body: array<string,mixed>, billable: array<string,mixed>, rate: float,
+     *         cost_amount: ?float, warnings: list<string>}
+     * @throws LateInterestException
+     */
+    private function plan(array $source, string $asOf, bool $includeFixedCost, ?array $quote): array
     {
         $eval = $this->interest->evaluate($source, $asOf);
         if ($eval['reason'] !== null) {
@@ -82,12 +163,11 @@ final class LateInterestInvoiceCreator
 
         $costAmount = null;
         if ($includeFixedCost && $s['fixed_cost']['claimable']) {
-            $cost = $this->fixedCostLine($lang, $source, $currency);
-            if ($cost === null) {
+            if ($quote === null) {
                 $warnings[] = 'Kurz ČNB pro přepočet paušální náhrady nákladů není k dispozici, náhrada nebyla do dokladu zahrnuta.';
             } else {
-                $costAmount = $cost['amount'];
-                $items[] = $this->item($rateId, $cost['text'], $cost['amount']);
+                $costAmount = $quote['amount'];
+                $items[] = $this->item($rateId, self::fixedCostText($lang, $source, $currency, $quote), $costAmount);
             }
         }
 
@@ -106,59 +186,47 @@ final class LateInterestInvoiceCreator
         ];
         $body = $this->defaults->resolve($body);
 
-        $supplierId = (int) $source['supplier_id'];
         $errors = InvoiceValidation::invoice(
             $body,
             $this->invoices->vatRateMap(),
             $this->invoices->vatRateCountryMap(),
-            $this->vatStatus->statusForDocument($supplierId, $body['tax_date'] ?? null, $body['issue_date'] ?? null),
+            $this->vatStatus->statusForDocument((int) $source['supplier_id'], $body['tax_date'] ?? null, $body['issue_date'] ?? null),
         );
         if ($errors !== []) {
             throw new LateInterestException('Doklad s úrokem z prodlení nelze vytvořit: ' . json_encode($errors, JSON_UNESCAPED_UNICODE));
         }
 
+        return ['body' => $body, 'billable' => $billable, 'rate' => (float) $s['annual_rate_percent'], 'cost_amount' => $costAmount, 'warnings' => $warnings];
+    }
+
+    /**
+     * Links the draft to the invoice it bills and the period it covers. A cancelled interest invoice that
+     * started on the same day is dropped first — its period is free again, but the unique key
+     * (source invoice, period start) would otherwise reject the new claim.
+     *
+     * @param array<string,mixed> $source
+     * @param array{billable: array<string,mixed>, rate: float, cost_amount: ?float} $plan
+     */
+    private function recordClaim(array $source, int $interestInvoiceId, array $plan, int $userId): void
+    {
         $pdo = $this->db->pdo();
-        $ownTransaction = !$pdo->inTransaction();
-        if ($ownTransaction) {
-            $pdo->beginTransaction();
-        }
-        try {
-            $id = $this->invoices->createDraft($body, $userId);
-            $this->invoices->replaceItems($id, $items);
-            $this->calc->recompute($id);
-            $pdo->prepare(
-                'INSERT INTO invoice_late_interest_claims
-                    (supplier_id, source_invoice_id, invoice_id, period_from, period_to, rate_percent,
-                     interest_amount, fixed_cost_amount, created_by)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-            )->execute([
-                $supplierId, (int) $source['id'], $id, $billable['from'], $billable['to'],
-                number_format((float) $s['annual_rate_percent'], 2, '.', ''),
-                number_format((float) $billable['interest'], 2, '.', ''),
-                $costAmount !== null ? number_format($costAmount, 2, '.', '') : null,
-                $userId > 0 ? $userId : null,
-            ]);
-            if ($ownTransaction) {
-                $pdo->commit();
-            }
-        } catch (\Throwable $e) {
-            if ($ownTransaction && $pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            throw $e;
-        }
-
-        // Network call (CNB) stays outside the transaction.
-        $this->rateApplier->applyToInvoice($id);
-
-        return [
-            'invoice_id'  => $id,
-            'period_from' => (string) $billable['from'],
-            'period_to'   => (string) $billable['to'],
-            'interest'    => (float) $billable['interest'],
-            'fixed_cost'  => $costAmount,
-            'warnings'    => $warnings,
-        ];
+        $pdo->prepare(
+            "DELETE c FROM invoice_late_interest_claims c
+               JOIN invoices i ON i.id = c.invoice_id
+              WHERE c.source_invoice_id = ? AND c.period_from = ? AND i.status = 'cancelled'"
+        )->execute([(int) $source['id'], $plan['billable']['from']]);
+        $pdo->prepare(
+            'INSERT INTO invoice_late_interest_claims
+                (supplier_id, source_invoice_id, invoice_id, period_from, period_to, rate_percent,
+                 interest_amount, fixed_cost_amount, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            (int) $source['supplier_id'], (int) $source['id'], $interestInvoiceId, $plan['billable']['from'], $plan['billable']['to'],
+            number_format($plan['rate'], 2, '.', ''),
+            number_format((float) $plan['billable']['interest'], 2, '.', ''),
+            $plan['cost_amount'] !== null ? number_format($plan['cost_amount'], 2, '.', '') : null,
+            $userId > 0 ? $userId : null,
+        ]);
     }
 
     /** @return array<string,mixed> */
@@ -184,33 +252,26 @@ final class LateInterestInvoiceCreator
     }
 
     /**
-     * The CZK 1,200 fixed cost expressed in the invoice currency. For a foreign-currency invoice it is
-     * converted at the CNB rate of today (the regulation fixes the amount in CZK only); null when no
-     * rate is available.
+     * Description of the fixed-cost line. For a foreign-currency invoice the CZK 1,200 was converted at the
+     * CNB rate of the day the draft is created (the regulation fixes the amount in CZK only); the rate used is
+     * named in the text.
      *
      * @param array<string,mixed> $source
-     * @return array{amount: float, text: string}|null
+     * @param array{amount: float, cross_rate: float, rate_date: string, source: string} $quote
      */
-    private function fixedCostLine(string $lang, array $source, string $currency): ?array
+    private static function fixedCostText(string $lang, array $source, string $currency, array $quote): string
     {
-        $czk = LateInterestCalculator::FIXED_COST_CZK;
         $vs = (string) ($source['varsymbol'] ?? '');
         $text = $lang === 'en'
             ? "Fixed compensation of the costs of claiming the receivable from invoice No. {$vs} (section 3 of Government Regulation No. 351/2013 Sb.)"
             : "Paušální náhrada nákladů spojených s uplatněním pohledávky z faktury č. {$vs} (§ 3 nařízení vlády č. 351/2013 Sb.)";
-
-        if (strtoupper($currency) === 'CZK') {
-            return ['amount' => $czk, 'text' => $text];
+        if ($quote['source'] === 'identity') {
+            return $text;
         }
-        $converted = $this->currencies->convert($czk, 'CZK', $currency, new DateTimeImmutable('today'), (int) ($source['currency_decimals'] ?? 2));
-        if ($converted === null) {
-            return null;
-        }
-        $cnbRate = 1 / $converted['cross_rate']; // CZK per 1 unit of the invoice currency
-        $suffix = $lang === 'en'
-            ? sprintf(' — CZK 1,200 converted at the CNB rate %s CZK/%s of %s', self::num($cnbRate, 3), $currency, self::czDate($converted['rate_date']))
-            : sprintf(' — 1 200 Kč přepočteno kurzem ČNB %s Kč/%s ke dni %s', self::num($cnbRate, 3), $currency, self::czDate($converted['rate_date']));
-        return ['amount' => $converted['amount'], 'text' => $text . $suffix];
+        $cnbRate = 1 / $quote['cross_rate']; // CZK per 1 unit of the invoice currency
+        return $text . ($lang === 'en'
+            ? sprintf(' — CZK 1,200 converted at the CNB rate %s CZK/%s of %s', self::num($cnbRate, 3), $currency, self::czDate($quote['rate_date']))
+            : sprintf(' — 1 200 Kč přepočteno kurzem ČNB %s Kč/%s ke dni %s', self::num($cnbRate, 3), $currency, self::czDate($quote['rate_date'])));
     }
 
     /**

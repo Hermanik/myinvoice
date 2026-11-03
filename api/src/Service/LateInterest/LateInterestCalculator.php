@@ -39,7 +39,11 @@ use MyInvoice\Service\Invoice\InvoicePaymentService;
  *     practice, NOT something the regulation spells out.
  *  4. Partial payments: every payment lowers the balance for the following days; the same rate
  *     applies to the remainder. A balance within InvoicePaymentService::TOLERANCE of zero counts as
- *     settled (the same tolerance that flips an invoice to "paid").
+ *     settled (the same tolerance that flips an invoice to "paid"). Payments are applied to the
+ *     principal only. Civil Code § 1932(1) would apply a business debtor's payment to the costs, then
+ *     the default interest and only then the principal (a consumer's: costs, principal, interest, default
+ *     interest, § 1932(2)); treating it as principal-only is a deliberate simplification in the debtor's
+ *     favour for businesses. https://www.zakonyprolidi.cz/cs/2012-89
  *  5. Currency: computed in the invoice currency on the invoice amounts. The statutory rate is a
  *     Czech-law rate and is applied as is to a foreign-currency receivable. The CZK fixed cost is
  *     converted by the caller.

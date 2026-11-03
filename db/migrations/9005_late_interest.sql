@@ -17,7 +17,7 @@
 --   * invoices.late_interest          per-invoice override (NULL = inherit, 1 = on, 0 = off)
 --   * invoice_late_interest_claims    links an interest invoice (draft) to the invoice it bills and
 --                                     remembers the period it covers, so a second run never bills the
---                                     same days or the fixed cost twice
+--                                     same days or the fixed cost twice (unique per source invoice + period start)
 --   * vat_classifications 'MPD'       sale classification "outside the scope of VAT"; it carries no
 --                                     DPHDP3 line and no KH section, so VAT books / returns skip it
 --                                     and the "unclassified 0 % line" warning does not fire
@@ -108,7 +108,8 @@ CREATE TABLE IF NOT EXISTS invoice_late_interest_claims (
     created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE KEY uq_lic_invoice (invoice_id),
-    KEY idx_lic_source (source_invoice_id),
+    -- DB-level guard against billing the same period twice (the creator also locks the source invoice).
+    UNIQUE KEY uq_lic_source_from (source_invoice_id, period_from),
     CONSTRAINT fk_lic_supplier FOREIGN KEY (supplier_id)       REFERENCES supplier(id) ON DELETE CASCADE,
     CONSTRAINT fk_lic_source   FOREIGN KEY (source_invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
     CONSTRAINT fk_lic_invoice  FOREIGN KEY (invoice_id)        REFERENCES invoices(id) ON DELETE CASCADE,

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Crm;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\RepoRateRepository;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use MyInvoice\Service\Tax\TaxCalendarService;
 use MyInvoice\Service\Tax\VatPaymentService;
@@ -28,6 +29,7 @@ final class CrmAggregationService
         private readonly OverduePolicy $overduePolicy,
         private readonly TaxCalendarService $taxCalendar,
         private readonly VatPaymentService $vatPayments,
+        private readonly RepoRateRepository $repoRates,
     ) {}
 
     // ── Sjednocená metodika s Tržbami/Náklady (Stats/PurchaseSummary) ──────────
@@ -1037,6 +1039,14 @@ final class CrmAggregationService
             ];
         }
 
+        // 0b. Late-payment interest is in use but its CNB repo-rate codebook cannot be trusted (or the monthly
+        // refresh job failed and nobody fixed it since): reminders then leave the interest out and billing is
+        // blocked. Admin only, because only an admin can refresh the codebook.
+        if ($userRole === 'admin' && !$this->isFullyDismissed($dismissals, 'repo_rates')
+            && ($rateItem = $this->repoRatesItem($supplierId, $today)) !== null) {
+            $items[] = $rateItem;
+        }
+
         $overdueOperator = $this->overduePolicy->comparisonOperator();
 
         // 1. Overdue vystavené faktury — pošli upomínku.
@@ -1448,7 +1458,7 @@ final class CrmAggregationService
     {
         $validTypes = ['overdue_invoices', 'bank_unmatched', 'recurring_due', 'overdue_payables',
             'purchase_drafts', 'tax_deadline', 'kh_deadline', 'shv_deadline', 'churn_risk',
-            'myucto_upgrade', 'vat_payment', 'held_drafts'];
+            'myucto_upgrade', 'vat_payment', 'held_drafts', 'repo_rates'];
         $validModes = ['day', 'week', 'forever', 'historical'];
         if (!in_array($itemType, $validTypes, true)) {
             throw new \InvalidArgumentException("Invalid item_type: {$itemType}");
@@ -1524,6 +1534,47 @@ final class CrmAggregationService
         );
         $stmt->execute([$supplierId, $userId]);
         return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * @return array{type:string, severity:string, title:string, hint:string, link:string}|null
+     */
+    private function repoRatesItem(int $supplierId, string $today): ?array
+    {
+        $pdo = $this->db->pdo();
+        // Only where interest is switched on: for the supplier or for at least one client (an approximation of the
+        // invoice → client → supplier precedence that is good enough for a warning).
+        $inUse = $pdo->prepare(
+            'SELECT EXISTS(SELECT 1 FROM supplier WHERE id = ? AND late_interest_enabled = 1)
+                 OR EXISTS(SELECT 1 FROM clients WHERE supplier_id = ? AND late_interest = 1 AND archived_at IS NULL)'
+        );
+        $inUse->execute([$supplierId, $supplierId]);
+        if (!$inUse->fetchColumn()) {
+            return null;
+        }
+
+        $item = ['type' => 'repo_rates', 'link' => '/admin/codebooks'];
+        if (!$this->repoRates->isCurrentFor($today)) {
+            return $item + [
+                'severity' => 'high',
+                'title'    => 'Číselník repo sazeb ČNB není aktuální',
+                'hint'     => 'Úrok z prodlení se v upomínkách neuvádí a nelze ho vyúčtovat — načtěte sazby z ČNB',
+            ];
+        }
+
+        // Current, but the last finished monthly refresh failed and nothing has verified the codebook since.
+        $run = $pdo->query(
+            "SELECT status, DATE(started_at) AS day FROM cron_runs
+              WHERE script = 'cron-refresh-repo-rates' AND status <> 'running' ORDER BY id DESC LIMIT 1"
+        )->fetch(\PDO::FETCH_ASSOC);
+        if ($run !== false && $run['status'] === 'error' && $run['day'] > (string) $this->repoRates->verifiedOn()) {
+            return $item + [
+                'severity' => 'medium',
+                'title'    => 'Načtení repo sazeb ČNB selhalo',
+                'hint'     => 'Měsíční načtení sazeb pro úrok z prodlení skončilo chybou — zkontrolujte Plánované úlohy a sazby načtěte ručně',
+            ];
+        }
+        return null;
     }
 
     /**

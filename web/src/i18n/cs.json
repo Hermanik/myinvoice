@@ -3850,6 +3850,7 @@
     "freq_daily_0630": "denně v 06:30",
     "freq_every_10_min": "každých 10 min",
     "freq_every_30_min": "každých 30 min",
+    "freq_monthly_0710": "1. dne v měsíci v 07:10",
     "freq_weekdays_0900": "Po–Pá v 09:00",
     "freq_weekdays_0915": "Po–Pá v 09:15",
     "setup_hint": "Nastavení cronu: viz {link} v manuálu.",

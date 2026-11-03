@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\RepoRateRepository;
 use PDO;
+use Psr\Log\LoggerInterface;
 
 /**
  * Late-payment interest for stored invoices: decides whether the feature applies (opt-in with
@@ -34,6 +35,7 @@ final class LateInterestService
         private readonly Connection $db,
         private readonly RepoRateRepository $rates,
         private readonly LateInterestCalculator $calculator,
+        private readonly LoggerInterface $logger,
     ) {}
 
     /**
@@ -106,10 +108,34 @@ final class LateInterestService
      * is without the feature: not enabled, hidden from reminders, nothing to show, or the repo-rate
      * codebook is not known to be current (an outdated rate must not reach a customer).
      *
+     * Interest already billed on a separate interest invoice is NOT repeated: `interest` is the part not
+     * yet invoiced, `billed_interest` / `billed_through` say what was, so the customer cannot read the
+     * reminder as owing both.
+     *
+     * Never throws: this is an optional extra on a reminder, so any failure (a missing migration, a database
+     * hiccup, a bug here) is logged and the reminder goes out unchanged.
+     *
      * @param array<string,mixed> $invoice
      * @return array<string,mixed>|null
      */
     public function forReminder(array $invoice, string $today): ?array
+    {
+        try {
+            return $this->reminderBlock($invoice, $today);
+        } catch (\Throwable $e) {
+            $this->logger->warning('Late-interest block skipped in a reminder', [
+                'invoice_id' => $invoice['id'] ?? null,
+                'error'      => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * @param array<string,mixed> $invoice
+     * @return array<string,mixed>|null
+     */
+    private function reminderBlock(array $invoice, string $today): ?array
     {
         // Cheap exits first: this runs for every reminder the cron sends, with the feature usually off.
         if (($invoice['invoice_type'] ?? '') !== 'invoice' || ($invoice['late_interest'] ?? null) === false) {
@@ -120,10 +146,11 @@ final class LateInterestService
         if ($summary === null || !$ev['settings']['in_reminders'] || !$summary['rate_verified']) {
             return null;
         }
-        if ($summary['interest'] <= 0 && !$summary['fixed_cost']['claimable']) {
+        $unbilled = (float) $summary['billable']['interest'];
+        if ($unbilled <= 0 && !$summary['fixed_cost']['claimable']) {
             return null;
         }
-        return $summary;
+        return ['interest' => $unbilled] + $summary;
     }
 
     private static function reasonMessage(string $reason): string

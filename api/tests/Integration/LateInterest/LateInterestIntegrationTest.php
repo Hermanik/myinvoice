@@ -13,7 +13,9 @@ use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\Invoice\InvoiceVatAdvisor;
 use MyInvoice\Service\Invoice\ReminderService;
+use MyInvoice\Service\Crm\CrmAggregationService;
 use MyInvoice\Service\LateInterest\CnbRepoRateFetcher;
+use MyInvoice\Service\LateInterest\LateInterestCalculator;
 use MyInvoice\Service\LateInterest\LateInterestException;
 use MyInvoice\Service\LateInterest\LateInterestInvoiceCreator;
 use MyInvoice\Service\LateInterest\LateInterestService;
@@ -28,6 +30,7 @@ use PDO;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
+use Psr\Log\NullLogger;
 use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Response;
 use Twig\Environment;
@@ -497,6 +500,173 @@ final class LateInterestIntegrationTest extends TestCase
         $this->expectException(LateInterestException::class);
         $this->expectExceptionMessage('Číselník repo sazeb ČNB není aktuální');
         $this->creator()->create($this->load($id), self::AS_OF, false, $this->userId);
+    }
+
+    public function testCreatorDecidesFromAFreshReadOfTheSourceNotFromTheCallersCopy(): void
+    {
+        $this->supplier(true);
+
+        // The invoice is cancelled after the caller read it: the stale copy still says "sent".
+        $cancelled = $this->invoice();
+        $stale = $this->load($cancelled);
+        $this->pdo->prepare("UPDATE invoices SET status = 'cancelled' WHERE id = ?")->execute([$cancelled]);
+        try {
+            $this->creator()->create($stale, self::AS_OF, false, $this->userId);
+            self::fail('a cancelled invoice must not be billed');
+        } catch (LateInterestException $e) {
+            self::assertStringContainsString('vystavené, odeslané, upomenuté nebo zaplacené', $e->getMessage());
+        }
+
+        // The owner switches the interest off for the invoice in the meantime.
+        $switchedOff = $this->invoice();
+        $stale = $this->load($switchedOff);
+        $this->c->get(InvoiceRepository::class)->setLateInterest($switchedOff, false);
+        try {
+            $this->creator()->create($stale, self::AS_OF, false, $this->userId);
+            self::fail('an invoice switched off meanwhile must not be billed');
+        } catch (LateInterestException $e) {
+            self::assertStringContainsString('vypnutý', $e->getMessage());
+        }
+
+        // A payment that lands after the read is part of the balance the interest is computed on.
+        $paid = $this->invoice();
+        $stale = $this->load($paid);
+        $this->pay($paid, '2026-10-10', 4000.0);
+        self::assertSame(126.84, $this->creator()->create($stale, self::AS_OF, false, $this->userId)['interest']);
+    }
+
+    public function testASecondClaimForTheSameSourceAndPeriodStartIsRejectedByTheDatabase(): void
+    {
+        $this->supplier(true);
+        $src = $this->invoice();
+        $this->creator()->create($this->load($src), self::AS_OF, false, $this->userId);
+        $other = $this->invoice();
+
+        try {
+            $this->pdo->prepare(
+                "INSERT INTO invoice_late_interest_claims (supplier_id, source_invoice_id, invoice_id, period_from, period_to, rate_percent, interest_amount)
+                 VALUES (?, ?, ?, '2026-09-16', '2026-09-30', 11.75, 1.00)"
+            )->execute([$this->supplierId, $src, $other]);
+            self::fail('the unique key (source invoice, period start) must reject the duplicate');
+        } catch (\PDOException $e) {
+            self::assertSame('23000', $e->getCode());
+            self::assertStringContainsString('uq_lic_source_from', $e->getMessage());
+        }
+    }
+
+    // ───────────── reminders after a part was invoiced ─────────────
+
+    public function testReminderShowsOnlyTheUnbilledRemainderAndWhatWasInvoiced(): void
+    {
+        $this->supplier(true, true, true);
+        $id = $this->invoice(['varsymbol' => 'FA-REM']);
+        // 16.9.-15.10. (30 days) invoiced together with the fixed cost: 10 000 * 0.1175 * 30 / 365 = 96.58
+        $this->creator()->create($this->load($id), '2026-10-15', true, $this->userId);
+
+        $block = $this->service()->forReminder($this->load($id), self::AS_OF);
+
+        // 16.10.-3.11. = 19 days: 10 000 * 0.1175 * 19 / 365 = 61.16 (96.58 + 61.16 = 157.74 accrued in total)
+        self::assertSame(61.16, $block['interest']);
+        self::assertSame(96.58, $block['billed_interest']);
+        self::assertSame('2026-10-15', $block['billed_through']);
+        self::assertFalse($block['fixed_cost']['claimable'], 'the fixed cost was invoiced already');
+
+        $env = new Environment(new FilesystemLoader(dirname(__DIR__, 3) . '/templates/email'), ['autoescape' => 'html', 'cache' => false]);
+        $cs = $env->render('invoice_reminder.cs.txt.twig', $this->reminderVars($this->load($id), $block));
+        self::assertStringContainsString('Úrok z prodlení ke dni 3.11.2026 – dosud nevyúčtovaný: 61,16 CZK', $cs);
+        self::assertStringContainsString('Již vyúčtováno samostatným dokladem do 15.10.2026: 96,58 CZK', $cs);
+        self::assertStringNotContainsString('Paušální', $cs);
+        self::assertStringNotContainsString('157,74', $cs, 'the full accrued amount would read as owed on top of the interest invoice');
+        $en = $env->render('invoice_reminder.en.html.twig', $this->reminderVars($this->load($id), $block));
+        self::assertStringContainsString('not yet invoiced', $en);
+        self::assertStringContainsString('Already invoiced separately up to Oct 15, 2026', $en);
+
+        // Once everything accrued is invoiced there is nothing left to show.
+        $this->creator()->create($this->load($id), self::AS_OF, true, $this->userId);
+        self::assertNull($this->service()->forReminder($this->load($id), self::AS_OF));
+    }
+
+    public function testReminderGoesOutUnchangedWhenTheInterestBlockFails(): void
+    {
+        $captured = [];
+        $mailer = $this->createStub(Mailer::class);
+        $mailer->method('sendTemplate')->willReturnCallback(function (string $code, string $locale, array $to, array $vars) use (&$captured): string {
+            $captured[] = $vars;
+            return 'ok';
+        });
+        $pdf = $this->createStub(InvoicePdfRenderer::class);
+        $pdf->method('render')->willReturn('/tmp/li-test.pdf');
+        $brokenDb = $this->createStub(Connection::class);
+        $brokenDb->method('pdo')->willThrowException(new \PDOException('Unknown column late_interest_enabled'));
+        $this->c->set(Mailer::class, $mailer);
+        $this->c->set(InvoicePdfRenderer::class, $pdf);
+        $this->c->set(LateInterestService::class, new LateInterestService($brokenDb, new RepoRateRepository($brokenDb), new LateInterestCalculator(), new NullLogger()));
+        $id = $this->invoice();
+        $this->supplier(true);
+
+        $result = $this->c->get(ReminderService::class)->send($id);
+
+        self::assertCount(1, $captured, 'the reminder was sent');
+        self::assertNull($captured[0]['late_interest']);
+        self::assertSame('reminded', $this->load($id)['status']);
+        self::assertGreaterThan(0, $result['days_overdue']);
+    }
+
+    // ───────────── dashboard item for the repo-rate codebook ─────────────
+
+    /** @return list<array<string,mixed>> */
+    private function repoRateItems(?string $role, string $now = '2027-01-05'): array
+    {
+        $items = $this->c->get(CrmAggregationService::class)
+            ->actionItems($this->supplierId, null, new \DateTimeImmutable($now), $role)['items'];
+        return array_values(array_filter($items, static fn (array $i): bool => $i['type'] === 'repo_rates'));
+    }
+
+    public function testDashboardWarnsAnAdminOnlyWhileInterestIsInUseAndTheCodebookCannotBeTrusted(): void
+    {
+        $this->supplier(false);
+        self::assertSame([], $this->repoRateItems('admin'), 'interest is not in use -> nothing to warn about');
+
+        $this->supplier(true);
+        $items = $this->repoRateItems('admin');
+        self::assertCount(1, $items, 'verified 2026-11-03, but a delay starting 2027-01-05 belongs to the half-year of 1.1.2027');
+        self::assertSame('high', $items[0]['severity']);
+        self::assertSame('/admin/codebooks', $items[0]['link']);
+        self::assertSame([], $this->repoRateItems('accountant'), 'only an admin can refresh the codebook');
+        self::assertSame([], $this->repoRateItems(null));
+
+        $this->pdo->prepare('UPDATE app_meta SET v = ? WHERE k = ?')->execute(['2027-01-02', RepoRateRepository::META_VERIFIED_ON]);
+        self::assertSame([], $this->repoRateItems('admin'), 'the monthly job (or an admin) refreshed it');
+
+        // A failed refresh run is reported even while the codebook is still current ...
+        $run = $this->pdo->prepare("INSERT INTO cron_runs (script, started_at, status) VALUES ('cron-refresh-repo-rates', ?, ?)");
+        $run->execute(['2027-01-04 07:10:00', 'error']);
+        $items = $this->repoRateItems('admin');
+        self::assertCount(1, $items);
+        self::assertSame('medium', $items[0]['severity']);
+        // ... a run that is still going does not hide it ...
+        $run->execute(['2027-01-04 07:11:00', 'running']);
+        self::assertCount(1, $this->repoRateItems('admin'));
+        // ... until an admin verifies the codebook by hand after the failure ...
+        $this->pdo->prepare('UPDATE app_meta SET v = ? WHERE k = ?')->execute(['2027-01-05', RepoRateRepository::META_VERIFIED_ON]);
+        self::assertSame([], $this->repoRateItems('admin'));
+        // ... or a later run succeeds.
+        $this->pdo->prepare('UPDATE app_meta SET v = ? WHERE k = ?')->execute(['2027-01-02', RepoRateRepository::META_VERIFIED_ON]);
+        self::assertCount(1, $this->repoRateItems('admin'));
+        $run->execute(['2027-01-04 07:20:00', 'ok']);
+        self::assertSame([], $this->repoRateItems('admin'));
+    }
+
+    public function testTheRepoRateDashboardItemCanBeDismissedLikeTheOthers(): void
+    {
+        $this->supplier(true);
+        $crm = $this->c->get(CrmAggregationService::class);
+        self::assertCount(1, $this->repoRateItems('admin'));
+
+        $crm->dismissActionItem($this->supplierId, $this->userId, 'repo_rates', 'forever');
+        $items = $crm->actionItems($this->supplierId, $this->userId, new \DateTimeImmutable('2027-01-05'), 'admin')['items'];
+
+        self::assertSame([], array_filter($items, static fn (array $i): bool => $i['type'] === 'repo_rates'));
     }
 
     // ───────────── VAT handling of the interest invoice ─────────────

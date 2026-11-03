@@ -249,6 +249,10 @@ Podkladem je § 1970 občanského zákoníku a § 2 nařízení vlády č. 351/2
 - Roční sazba se dělí **skutečným počtem dní kalendářního roku (365, v přestupném roce
   366)**. Prodlení přes Nový rok se na hranici roku rozdělí. Nařízení vlády způsob přepočtu
   na dny nestanoví; jde o obvyklou praxi.
+- Úhrady snižují **jen jistinu** (částku faktury). Podle § 1932 odst. 1 občanského zákoníku by se
+  úhrada u podnikatele započítala nejdřív na náklady, pak na úrok z prodlení a až potom na jistinu,
+  takže by déle zůstávala vyšší jistina a úrok by narůstal rychleji. Aplikace to záměrně zjednodušuje ve prospěch dlužníka
+  (u spotřebitele se podle § 1932 odst. 2 započítává na jistinu před úrokem stejně).
 - Úrok se počítá **v měně faktury**, bez přepočtu. Každý úsek (stejný zůstatek v jednom
   roce) se zaokrouhlí na haléře a celkový úrok je součet úseků.
 - Výpočet funguje pro prodlení vzniklé od 1. 1. 2014 (od tohoto dne platí nařízení vlády
@@ -266,7 +270,10 @@ dny prodlení, složení sazby, rozpis po úsecích a už vyúčtované období.
 Je-li úrok zapnutý a volba **Uvádět naběhlý úrok v upomínkách** také, upomínka (e-mail
 v češtině i angličtině) uvede:
 
-- naběhlý úrok ke dni odeslání,
+- naběhlý úrok ke dni odeslání — **jen dosud nevyúčtovanou část**. Byl-li už úrok vyúčtován
+  samostatným dokladem (viz § 25.9.4), uvede upomínka zvlášť řádek „Již vyúčtováno samostatným
+  dokladem do …“, aby klient nepochopil, že dluží úrok dvakrát. Není-li co nového uplatnit, blok
+  se v upomínce nezobrazí,
 - roční sazbu, repo sazbu ČNB, den, ke kterému platí, a právní základ,
 - případně paušální náklady (viz § 25.9.5).
 
@@ -277,7 +284,9 @@ Je-li funkce vypnutá (u dodavatele, klienta nebo faktury), je upomínka **přes
 jako dřív**. Upravil-li jsi šablonu upomínky v **Systém → E-mail šablony**, úrok se v ní
 neobjeví, dokud do ní nepřidáš blok s proměnnou `late_interest` (viz § 25.5.1).
 
-Pokud číselník repo sazeb není aktuální (viz § 25.9.6), upomínka úrok neuvede.
+Pokud číselník repo sazeb není aktuální (viz § 25.9.6), upomínka úrok neuvede. Případná chyba při
+výpočtu úroku upomínku nikdy nezablokuje ani nezmění — upomínka odejde bez bloku s úrokem a chyba se
+zapíše do logu.
 
 ### 25.9.4 Vyúčtování úroku z prodlení
 
@@ -292,7 +301,8 @@ jako každou jinou fakturu.
 
 - V poznámkách je číslo původní faktury, období, roční sazba a právní základ.
 - Opakované vyúčtování počítá jen **dny po dříve vyúčtovaném období**; paušální náklady se
-  účtují jen jednou. Smažeš-li koncept nebo doklad stornuješ, období se uvolní.
+  účtují jen jednou. Smažeš-li koncept nebo doklad stornuješ, období se uvolní. Dva souběžné
+  požadavky na tutéž fakturu se řadí za sebou, takže stejné dny nelze vyúčtovat dvakrát.
 - U faktury v cizí měně je doklad ve stejné měně a paušální náklady (1 200 Kč) se
   přepočtou kurzem ČNB platným v den vytvoření.
 
@@ -315,15 +325,19 @@ Sazby jsou v **Systém → Číselníky → Repo sazba ČNB**. Číselník obsah
 roku 2012 a je **jen k přidávání**: existující řádky se nikdy nepřepisují, aby bylo možné
 dřívější výpočty zopakovat.
 
-- **Načíst z ČNB** (jen administrátor) stáhne oficiální soubor ČNB a doplní nové sazby.
-  Rozcházející se starší řádky nepřepíše, jen na ně upozorní.
+- Nové sazby doplňuje automaticky měsíční úloha `cron-refresh-repo-rates` (1. den v měsíci
+  v 07:10, viz [§ 5.5](05_Po_instalaci.md#55-cron-skripty)); jen přidává, nic nepřepisuje. Selže-li
+  a číselník přitom přestane být aktuální, zapíše se chyba do logu a v **Systém → Plánované úlohy**
+  a administrátor uvidí na přehledu upozornění (jen když je úrok z prodlení zapnutý).
+- **Načíst z ČNB** (jen administrátor) provede totéž ručně. Rozcházející se starší řádky nepřepíše,
+  jen na ně upozorní.
 - Novou sazbu lze zadat i ručně — musí platit od data pozdějšího než poslední řádek. Smazat
   lze jen ručně zadané řádky.
 - Číselník si pamatuje, **k jakému dni je ověřený**. Začalo-li prodlení v pololetí, které
   začalo až po tomto dni, nelze sazbě věřit: upomínky úrok neuvedou a vyúčtování se
   zablokuje, dokud číselník nenačteš z ČNB.
 
-Po každém zasedání bankovní rady ČNB, které změní sazbu, číselník aktualizuj.
+Bez měsíční úlohy číselník po každém zasedání bankovní rady ČNB, které změní sazbu, aktualizuj ručně.
 
 ### 25.9.7 DPH a daně
 

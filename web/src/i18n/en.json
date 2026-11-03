@@ -3850,6 +3850,7 @@
     "freq_daily_0630": "daily at 06:30",
     "freq_every_10_min": "every 10 min",
     "freq_every_30_min": "every 30 min",
+    "freq_monthly_0710": "monthly on the 1st at 07:10",
     "freq_weekdays_0900": "Mon–Fri at 09:00",
     "freq_weekdays_0915": "Mon–Fri at 09:15",
     "setup_hint": "Cron setup: see {link} in the manual.",
