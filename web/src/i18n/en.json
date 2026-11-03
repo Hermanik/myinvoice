@@ -300,6 +300,7 @@
     "section_documents": "Documents", "documents": "Documents", "logbook": "Trip logbook",
     "purchase_invoices": "Received invoices", "purchase_export": "Received exports", "payment_orders": "Payment orders", "vendors": "Vendors",
     "support_dev": "Support development",
+    "section_favorites": "Favorites", "favorite_add": "Add to favorites", "favorite_remove": "Remove from favorites", "favorite_save_failed": "Could not save favorites.",
     "quick_new": "Create", "quick_invoice": "Issued invoice", "quick_proforma": "Proforma invoice", "quick_recurring": "Recurring invoice", "quick_client": "Client", "quick_vendor": "Vendor", "quick_purchase": "Received invoice", "quick_trip": "Trip", "quick_fueling": "Fueling"
   },
   "support": {

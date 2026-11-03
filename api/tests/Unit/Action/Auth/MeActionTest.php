@@ -11,6 +11,7 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\PasskeyCredentialRepository;
 use MyInvoice\Service\Auth\MfaPolicyService;
+use MyInvoice\Service\Auth\NavFavoritesService;
 use MyInvoice\Service\Auth\SessionLockPolicy;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
@@ -66,6 +67,7 @@ final class MeActionTest extends TestCase
             new MfaPolicyService($config),
             new SessionLockPolicy($config),
             $clock,
+            new NavFavoritesService($this->favoritesConnection(17, '["/invoices","/stats"]')),
         );
         $request = (new ServerRequestFactory())
             ->createServerRequest('GET', '/api/auth/me')
@@ -100,5 +102,20 @@ final class MeActionTest extends TestCase
         self::assertSame('2026-07-24T12:00:00.000000Z', $body['server_time']);
         self::assertSame('2026-07-24T12:03:00.000000Z', $body['idle_expires_at']);
         self::assertSame(str_repeat('b', 64), $body['csrf_token']);
+        self::assertSame(['/invoices', '/stats'], $body['user']['nav_favorites']);
+    }
+
+    private function favoritesConnection(int $userId, string $stored): Connection
+    {
+        $statement = $this->createMock(\PDOStatement::class);
+        $statement->expects(self::once())->method('execute')->with([$userId]);
+        $statement->method('fetchColumn')->willReturn($stored);
+        $pdo = $this->createMock(\PDO::class);
+        $pdo->method('prepare')->willReturn($statement);
+        $db = $this->createMock(Connection::class);
+        $db->expects(self::once())->method('hasColumn')->with('users', 'nav_favorites')->willReturn(true);
+        $db->method('pdo')->willReturn($pdo);
+
+        return $db;
     }
 }
