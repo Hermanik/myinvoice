@@ -68,6 +68,7 @@ final class MeActionTest extends TestCase
             new SessionLockPolicy($config),
             $clock,
             new NavFavoritesService($this->favoritesConnection(17, '["/invoices","/stats"]')),
+            $this->createStub(\MyInvoice\Service\Vat\VatStatusService::class),
         );
         $request = (new ServerRequestFactory())
             ->createServerRequest('GET', '/api/auth/me')
@@ -103,6 +104,54 @@ final class MeActionTest extends TestCase
         self::assertSame('2026-07-24T12:03:00.000000Z', $body['idle_expires_at']);
         self::assertSame(str_repeat('b', 64), $body['csrf_token']);
         self::assertSame(['/invoices', '/stats'], $body['user']['nav_favorites']);
+    }
+
+    public function testSupplierCarriesTodaysVatFlagsAndTheDatedHistory(): void
+    {
+        // Cache columns still say "payer", but the history says non-payer today and payer from 2099.
+        $supplierStatement = $this->createMock(\PDOStatement::class);
+        $supplierStatement->method('execute')->willReturn(true);
+        $supplierStatement->method('fetchAll')->willReturn([[
+            'id' => '3', 'company_name' => 'Synthetic s.r.o.', 'ic' => null, 'is_vat_payer' => '1', 'is_identified' => '0',
+            'oss_enabled' => '0', 'taxpayer_type' => null, 'default_payment_due_days' => '14',
+            'default_payment_due_unit' => 'days', 'default_prices_include_vat' => '0', 'auto_send_reminders' => '1',
+            'payment_thanks_enabled' => '0', 'payment_thanks_default_checked' => '0',
+        ]]);
+        $pdo = $this->createMock(\PDO::class);
+        $pdo->method('prepare')->willReturn($supplierStatement);
+        $db = $this->createMock(Connection::class);
+        $db->method('hasColumn')->willReturn(true);
+        $db->method('pdo')->willReturn($pdo);
+
+        $history = [
+            ['valid_from' => '2000-01-01', 'status' => 'non_payer'],
+            ['valid_from' => '2099-01-01', 'status' => 'payer'],
+        ];
+        $vatStatus = $this->createStub(\MyInvoice\Service\Vat\VatStatusService::class);
+        $vatStatus->method('history')->willReturn(new \MyInvoice\Service\Vat\VatStatusHistory($history));
+
+        $config = new Config(['session' => ['lock_after_minutes' => 0], 'auth' => ['allowed_mfa_methods' => ['totp']]]);
+        $clock = $this->createStub(ClockInterface::class);
+        $clock->method('now')->willReturn(new \DateTimeImmutable('2026-07-24 12:00:00 UTC'));
+        $credentials = $this->createStub(PasskeyCredentialRepository::class);
+        $action = new MeAction(
+            $db, $config, $credentials,
+            $this->createStub(\MyInvoice\Repository\UserSupplierRepository::class),
+            new MfaPolicyService($config), new SessionLockPolicy($config), $clock,
+            new NavFavoritesService($this->favoritesConnection(17, '[]')),
+            $vatStatus,
+        );
+        $request = (new ServerRequestFactory())
+            ->createServerRequest('GET', '/api/auth/me')
+            ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => 17, 'email' => 'synthetic@example.invalid', 'role' => 'admin'])
+            ->withAttribute(AuthMiddleware::ATTR_SESSION, ['csrf_token' => 'x', 'assurance_level' => 'strong'])
+            ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, 3);
+
+        $body = json_decode((string) $action($request, (new ResponseFactory())->createResponse())->getBody(), true, flags: JSON_THROW_ON_ERROR);
+
+        self::assertFalse($body['suppliers'][0]['is_vat_payer'], 'today = non-payer per the history, not the stale cache');
+        self::assertFalse($body['suppliers'][0]['is_identified']);
+        self::assertSame($history, $body['suppliers'][0]['vat_history']);
     }
 
     private function favoritesConnection(int $userId, string $stored): Connection

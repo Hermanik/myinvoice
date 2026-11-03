@@ -13,6 +13,7 @@ use MyInvoice\Repository\PasskeyCredentialRepository;
 use MyInvoice\Service\Auth\MfaPolicyService;
 use MyInvoice\Service\Auth\NavFavoritesService;
 use MyInvoice\Service\Auth\SessionLockPolicy;
+use MyInvoice\Service\Vat\VatStatusService;
 use Psr\Clock\ClockInterface;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -28,6 +29,7 @@ final class MeAction
         private readonly SessionLockPolicy $lockPolicy,
         private readonly ClockInterface $clock,
         private readonly NavFavoritesService $navFavorites,
+        private readonly VatStatusService $vatStatus,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -61,12 +63,17 @@ final class MeAction
         }
         $supplierStatement->execute($params);
         $suppliers = $supplierStatement->fetchAll(\PDO::FETCH_ASSOC);
+        $today = VatStatusService::today();
         foreach ($suppliers as &$s) {
             $s['id']                       = (int) $s['id'];
-            $s['is_vat_payer']             = (bool) $s['is_vat_payer'];
+            // VAT status TODAY from the dated history (the columns are just a cache), plus the
+            // compact history so the SPA can resolve the status at any date (invoice DUZP).
             // Identifikovaná osoba (§ 6g–6l, issue #94) — neplátce s přeshraničními
             // povinnostmi; editor podle ní nabídne RC u zahraničních faktur.
-            $s['is_identified']            = (bool) ($s['is_identified'] ?? false);
+            $vatHistory = $this->vatStatus->history($s['id']);
+            $s['is_vat_payer']             = $vatHistory->isPayerAt($today);
+            $s['is_identified']            = $vatHistory->flagsAt($today)['is_identified'];
+            $s['vat_history']              = $vatHistory->rows();
             $s['oss_enabled']              = (bool) ($s['oss_enabled'] ?? false);
             // 'fo' = OSVČ (fyzická osoba), 'po' = s.r.o. (právnická osoba), null = nenastaveno.
             $s['taxpayer_type']            = $s['taxpayer_type'] !== null ? (string) $s['taxpayer_type'] : null;

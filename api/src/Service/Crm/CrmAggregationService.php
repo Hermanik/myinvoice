@@ -6,6 +6,8 @@ namespace MyInvoice\Service\Crm;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Invoice\OverduePolicy;
+use MyInvoice\Service\Vat\VatStatusService;
+use MyInvoice\Service\Vat\VatStatusSql;
 
 /**
  * CRM dashboard aggregation queries.
@@ -40,12 +42,20 @@ final class CrmAggregationService
     private const REV_TYPES   = "('invoice', 'credit_note', 'tax_document')";
     private const COST_STATUS = "('received', 'booked', 'paid')";
 
-    /** Je dodavatel plátce DPH? Určuje net (plátce) vs gross (neplátce) bázi. */
-    private function isVatPayer(int $supplierId): bool
+    /**
+     * Net (payer) vs gross (non-payer) base is decided PER DOCUMENT by the supplier's VAT
+     * status on the document's DUZP ({@see VatStatusSql::amount()}); the `s`/`sc` columns of
+     * the aggregate queries below carry that selected amount, `g`/`n` stay as the raw
+     * gross/net sums (VAT output/input). Never the live supplier flag.
+     */
+    private function revAmount(): string
     {
-        $stmt = $this->db->pdo()->prepare('SELECT is_vat_payer FROM supplier WHERE id = ?');
-        $stmt->execute([$supplierId]);
-        return (bool) $stmt->fetchColumn();
+        return VatStatusSql::amount('i');
+    }
+
+    private function costAmount(): string
+    {
+        return VatStatusSql::amount('pi');
     }
 
     /**
@@ -64,17 +74,17 @@ final class CrmAggregationService
     /** @return array<string,float|int> nulový akumulátor pro merge tržeb a nákladů per měna */
     private function zeroAcc(): array
     {
-        return ['rg' => 0.0, 'rn' => 0.0, 'rgc' => 0.0, 'rnc' => 0.0, 'ic' => 0,
-                'cg' => 0.0, 'cn' => 0.0, 'cgc' => 0.0, 'cnc' => 0.0, 'pc' => 0];
+        return ['rg' => 0.0, 'rn' => 0.0, 'rgc' => 0.0, 'rnc' => 0.0, 'rs' => 0.0, 'rsc' => 0.0, 'ic' => 0,
+                'cg' => 0.0, 'cn' => 0.0, 'cgc' => 0.0, 'cnc' => 0.0, 'cs' => 0.0, 'csc' => 0.0, 'pc' => 0];
     }
 
-    /** Sestaví KPI řádek z akumulátoru — vybere net (plátce) / gross (neplátce) do hlavních polí. */
-    private function buildKpi(string $currency, array $a, bool $payer, ?string $period): array
+    /** Builds a KPI row from the accumulator — the main fields carry the amount selected per document (net for a payer / gross for a non-payer). */
+    private function buildKpi(string $currency, array $a, ?string $period): array
     {
-        $rev     = $payer ? $a['rn']  : $a['rg'];
-        $revCzk  = $payer ? $a['rnc'] : $a['rgc'];
-        $cost    = $payer ? $a['cn']  : $a['cg'];
-        $costCzk = $payer ? $a['cnc'] : $a['cgc'];
+        $rev     = $a['rs'];
+        $revCzk  = $a['rsc'];
+        $cost    = $a['cs'];
+        $costCzk = $a['csc'];
         return [
             'period'          => $period,
             'currency'        => $currency,
@@ -102,17 +112,20 @@ final class CrmAggregationService
      *
      * @return list<array<string,mixed>>
      */
-    private function aggregateRange(int $supplierId, bool $payer, string $from, string $toExcl, ?string $period = null): array
+    private function aggregateRange(int $supplierId, string $from, string $toExcl, ?string $period = null): array
     {
         $pdo = $this->db->pdo();
         $acc = [];
 
+        $revAmt = $this->revAmount();
         $rev = $pdo->prepare(
             "SELECT cur.code AS currency,
                     SUM(COALESCE(i.total_with_vat, 0))    AS g,
                     SUM(COALESCE(i.total_without_vat, 0)) AS n,
                     SUM(COALESCE(i.total_with_vat, 0)    * COALESCE(IF(cur.code='CZK',1,i.exchange_rate),1)) AS gc,
                     SUM(COALESCE(i.total_without_vat, 0) * COALESCE(IF(cur.code='CZK',1,i.exchange_rate),1)) AS nc,
+                    SUM(COALESCE($revAmt, 0)) AS s,
+                    SUM(COALESCE($revAmt, 0) * COALESCE(IF(cur.code='CZK',1,i.exchange_rate),1)) AS sc,
                     COUNT(*) AS cnt
                FROM invoices i
                JOIN currencies cur ON cur.id = i.currency_id
@@ -128,15 +141,19 @@ final class CrmAggregationService
             $acc[$c] = $acc[$c] ?? $this->zeroAcc();
             $acc[$c]['rg'] = (float) $r['g'];  $acc[$c]['rn'] = (float) $r['n'];
             $acc[$c]['rgc'] = (float) $r['gc']; $acc[$c]['rnc'] = (float) $r['nc'];
+            $acc[$c]['rs'] = (float) $r['s'];  $acc[$c]['rsc'] = (float) $r['sc'];
             $acc[$c]['ic'] = (int) $r['cnt'];
         }
 
+        $costAmt = $this->costAmount();
         $cost = $pdo->prepare(
             "SELECT cur.code AS currency,
                     SUM(COALESCE(pi.total_with_vat, 0))    AS g,
                     SUM(COALESCE(pi.total_without_vat, 0)) AS n,
                     SUM(COALESCE(pi.total_with_vat, 0)    * COALESCE(IF(cur.code='CZK',1,pi.exchange_rate),1)) AS gc,
                     SUM(COALESCE(pi.total_without_vat, 0) * COALESCE(IF(cur.code='CZK',1,pi.exchange_rate),1)) AS nc,
+                    SUM(COALESCE($costAmt, 0)) AS s,
+                    SUM(COALESCE($costAmt, 0) * COALESCE(IF(cur.code='CZK',1,pi.exchange_rate),1)) AS sc,
                     COUNT(*) AS cnt
                FROM purchase_invoices pi
                JOIN currencies cur ON cur.id = pi.currency_id
@@ -151,13 +168,14 @@ final class CrmAggregationService
             $acc[$c] = $acc[$c] ?? $this->zeroAcc();
             $acc[$c]['cg'] = (float) $r['g'];  $acc[$c]['cn'] = (float) $r['n'];
             $acc[$c]['cgc'] = (float) $r['gc']; $acc[$c]['cnc'] = (float) $r['nc'];
+            $acc[$c]['cs'] = (float) $r['s'];  $acc[$c]['csc'] = (float) $r['sc'];
             $acc[$c]['pc'] = (int) $r['cnt'];
         }
 
         ksort($acc);
         $out = [];
         foreach ($acc as $c => $a) {
-            $out[] = $this->buildKpi((string) $c, $a, $payer, $period);
+            $out[] = $this->buildKpi((string) $c, $a, $period);
         }
         return $out;
     }
@@ -231,7 +249,6 @@ final class CrmAggregationService
      */
     public function overview(int $supplierId): array
     {
-        $payer = $this->isVatPayer($supplierId);
         $d = static fn (\DateTimeImmutable $x): string => $x->format('Y-m-d');
 
         $today          = new \DateTimeImmutable('today');
@@ -248,14 +265,14 @@ final class CrmAggregationService
         $prevYearYtdEnd = $tomorrow->modify('-1 year'); // loni do stejného dne (půlotevřeně)
 
         return [
-            'current_month'  => $this->aggregateRange($supplierId, $payer, $d($firstThisMonth), $d($firstNextMonth), $firstThisMonth->format('Y-m')),
-            'last_month'     => $this->aggregateRange($supplierId, $payer, $d($firstPrevMonth), $d($firstThisMonth), $firstPrevMonth->format('Y-m')),
-            'ytd'            => $this->aggregateRange($supplierId, $payer, $d($yearStart), $d($tomorrow)),
-            'last_12m'       => $this->aggregateRange($supplierId, $payer, $d($first12), $d($firstNextMonth)),
-            'prev_12m'       => $this->aggregateRange($supplierId, $payer, $d($first24), $d($first12)),
-            'prev_year_full' => $this->aggregateRange($supplierId, $payer, $d($prevYearStart), $d($yearStart)),
-            'prev_year_ytd'  => $this->aggregateRange($supplierId, $payer, $d($prevYearStart), $d($prevYearYtdEnd)),
-            'current_month_pipeline' => $this->currentMonthPipeline($supplierId, $payer, $d($firstThisMonth), $d($firstNextMonth)),
+            'current_month'  => $this->aggregateRange($supplierId, $d($firstThisMonth), $d($firstNextMonth), $firstThisMonth->format('Y-m')),
+            'last_month'     => $this->aggregateRange($supplierId, $d($firstPrevMonth), $d($firstThisMonth), $firstPrevMonth->format('Y-m')),
+            'ytd'            => $this->aggregateRange($supplierId, $d($yearStart), $d($tomorrow)),
+            'last_12m'       => $this->aggregateRange($supplierId, $d($first12), $d($firstNextMonth)),
+            'prev_12m'       => $this->aggregateRange($supplierId, $d($first24), $d($first12)),
+            'prev_year_full' => $this->aggregateRange($supplierId, $d($prevYearStart), $d($yearStart)),
+            'prev_year_ytd'  => $this->aggregateRange($supplierId, $d($prevYearStart), $d($prevYearYtdEnd)),
+            'current_month_pipeline' => $this->currentMonthPipeline($supplierId, $d($firstThisMonth), $d($firstNextMonth)),
             'currencies'     => $this->listCurrencies($supplierId),
         ];
     }
@@ -274,19 +291,18 @@ final class CrmAggregationService
      *                    draft_count:int, proforma_revenue:float, proforma_revenue_czk:float,
      *                    proforma_count:int}>
      */
-    private function currentMonthPipeline(int $supplierId, bool $payer, string $from, string $toExcl): array
+    private function currentMonthPipeline(int $supplierId, string $from, string $toExcl): array
     {
         $pdo = $this->db->pdo();
-        $zero = static fn (): array => ['dg' => 0.0, 'dn' => 0.0, 'dgc' => 0.0, 'dnc' => 0.0, 'dc' => 0,
-                                        'pg' => 0.0, 'pn' => 0.0, 'pgc' => 0.0, 'pnc' => 0.0, 'pc' => 0];
+        $zero = static fn (): array => ['ds' => 0.0, 'dsc' => 0.0, 'dc' => 0, 'ps' => 0.0, 'psc' => 0.0, 'pc' => 0];
         $acc = [];
+        $revAmt = $this->revAmount();
 
         // Koncepty — vydané faktury ve stavu draft (proformy řeší druhý dotaz zvlášť).
         $draft = $pdo->prepare(
             "SELECT cur.code AS currency,
-                    SUM(COALESCE(i.total_with_vat,0))    AS g, SUM(COALESCE(i.total_without_vat,0)) AS n,
-                    SUM(COALESCE(i.total_with_vat,0)    * COALESCE(IF(cur.code='CZK',1,i.exchange_rate),1)) AS gc,
-                    SUM(COALESCE(i.total_without_vat,0) * COALESCE(IF(cur.code='CZK',1,i.exchange_rate),1)) AS nc,
+                    SUM(COALESCE($revAmt,0)) AS s,
+                    SUM(COALESCE($revAmt,0) * COALESCE(IF(cur.code='CZK',1,i.exchange_rate),1)) AS sc,
                     COUNT(*) AS cnt
                FROM invoices i JOIN currencies cur ON cur.id = i.currency_id
               WHERE i.supplier_id = ?
@@ -299,17 +315,15 @@ final class CrmAggregationService
         foreach ($draft->fetchAll(\PDO::FETCH_ASSOC) as $r) {
             $c = (string) $r['currency'];
             $acc[$c] = $acc[$c] ?? $zero();
-            $acc[$c]['dg'] = (float) $r['g'];  $acc[$c]['dn'] = (float) $r['n'];
-            $acc[$c]['dgc'] = (float) $r['gc']; $acc[$c]['dnc'] = (float) $r['nc'];
+            $acc[$c]['ds'] = (float) $r['s'];  $acc[$c]['dsc'] = (float) $r['sc'];
             $acc[$c]['dc'] = (int) $r['cnt'];
         }
 
         // Nespárované proformy — otevřené (issued/sent/reminded) bez dceřiného ostrého dokladu.
         $prof = $pdo->prepare(
             "SELECT cur.code AS currency,
-                    SUM(COALESCE(i.total_with_vat,0))    AS g, SUM(COALESCE(i.total_without_vat,0)) AS n,
-                    SUM(COALESCE(i.total_with_vat,0)    * COALESCE(IF(cur.code='CZK',1,i.exchange_rate),1)) AS gc,
-                    SUM(COALESCE(i.total_without_vat,0) * COALESCE(IF(cur.code='CZK',1,i.exchange_rate),1)) AS nc,
+                    SUM(COALESCE($revAmt,0)) AS s,
+                    SUM(COALESCE($revAmt,0) * COALESCE(IF(cur.code='CZK',1,i.exchange_rate),1)) AS sc,
                     COUNT(*) AS cnt
                FROM invoices i JOIN currencies cur ON cur.id = i.currency_id
               WHERE i.supplier_id = ?
@@ -324,8 +338,7 @@ final class CrmAggregationService
         foreach ($prof->fetchAll(\PDO::FETCH_ASSOC) as $r) {
             $c = (string) $r['currency'];
             $acc[$c] = $acc[$c] ?? $zero();
-            $acc[$c]['pg'] = (float) $r['g'];  $acc[$c]['pn'] = (float) $r['n'];
-            $acc[$c]['pgc'] = (float) $r['gc']; $acc[$c]['pnc'] = (float) $r['nc'];
+            $acc[$c]['ps'] = (float) $r['s'];  $acc[$c]['psc'] = (float) $r['sc'];
             $acc[$c]['pc'] = (int) $r['cnt'];
         }
 
@@ -334,11 +347,11 @@ final class CrmAggregationService
         foreach ($acc as $c => $a) {
             $out[] = [
                 'currency'             => (string) $c,
-                'draft_revenue'        => $payer ? $a['dn']  : $a['dg'],
-                'draft_revenue_czk'    => $payer ? $a['dnc'] : $a['dgc'],
+                'draft_revenue'        => $a['ds'],
+                'draft_revenue_czk'    => $a['dsc'],
                 'draft_count'          => $a['dc'],
-                'proforma_revenue'     => $payer ? $a['pn']  : $a['pg'],
-                'proforma_revenue_czk' => $payer ? $a['pnc'] : $a['pgc'],
+                'proforma_revenue'     => $a['ps'],
+                'proforma_revenue_czk' => $a['psc'],
                 'proforma_count'       => $a['pc'],
             ];
         }
@@ -353,18 +366,21 @@ final class CrmAggregationService
      */
     public function monthlyHistory(int $supplierId, int $monthsBack = 12, ?string $currency = null): array
     {
-        $payer = $this->isVatPayer($supplierId);
         $firstThisMonth = (new \DateTimeImmutable('today'))->modify('first day of this month');
         $from   = $firstThisMonth->modify('-' . ($monthsBack - 1) . ' months')->format('Y-m-d');
         $toExcl = $firstThisMonth->modify('+1 month')->format('Y-m-d');
         $pdo = $this->db->pdo();
         $acc = []; // "ym|currency" => zeroAcc
+        $revAmt = $this->revAmount();
+        $costAmt = $this->costAmount();
 
         $rev = $pdo->prepare(
             "SELECT DATE_FORMAT(" . self::REV_DATE . ", '%Y-%m') AS ym, cur.code AS currency,
                     SUM(COALESCE(i.total_with_vat,0)) AS g, SUM(COALESCE(i.total_without_vat,0)) AS n,
                     SUM(COALESCE(i.total_with_vat,0)    * COALESCE(IF(cur.code='CZK',1,i.exchange_rate),1)) AS gc,
                     SUM(COALESCE(i.total_without_vat,0) * COALESCE(IF(cur.code='CZK',1,i.exchange_rate),1)) AS nc,
+                    SUM(COALESCE($revAmt,0)) AS s,
+                    SUM(COALESCE($revAmt,0) * COALESCE(IF(cur.code='CZK',1,i.exchange_rate),1)) AS sc,
                     COUNT(*) AS cnt
                FROM invoices i JOIN currencies cur ON cur.id = i.currency_id
               WHERE i.supplier_id = ?
@@ -377,7 +393,8 @@ final class CrmAggregationService
             $k = $r['ym'] . '|' . $r['currency'];
             $acc[$k] = $acc[$k] ?? $this->zeroAcc();
             $acc[$k]['rg'] = (float) $r['g'];  $acc[$k]['rn'] = (float) $r['n'];
-            $acc[$k]['rgc'] = (float) $r['gc']; $acc[$k]['rnc'] = (float) $r['nc']; $acc[$k]['ic'] = (int) $r['cnt'];
+            $acc[$k]['rgc'] = (float) $r['gc']; $acc[$k]['rnc'] = (float) $r['nc'];
+            $acc[$k]['rs'] = (float) $r['s'];  $acc[$k]['rsc'] = (float) $r['sc']; $acc[$k]['ic'] = (int) $r['cnt'];
         }
 
         $cost = $pdo->prepare(
@@ -385,6 +402,8 @@ final class CrmAggregationService
                     SUM(COALESCE(pi.total_with_vat,0)) AS g, SUM(COALESCE(pi.total_without_vat,0)) AS n,
                     SUM(COALESCE(pi.total_with_vat,0)    * COALESCE(IF(cur.code='CZK',1,pi.exchange_rate),1)) AS gc,
                     SUM(COALESCE(pi.total_without_vat,0) * COALESCE(IF(cur.code='CZK',1,pi.exchange_rate),1)) AS nc,
+                    SUM(COALESCE($costAmt,0)) AS s,
+                    SUM(COALESCE($costAmt,0) * COALESCE(IF(cur.code='CZK',1,pi.exchange_rate),1)) AS sc,
                     COUNT(*) AS cnt
                FROM purchase_invoices pi JOIN currencies cur ON cur.id = pi.currency_id
               WHERE pi.supplier_id = ?
@@ -397,7 +416,8 @@ final class CrmAggregationService
             $k = $r['ym'] . '|' . $r['currency'];
             $acc[$k] = $acc[$k] ?? $this->zeroAcc();
             $acc[$k]['cg'] = (float) $r['g'];  $acc[$k]['cn'] = (float) $r['n'];
-            $acc[$k]['cgc'] = (float) $r['gc']; $acc[$k]['cnc'] = (float) $r['nc']; $acc[$k]['pc'] = (int) $r['cnt'];
+            $acc[$k]['cgc'] = (float) $r['gc']; $acc[$k]['cnc'] = (float) $r['nc'];
+            $acc[$k]['cs'] = (float) $r['s'];  $acc[$k]['csc'] = (float) $r['sc']; $acc[$k]['pc'] = (int) $r['cnt'];
         }
 
         $rows = [];
@@ -406,7 +426,7 @@ final class CrmAggregationService
             if ($currency !== null && $cur !== $currency) {
                 continue;
             }
-            $rows[] = $this->buildKpi($cur, $a, $payer, $ym);
+            $rows[] = $this->buildKpi($cur, $a, $ym);
         }
         usort($rows, static fn ($x, $y) => ($x['period'] <=> $y['period']) ?: strcmp($x['currency'], $y['currency']));
         return $rows;
@@ -425,7 +445,7 @@ final class CrmAggregationService
         // Parametr $currency zachován pro BC (ignoruje se — vždy ranking v CZK).
         unset($currency);
         // Net pro plátce (DPH se vrací), gross pro neplátce — shodně s ostatními tržbami.
-        $rev = $this->isVatPayer($supplierId) ? 'i.total_without_vat' : 'i.total_with_vat';
+        $rev = $this->revAmount();
         $start = (new \DateTimeImmutable())->modify('-' . $monthsBack . ' months')->format('Y-m-01');
         $params = [$supplierId, $start];
         $sql = "
@@ -471,13 +491,15 @@ final class CrmAggregationService
      */
     public function yearlyHistory(int $supplierId, ?string $currency = null): array
     {
-        $payer = $this->isVatPayer($supplierId);
         $pdo = $this->db->pdo();
         $acc = []; // "year|currency" => zeroAcc
+        $revAmt = $this->revAmount();
+        $costAmt = $this->costAmount();
 
         $rev = $pdo->prepare(
             "SELECT YEAR(" . self::REV_DATE . ") AS yr, cur.code AS currency,
                     SUM(COALESCE(i.total_with_vat,0)) AS g, SUM(COALESCE(i.total_without_vat,0)) AS n,
+                    SUM(COALESCE($revAmt,0)) AS s,
                     COUNT(*) AS cnt
                FROM invoices i JOIN currencies cur ON cur.id = i.currency_id
               WHERE i.supplier_id = ?
@@ -488,12 +510,13 @@ final class CrmAggregationService
         foreach ($rev->fetchAll(\PDO::FETCH_ASSOC) as $r) {
             $k = $r['yr'] . '|' . $r['currency'];
             $acc[$k] = $acc[$k] ?? $this->zeroAcc();
-            $acc[$k]['rg'] = (float) $r['g']; $acc[$k]['rn'] = (float) $r['n']; $acc[$k]['ic'] = (int) $r['cnt'];
+            $acc[$k]['rg'] = (float) $r['g']; $acc[$k]['rn'] = (float) $r['n']; $acc[$k]['rs'] = (float) $r['s']; $acc[$k]['ic'] = (int) $r['cnt'];
         }
 
         $cost = $pdo->prepare(
             "SELECT YEAR(" . self::COST_DATE . ") AS yr, cur.code AS currency,
                     SUM(COALESCE(pi.total_with_vat,0)) AS g, SUM(COALESCE(pi.total_without_vat,0)) AS n,
+                    SUM(COALESCE($costAmt,0)) AS s,
                     COUNT(*) AS cnt
                FROM purchase_invoices pi JOIN currencies cur ON cur.id = pi.currency_id
               WHERE pi.supplier_id = ?
@@ -504,7 +527,7 @@ final class CrmAggregationService
         foreach ($cost->fetchAll(\PDO::FETCH_ASSOC) as $r) {
             $k = $r['yr'] . '|' . $r['currency'];
             $acc[$k] = $acc[$k] ?? $this->zeroAcc();
-            $acc[$k]['cg'] = (float) $r['g']; $acc[$k]['cn'] = (float) $r['n']; $acc[$k]['pc'] = (int) $r['cnt'];
+            $acc[$k]['cg'] = (float) $r['g']; $acc[$k]['cn'] = (float) $r['n']; $acc[$k]['cs'] = (float) $r['s']; $acc[$k]['pc'] = (int) $r['cnt'];
         }
 
         $rows = [];
@@ -513,8 +536,8 @@ final class CrmAggregationService
             if ($currency !== null && $cur !== $currency) {
                 continue;
             }
-            $rv = $payer ? $a['rn'] : $a['rg'];
-            $ct = $payer ? $a['cn'] : $a['cg'];
+            $rv = $a['rs'];
+            $ct = $a['cs'];
             $rows[] = [
                 'year'           => (int) $yr,
                 'currency'       => $cur,
@@ -538,7 +561,7 @@ final class CrmAggregationService
         // Parametr $currency zachován pro BC (ignoruje se — vždy ranking v CZK).
         unset($currency);
         // Net pro plátce (vstupní DPH je odpočitatelná), gross pro neplátce — jako Náklady.
-        $cost = $this->isVatPayer($supplierId) ? 'pi.total_without_vat' : 'pi.total_with_vat';
+        $cost = $this->costAmount();
         $start = (new \DateTimeImmutable())->modify('-' . $monthsBack . ' months')->format('Y-m-01');
         $params = [$supplierId, $start];
         $sql = "
@@ -853,7 +876,7 @@ final class CrmAggregationService
         // CZK přepočet — bez něj sumace EUR+CZK ve stejné kategorii dává nesmysl
         // (100 EUR + 50 000 CZK = 50 100). Parametr $currency BC, vždy CZK.
         unset($currency);
-        $cost = $this->isVatPayer($supplierId) ? 'pi.total_without_vat' : 'pi.total_with_vat';
+        $cost = $this->costAmount();
         $start = (new \DateTimeImmutable())->modify('-' . $monthsBack . ' months')->format('Y-m-d');
         $params = [$supplierId, $start];
         $sql = "
@@ -899,7 +922,7 @@ final class CrmAggregationService
         // CZK přepočet — bez něj sumace EUR+CZK ve stejné kategorii dává nesmysl.
         // Parametr $currency BC, vždy CZK (jako expenseBreakdown).
         unset($currency);
-        $rev = $this->isVatPayer($supplierId) ? 'i.total_without_vat' : 'i.total_with_vat';
+        $rev = $this->revAmount();
         $start = (new \DateTimeImmutable())->modify('-' . $monthsBack . ' months')->format('Y-m-d');
         $params = [$supplierId, $start];
         $sql = "
@@ -940,7 +963,7 @@ final class CrmAggregationService
     {
         // GROUP BY jen po klientovi (ne per currency) — multi-currency klient byl rozdělen
         // do N řádků (jedna měna = jedna pozice v listu, partial revenue). CZK přepočet.
-        $rev = $this->isVatPayer($supplierId) ? 'i.total_without_vat' : 'i.total_with_vat';
+        $rev = $this->revAmount();
         $today = (new \DateTimeImmutable())->format('Y-m-d');
         $stmt = $this->db->pdo()->prepare(
             "SELECT c.id AS client_id, c.company_name,
@@ -1269,11 +1292,13 @@ final class CrmAggregationService
     private function taxDeadlineItems(int $supplierId, \DateTimeImmutable $now): array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT is_vat_payer, taxpayer_type, vat_period FROM supplier WHERE id = ?'
+            'SELECT taxpayer_type, vat_period FROM supplier WHERE id = ?'
         );
         $stmt->execute([$supplierId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-        if (!(bool) ($row['is_vat_payer'] ?? false)) {
+        // Filing deadlines only exist while the supplier is a VAT payer — decided by the dated
+        // status history as of "now", not by the cached flag.
+        if (!VatStatusService::forConnection($this->db)->isPayerAt($supplierId, $now->format('Y-m-d'))) {
             return [];
         }
 

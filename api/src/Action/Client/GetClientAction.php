@@ -7,6 +7,7 @@ namespace MyInvoice\Action\Client;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Service\Vat\VatStatusSql;
 use MyInvoice\Repository\ClientEmailContactRepository;
 use MyInvoice\Repository\ClientRepository;
 use MyInvoice\Service\Invoice\OverduePolicy;
@@ -44,11 +45,9 @@ final class GetClientAction
         $stmtP->execute([$id]);
         $client['purchase_invoices_count'] = (int) $stmtP->fetchColumn();
 
-        // VAT-aware obrat — plátci DPH vidí čísla bez DPH (relevantní pro DPH limit),
-        // neplátci s DPH (fakturované částky odpovídají reálnému inkasu).
-        $vatStmt = $pdo->prepare('SELECT is_vat_payer FROM supplier WHERE id = ?');
-        $vatStmt->execute([$sid]);
-        $rev = ((bool) $vatStmt->fetchColumn()) ? 'i.total_without_vat' : 'i.total_with_vat';
+        // VAT-aware revenue — documents of a VAT payer count without VAT (relevant for the VAT limit), documents of a
+        // non-payer including VAT (invoiced amounts match the real cash-in); decided by the status on the document's DUZP.
+        $rev = VatStatusSql::amount('i');
 
         // CZK přepočet: pro klienty s multi-currency obratem chceme graf v jedné měně.
         // i.exchange_rate je CZK / 1 jednotka cizí měny, fixovaná k DUZP (CNB).

@@ -35,6 +35,7 @@ use MyInvoice\Service\Auth\PasswordHasher;
 
 $container = Bootstrap::buildApp()->getContainer();
 $pdo = $container->get(Connection::class)->pdo();
+$vatStatus = $container->get(\MyInvoice\Service\Vat\VatStatusService::class);
 
 $existing = (int) $pdo->query('SELECT COUNT(*) FROM supplier')->fetchColumn()
     + (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
@@ -82,6 +83,7 @@ try {
         ]);
         $supplierId = (int) $pdo->lastInsertId();
         $supplierIds[] = $supplierId;
+        $vatStatus->seedInitialRow($supplierId, true, false);
 
         $defaultCurrencyId = 0;
         foreach ([

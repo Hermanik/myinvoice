@@ -54,6 +54,7 @@ V `cmd/` jsou připravené `.cmd` (Windows Task Scheduler) i `.sh` (Linux cron) 
 | `cron-bank-scan` | každých 30 min |
 | `cron-bank-email-notices` | každých 30 min |
 | `cron-send-reminders` | 1× denně 09:00, Po–Pá |
+| `cron-refresh-vat-status` | 1× denně 00:05 |
 
 Detaily v `cmd/README.md`.
 

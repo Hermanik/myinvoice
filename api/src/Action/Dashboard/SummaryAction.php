@@ -8,6 +8,8 @@ use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Service\Vat\VatStatusService;
+use MyInvoice\Service\Vat\VatStatusSql;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -37,6 +39,7 @@ final class SummaryAction
     public function __construct(
         private readonly Connection $db,
         private readonly OverduePolicy $overduePolicy,
+        private readonly VatStatusService $vatStatus,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -46,32 +49,32 @@ final class SummaryAction
         $year = (int) $today->format('Y');
         $prevYear = $year - 1;
         $sid = (int) $request->getAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, 0);
-        $isVatPayer = $this->fetchIsVatPayer($pdo, $sid);
+        $isVatPayer = $this->fetchIsVatPayer($sid);
         // revenueByYear počítáme jednou a sdílíme s forecastem (CAGR trend) — žádný druhý dotaz.
-        $revenueByYear = $this->revenueByYear($pdo, $sid, $isVatPayer);
+        $revenueByYear = $this->revenueByYear($pdo, $sid);
 
         return Json::ok($response, [
-            'kpi'                    => $this->kpi($pdo, $year, $prevYear, $sid, $isVatPayer),
+            'kpi'                    => $this->kpi($pdo, $year, $prevYear, $sid),
             'overdue'                => $this->overdue($pdo, $sid),
             'unpaid_upcoming'        => $this->unpaidUpcoming($pdo, $sid),
             'draft_invoices'         => $this->draftInvoices($pdo, $sid),
-            'top_clients_ytd'        => $this->topClients($pdo, $year, $sid, $isVatPayer),
-            'top_clients_prev_year'  => $this->topClients($pdo, $prevYear, $sid, $isVatPayer),
-            'top_clients_12m'        => $this->topClientsRolling12m($pdo, $sid, $isVatPayer),
-            'revenue_by_month'       => $this->revenueByMonth($pdo, $sid, $isVatPayer),
-            'revenue_breakdown_12m'  => $this->revenueBreakdown12m($pdo, $sid, $isVatPayer),
-            'purchase_costs_by_month'=> $this->purchaseCostsByMonth($pdo, $sid, $isVatPayer),
+            'top_clients_ytd'        => $this->topClients($pdo, $year, $sid),
+            'top_clients_prev_year'  => $this->topClients($pdo, $prevYear, $sid),
+            'top_clients_12m'        => $this->topClientsRolling12m($pdo, $sid),
+            'revenue_by_month'       => $this->revenueByMonth($pdo, $sid),
+            'revenue_breakdown_12m'  => $this->revenueBreakdown12m($pdo, $sid),
+            'purchase_costs_by_month'=> $this->purchaseCostsByMonth($pdo, $sid),
             'revenue_by_year'        => $revenueByYear,
-            'rolling_12m'            => $this->rolling12mRevenue($pdo, $sid, $isVatPayer),
+            'rolling_12m'            => $this->rolling12mRevenue($pdo, $sid),
             'cashflow_ytd'           => $this->cashflowYtd($pdo, $year, $prevYear, $sid),
             'payment_days_histogram' => $this->paymentDaysHistogram($pdo, $sid),
             'vat_breakdown_12m'      => $isVatPayer ? $this->vatBreakdown12m($pdo, $sid) : [],
             'cashflow_forecast'      => $this->cashflowForecast($pdo, $sid),
             'due_buckets'            => $this->dueBuckets($pdo, $sid),
             'aging_report'           => $this->agingReport($pdo, $sid),
-            'revenue_forecast'       => $this->revenueForecast($pdo, $year, $prevYear, $sid, $isVatPayer, $revenueByYear),
-            'invoice_size_histogram' => $this->invoiceSizeHistogram($pdo, $sid, $isVatPayer),
-            'revenue_last_30d'       => $this->revenueLast30d($pdo, $sid, $isVatPayer),
+            'revenue_forecast'       => $this->revenueForecast($pdo, $year, $prevYear, $sid, $revenueByYear),
+            'invoice_size_histogram' => $this->invoiceSizeHistogram($pdo, $sid),
+            'revenue_last_30d'       => $this->revenueLast30d($pdo, $sid),
             'active_recurring_count' => $this->activeRecurringCount($pdo, $sid),
             'active_clients_count'   => $this->activeClientsCount($pdo, $sid),
             'pending_approvals'      => $this->pendingApprovals($pdo, $sid),
@@ -105,9 +108,9 @@ final class SummaryAction
      * Obrat za posledních 30 dní per měna — live indikátor aktuální fakturace.
      * @return list<array{currency: string, total: float, invoice_count: int}>
      */
-    private function revenueLast30d(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function revenueLast30d(\PDO $pdo, int $sid): array
     {
-        $rev = $this->revenueCol($isVatPayer);
+        $rev = $this->revenueCol();
         $sql = "SELECT cur.code AS currency, SUM($rev) AS total, COUNT(*) AS invoice_count
                   FROM invoices i
                   JOIN currencies cur ON cur.id = i.currency_id
@@ -132,9 +135,9 @@ final class SummaryAction
      *
      * @return list<array{category_id:?int, code:?string, label:?string, total: float, count: int, percent: float}>
      */
-    private function revenueBreakdown12m(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function revenueBreakdown12m(\PDO $pdo, int $sid): array
     {
-        $rev = $this->revenueCol($isVatPayer);
+        $rev = $this->revenueCol();
         $sql = "SELECT i.revenue_category_id, rc.code, rc.label,
                        SUM($rev * COALESCE(IF(cur.code = 'CZK', 1, i.exchange_rate), 1)) AS total,
                        COUNT(*) AS cnt
@@ -167,9 +170,9 @@ final class SummaryAction
      *
      * @return list<array{year: int, currency: string, total: float, invoice_count: int}>
      */
-    private function revenueByYear(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function revenueByYear(\PDO $pdo, int $sid): array
     {
-        $rev = $this->revenueCol($isVatPayer);
+        $rev = $this->revenueCol();
         $sql = "SELECT YEAR(COALESCE(i.tax_date, i.issue_date)) AS year,
                        cur.code AS currency,
                        SUM($rev) AS total,
@@ -192,14 +195,13 @@ final class SummaryAction
     }
 
     /**
-     * Zjistí, zda je aktuální dodavatel plátce DPH — určuje, který sloupec použijeme
-     * pro agregaci obratu (`total_without_vat` pro plátce, `total_with_vat` pro neplátce).
+     * Whether the supplier is a VAT payer TODAY — presentation only (the `is_vat_payer` flag
+     * in the response, VAT widgets). The revenue/cost sums themselves are decided PER DOCUMENT
+     * by the supplier's status on its DUZP (see revenueCol()/costCol()).
      */
-    private function fetchIsVatPayer(\PDO $pdo, int $sid): bool
+    private function fetchIsVatPayer(int $sid): bool
     {
-        $stmt = $pdo->prepare('SELECT is_vat_payer FROM supplier WHERE id = ?');
-        $stmt->execute([$sid]);
-        return (bool) $stmt->fetchColumn();
+        return $this->vatStatus->isPayerAt($sid, VatStatusService::today());
     }
 
     /**
@@ -222,7 +224,11 @@ final class SummaryAction
             $band = 'none';
         }
 
-        if (!isset(self::FLAT_TAX_BANDS[$band])) {
+        // A VAT payer cannot be in the flat tax regime (§ 7a ZDP): a year with any payer day (e.g. the
+        // registration year) has no flat-tax limit to watch, whatever band is still set.
+        if (!isset(self::FLAT_TAX_BANDS[$band])
+            || $this->vatStatus->history($sid)->hasPayerTimeBetween("$year-01-01", "$year-12-31")
+        ) {
             return ['applicable' => false, 'band' => null, 'current_czk' => 0.0,
                     'limit_czk' => null, 'percent' => null, 'status' => null, 'year' => $year];
         }
@@ -260,10 +266,14 @@ final class SummaryAction
         ];
     }
 
-    /** SQL fragment vybírající správný sloupec obratu dle plátcovství DPH. */
-    private function revenueCol(bool $isVatPayer): string
+    /**
+     * SQL expression of an invoice's revenue amount (alias `i`), decided PER INVOICE by the
+     * supplier's VAT status on its DUZP: base without VAT for a payer, total for a non-payer.
+     * A year that mixes both (the registration year) therefore sums each invoice correctly.
+     */
+    private function revenueCol(): string
     {
-        return $isVatPayer ? 'i.total_without_vat' : 'i.total_with_vat';
+        return VatStatusSql::amount('i');
     }
 
     /**
@@ -271,10 +281,11 @@ final class SummaryAction
      * náklad je bez DPH; neplátce ji odečíst nemůže → náklad je s DPH.
      * Náklady/trend jsou „cost" metrika (ne cash), proto net pro plátce — shodně
      * s PurchaseSummaryAction::costCol. (Závazky/cashflow dál používají gross.)
+     * Decided PER DOCUMENT by the supplier's status on its DUZP (see {@see VatStatusSql::amount()}).
      */
-    private function costCol(bool $isVatPayer): string
+    private function costCol(): string
     {
-        return $isVatPayer ? 'pi.total_without_vat' : 'pi.total_with_vat';
+        return VatStatusSql::amount('pi');
     }
 
     /**
@@ -301,10 +312,10 @@ final class SummaryAction
         ];
     }
 
-    private function kpi(\PDO $pdo, int $year, int $prevYear, int $sid, bool $isVatPayer): array
+    private function kpi(\PDO $pdo, int $year, int $prevYear, int $sid): array
     {
         $overdueOperator = $this->overduePolicy->comparisonOperator();
-        $rev = $this->revenueCol($isVatPayer);
+        $rev = $this->revenueCol();
         // Obrat per měna pro YTD (letošní vs. minulý rok)
         // Záměrně počítáme i NEZAPLACENÉ faktury, pokud jsou vystavené (status: issued / sent / paid).
         // Dobropisy (credit_note) ZAHRNUJEME — mají záporné total_with_vat (viz CancelInvoiceAction),
@@ -434,7 +445,7 @@ final class SummaryAction
         }
 
         // Přijaté faktury YTD — náklady (net pro plátce), počet, nezaplacené, po splatnosti
-        $costCol = $this->costCol($isVatPayer);
+        $costCol = $this->costCol();
         $stmt = $pdo->prepare(
             "SELECT COUNT(*) AS cnt,
                     COALESCE(SUM({$costCol} * IF(cur.code = 'CZK' OR pi.exchange_rate IS NULL, 1, pi.exchange_rate)), 0) AS costs_czk
@@ -535,9 +546,9 @@ final class SummaryAction
         return "(i.invoice_type NOT IN ('invoice','proforma','tax_document') OR i.amount_to_pay - i.paid_total > 0)";
     }
 
-    private function purchaseCostsByMonth(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function purchaseCostsByMonth(\PDO $pdo, int $sid): array
     {
-        $costCol = $this->costCol($isVatPayer);
+        $costCol = $this->costCol();
         $sql = "SELECT DATE_FORMAT(pi.issue_date, '%Y-%m') AS ym,
                        SUM({$costCol} * IF(cur.code = 'CZK' OR pi.exchange_rate IS NULL, 1, pi.exchange_rate)) AS total
                   FROM purchase_invoices pi
@@ -645,9 +656,9 @@ final class SummaryAction
         ], $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: []);
     }
 
-    private function topClients(\PDO $pdo, int $year, int $sid, bool $isVatPayer): array
+    private function topClients(\PDO $pdo, int $year, int $sid): array
     {
-        $rev = $this->revenueCol($isVatPayer);
+        $rev = $this->revenueCol();
         // Přepočet na CZK přes i.exchange_rate (CNB k DUZP). CZK řádky multiplier 1.
         // Grupujeme jen po klientovi (ne per currency) — multi-currency klient se neroztrhne
         // a ranking je správný (1000 EUR > 20 000 CZK).
@@ -689,9 +700,9 @@ final class SummaryAction
      *   ...
      * ]
      */
-    private function revenueByMonth(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function revenueByMonth(\PDO $pdo, int $sid): array
     {
-        $rev = $this->revenueCol($isVatPayer);
+        $rev = $this->revenueCol();
         // Okno aktuálních 12 měsíců + 12 měsíců o rok dříve = celkem 24 měsíců dat.
         // Začátek = (dnes − 23 měsíců, 1. den měsíce).
         $sql = "SELECT cur.code AS currency,
@@ -759,9 +770,9 @@ final class SummaryAction
      * Top klienti za posledních 12 měsíců (rolling window) — robustní vůči začátku roku,
      * kdy by YTD bylo téměř prázdné.
      */
-    private function topClientsRolling12m(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function topClientsRolling12m(\PDO $pdo, int $sid): array
     {
-        $rev = $this->revenueCol($isVatPayer);
+        $rev = $this->revenueCol();
         // Stejné jako topClients() — CZK přepočet + grupování po klientovi pro správný ranking
         // napříč měnami (1000 EUR > 20 000 CZK).
         $revCzk = "$rev * COALESCE(IF(cur.code = 'CZK', 1, i.exchange_rate), 1)";
@@ -796,9 +807,9 @@ final class SummaryAction
      *
      * @return list<array{currency: string, total: float, prev_period_total: float}>
      */
-    private function rolling12mRevenue(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function rolling12mRevenue(\PDO $pdo, int $sid): array
     {
-        $rev = $this->revenueCol($isVatPayer);
+        $rev = $this->revenueCol();
         $sql = "SELECT cur.code AS currency,
                        SUM(CASE WHEN COALESCE(i.tax_date, i.issue_date) >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
                                  THEN $rev ELSE 0 END) AS total_12m,
@@ -1103,9 +1114,9 @@ final class SummaryAction
      * @param list<array{year: int, currency: string, total: float, invoice_count: int}> $revenueByYear sdílený výsledek revenueByYear() — zdroj CAGR trendu
      * @return list<array{currency: string, ytd: float, prev_year_remainder: float, prev_year_full: float, growth_short: float, growth_trend: float, forecast: float, forecast_low: float, forecast_high: float}>
      */
-    private function revenueForecast(\PDO $pdo, int $year, int $prevYear, int $sid, bool $isVatPayer, array $revenueByYear): array
+    private function revenueForecast(\PDO $pdo, int $year, int $prevYear, int $sid, array $revenueByYear): array
     {
-        $rev = $this->revenueCol($isVatPayer);
+        $rev = $this->revenueCol();
         // Scope musí pokrýt i rok−2, protože rolling-24m okno (prev_roll_12m) sahá dva roky zpět.
         $prevPrevYear = $prevYear - 1;
         $sql = "SELECT cur.code AS currency,
@@ -1226,16 +1237,16 @@ final class SummaryAction
      *
      * @return array{buckets: list<array{key: string, label: string, count: int, total_czk: float}>, total: int}
      */
-    private function invoiceSizeHistogram(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function invoiceSizeHistogram(\PDO $pdo, int $sid): array
     {
-        $rev = $isVatPayer ? 'total_without_vat' : 'total_with_vat';
+        $rev = $this->revenueCol();
         // Pro non-CZK fakturu = total * COALESCE(exchange_rate, 1).
-        $sql = "SELECT $rev * COALESCE(exchange_rate, 1) AS size_czk
-                  FROM invoices
-                 WHERE supplier_id = ?
-                   AND status IN ('issued', 'sent', 'reminded', 'paid')
-                   AND invoice_type IN ('invoice', 'credit_note', 'tax_document')
-                   AND COALESCE(tax_date, issue_date) >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)";
+        $sql = "SELECT $rev * COALESCE(i.exchange_rate, 1) AS size_czk
+                  FROM invoices i
+                 WHERE i.supplier_id = ?
+                   AND i.status IN ('issued', 'sent', 'reminded', 'paid')
+                   AND i.invoice_type IN ('invoice', 'credit_note', 'tax_document')
+                   AND COALESCE(i.tax_date, i.issue_date) >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)";
         $stmt = $pdo->prepare($sql);
         $stmt->execute([$sid]);
         $sizes = array_map(static fn ($v) => (float) $v, $stmt->fetchAll(\PDO::FETCH_COLUMN));

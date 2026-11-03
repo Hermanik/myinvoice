@@ -110,6 +110,11 @@ final class ErrorCatalog
         'Klient nenalezen.' => 'Client not found.',
         'Faktura nenalezena.' => 'Invoice not found.',
         'Validace selhala' => 'Validation failed',
+        // VAT status history (Settings → "Plátcovství DPH")
+        'Nejstarší záznam nelze smazat — historie musí vždy začínat nějakým stavem.' => 'The earliest entry cannot be deleted — the history must always start with some status.',
+        'Pro toto datum už záznam existuje. Smažte ho a vytvořte znovu.' => 'An entry for this date already exists. Delete it and create it again.',
+        'Záznam nenalezen.' => 'Entry not found.',
+        'V zvoleném období nebyl dodavatel plátcem DPH ani identifikovanou osobou — výkaz nelze vygenerovat. Plátcovství DPH se nastavuje v Nastavení → Plátcovství DPH.' => 'The supplier was neither a VAT payer nor a VAT-identified person in the selected period — the statement cannot be generated. The VAT status is set in Settings → VAT status.',
     ];
 
     /**

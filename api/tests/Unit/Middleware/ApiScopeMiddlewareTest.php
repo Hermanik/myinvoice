@@ -208,6 +208,17 @@ final class ApiScopeMiddlewareTest extends TestCase
         }
     }
 
+    public function testBearerCanLookUpVatStatusOnADateButNotEditTheHistory(): void
+    {
+        $r = $this->middleware()->process($this->bearer('GET', '/api/settings/vat-status', 'read'), $this->okHandler());
+        self::assertSame(204, $r->getStatusCode());
+
+        foreach ([['GET', '/api/settings/vat-status/history'], ['POST', '/api/settings/vat-status/history'], ['DELETE', '/api/settings/vat-status/history/3']] as [$method, $path]) {
+            $r = $this->middleware()->process($this->bearer($method, $path, 'read_write'), $this->okHandler());
+            self::assertSame(403, $r->getStatusCode(), "bearer $method $path");
+        }
+    }
+
     private function middleware(): ApiScopeMiddleware
     {
         return new ApiScopeMiddleware(new ResponseFactory());

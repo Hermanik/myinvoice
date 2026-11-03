@@ -1290,6 +1290,19 @@ final class InvoiceRepository
      */
     public function clientIsEuForeign(int $clientId): bool
     {
+        $r = $this->clientCountry($clientId);
+        return $r !== null && $r['is_eu'] && $r['iso2'] !== 'CZ';
+    }
+
+    /** Is the customer domestic (country CZ)? An unknown customer is not. */
+    public function clientIsDomestic(int $clientId): bool
+    {
+        return ($this->clientCountry($clientId)['iso2'] ?? null) === 'CZ';
+    }
+
+    /** @return array{iso2: string, is_eu: bool}|null null = unknown client */
+    private function clientCountry(int $clientId): ?array
+    {
         $stmt = $this->db->pdo()->prepare(
             "SELECT COALESCE(co.is_eu, 0) AS is_eu, COALESCE(co.iso2, 'CZ') AS iso2
                FROM clients c LEFT JOIN countries co ON co.id = c.country_id
@@ -1297,8 +1310,7 @@ final class InvoiceRepository
         );
         $stmt->execute([$clientId]);
         $r = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($r === false) return false;
-        return ((int) $r['is_eu'] === 1) && ((string) $r['iso2'] !== 'CZ');
+        return $r === false ? null : ['iso2' => (string) $r['iso2'], 'is_eu' => (int) $r['is_eu'] === 1];
     }
 
     private function castInvoice(array $row): array

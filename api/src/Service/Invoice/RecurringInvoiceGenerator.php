@@ -12,6 +12,7 @@ use MyInvoice\Service\Currency\ExchangeRateApplier;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
 use MyInvoice\Service\Stats\StatsRecomputer;
 use MyInvoice\Service\Validation\InvoiceAmountPolicy;
+use MyInvoice\Service\Vat\VatStatusService;
 
 /**
  * Vygeneruje fakturu ze šablony pravidelné fakturace.
@@ -38,6 +39,7 @@ use MyInvoice\Service\Validation\InvoiceAmountPolicy;
  *     sent_to: list<string>,
  *     new_next_run_date: ?string,
  *     template_status: string,
+ *     warnings: list<array{code: string, message: string}>,
  * }
  */
 final class RecurringInvoiceGenerator
@@ -55,6 +57,8 @@ final class RecurringInvoiceGenerator
         private readonly StatsRecomputer $stats,
         private readonly ActivityLogger $logger,
         private readonly RecurringPriceListService $priceList,
+        private readonly VatStatusService $vatStatus,
+        private readonly InvoiceVatAdvisor $vatAdvisor,
     ) {}
 
     /**
@@ -108,8 +112,9 @@ final class RecurringInvoiceGenerator
             $issued = false;
             $sentTo = [];
             $varsymbol = null;
+            $warnings = [];
         } else {
-            ['issued' => $issued, 'sent_to' => $sentTo, 'varsymbol' => $varsymbol] =
+            ['issued' => $issued, 'sent_to' => $sentTo, 'varsymbol' => $varsymbol, 'warnings' => $warnings] =
                 $this->performIssue($invoiceId, $template, $userId, $ip, $ua);
         }
 
@@ -126,6 +131,7 @@ final class RecurringInvoiceGenerator
             'auto_issue'  => $template['auto_issue'],
             'auto_send'   => $template['auto_send_email'],
             'sent_to'     => $sentTo,
+            'warnings'    => array_column($warnings, 'code'),
             'advance_schedule' => $advanceSchedule,
             'next_run'    => $newNext,
             'new_status'  => $newStatus,
@@ -138,6 +144,7 @@ final class RecurringInvoiceGenerator
             'sent_to'           => $sentTo,
             'new_next_run_date' => $newNext,
             'template_status'   => $newStatus,
+            'warnings'          => $warnings,
         ];
     }
 
@@ -246,6 +253,7 @@ final class RecurringInvoiceGenerator
         $issued = false;
         $sentTo = [];
         $varsymbol = null;
+        $warnings = [];
 
         if ($existing !== null && (string) $existing['status'] !== 'draft') {
             // Už vystaveno (ručně nebo dřívějším během) — nic neděláme, jen posuneme rozvrh.
@@ -263,7 +271,7 @@ final class RecurringInvoiceGenerator
             $this->calc->recompute($invoiceId);
             $this->rateApplier->applyToInvoice($invoiceId);
 
-            ['issued' => $issued, 'sent_to' => $sentTo, 'varsymbol' => $varsymbol] =
+            ['issued' => $issued, 'sent_to' => $sentTo, 'varsymbol' => $varsymbol, 'warnings' => $warnings] =
                 $this->performIssue($invoiceId, $template, $userId, $ip, $ua);
         }
 
@@ -276,6 +284,7 @@ final class RecurringInvoiceGenerator
             'auto_issue'  => $template['auto_issue'],
             'auto_send'   => $template['auto_send_email'],
             'sent_to'     => $sentTo,
+            'warnings'    => array_column($warnings, 'code'),
             'next_run'    => $newNext,
             'new_status'  => $newStatus,
             'from_opened_draft' => $existing !== null,
@@ -288,6 +297,7 @@ final class RecurringInvoiceGenerator
             'sent_to'           => $sentTo,
             'new_next_run_date' => $newNext,
             'template_status'   => $newStatus,
+            'warnings'          => $warnings,
         ];
     }
 
@@ -305,19 +315,32 @@ final class RecurringInvoiceGenerator
     /**
      * Vystaví fakturu dle per-šablona flagů auto_issue / auto_send_email.
      *
-     * @return array{issued:bool, sent_to:list<string>, varsymbol:?string}
+     * A payer-time invoice with every line on 0 % (typically a template saved while the supplier
+     * was a non-payer) is NOT issued or sent: it stays a draft and the problem is reported on the
+     * template (`last_error` banner), like every other generation problem.
+     *
+     * @return array{issued:bool, sent_to:list<string>, varsymbol:?string, warnings:list<array{code:string, message:string}>}
      */
     private function performIssue(int $invoiceId, array $template, ?int $userId, string $ip, string $ua): array
     {
         if (!$template['auto_issue']) {
-            return ['issued' => false, 'sent_to' => [], 'varsymbol' => null];
+            return ['issued' => false, 'sent_to' => [], 'varsymbol' => null, 'warnings' => []];
+        }
+        $warnings = $this->vatAdvisor->warnings((int) $template['supplier_id'], $this->invoices->find($invoiceId) ?? []);
+        if ($warnings !== []) {
+            $this->templates->setLastError((int) $template['id'], sprintf(
+                'Faktura #%d zůstala jako koncept (nevystavila se ani neodeslala). %s Po registraci k DPH ulož šablonu znovu se skutečnou sazbou DPH.',
+                $invoiceId,
+                $warnings[0]['message'],
+            ));
+            return ['issued' => false, 'sent_to' => [], 'varsymbol' => null, 'warnings' => $warnings];
         }
         if ($template['auto_send_email']) {
             $r = $this->issueAndSend->run($invoiceId, $userId, $ip, $ua);
-            return ['issued' => $r['issued'], 'sent_to' => $r['sent_to'], 'varsymbol' => $r['varsymbol']];
+            return ['issued' => $r['issued'], 'sent_to' => $r['sent_to'], 'varsymbol' => $r['varsymbol'], 'warnings' => []];
         }
         $varsymbol = $this->issueOnlyWithoutSend($invoiceId, $userId, $ip, $ua);
-        return ['issued' => true, 'sent_to' => [], 'varsymbol' => $varsymbol];
+        return ['issued' => true, 'sent_to' => [], 'varsymbol' => $varsymbol, 'warnings' => []];
     }
 
     /**
@@ -379,10 +402,13 @@ final class RecurringInvoiceGenerator
             throw new \DomainException($amountError);
         }
 
-        // Neplátce DPH → položky se přepnou na 0% osvobozenou sazbu (stejně jako u ručně
-        // vystavené faktury, viz InvoiceEditor.defaultVatRateId). Autoritativní záchrana i
-        // pro šablony uložené dřív s nominální sazbou (21 %) — bez toho by cron tiše vystavil
-        // fakturu s DPH u neplátce. Děje se PŘED guardem, aby se validovala coercnutá sazba.
+        // Non-payer at the invoice's DUZP → items are switched to the 0 % exempt rate (like a
+        // manually issued invoice, see InvoiceEditor.defaultVatRateId). Authoritative rescue also
+        // for templates saved earlier with a nominal rate (21 %) — without it cron would silently
+        // issue an invoice with VAT for a non-payer. The status comes from the dated history at
+        // the DUZP (not the live flag), so an invoice of a month before the registration date
+        // stays VAT-free even when generated after it. Runs BEFORE the guard so the coerced rate
+        // is the one that gets validated.
         $template['items'] = $this->coerceNonVatPayerRates(
             $pdo,
             (int) $template['supplier_id'],
@@ -494,22 +520,19 @@ final class RecurringInvoiceGenerator
     }
 
     /**
-     * Neplátce DPH fakturuje bez DPH → všechny položky se přepnou na 0% osvobozenou sazbu
-     * (rate_percent=0, !is_reverse_charge) platnou k datu plnění. Zrcadlí chování ruční
-     * faktury (InvoiceEditor.defaultVatRateId), kde frontend vybere 0% sazbu; tady to dělá
-     * autoritativně backend, takže to ochrání i šablony uložené dřív s nominální sazbou.
-     * Plátce (nebo nenalezený supplier) zůstává beze změny.
+     * A non-payer invoices without VAT → all items are switched to the 0 % exempt rate
+     * (rate_percent=0, !is_reverse_charge) valid on the tax point date. Mirrors a manually
+     * issued invoice (InvoiceEditor.defaultVatRateId), where the frontend picks the 0 % rate;
+     * here the backend does it authoritatively, which also protects templates saved earlier
+     * with a nominal rate. "Non-payer" is decided by the dated VAT status history on
+     * $referenceDate (the DUZP), a payer at that date keeps its rates.
      *
      * @param list<array<string, mixed>> $items
      * @return list<array<string, mixed>>
      */
     private function coerceNonVatPayerRates(\PDO $pdo, int $supplierId, array $items, string $referenceDate): array
     {
-        $stmt = $pdo->prepare('SELECT is_vat_payer FROM supplier WHERE id = ?');
-        $stmt->execute([$supplierId]);
-        $isVatPayer = $stmt->fetchColumn();
-        // false = supplier nenalezen → nech beze změny; 1 = plátce → nic neřeš.
-        if ($isVatPayer === false || (int) $isVatPayer === 1) {
+        if ($this->vatStatus->isPayerAt($supplierId, $referenceDate)) {
             return $items;
         }
 
@@ -553,6 +576,7 @@ final class RecurringInvoiceGenerator
             (int) $invoice['currency_id'],
             $supplierId,
             isset($invoice['branding_profile_id']) ? (int) $invoice['branding_profile_id'] : null,
+            VatStatusService::documentDateOf($invoice),
         );
 
         $this->db->pdo()->prepare(

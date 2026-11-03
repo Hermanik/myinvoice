@@ -15,6 +15,7 @@ use MyInvoice\Service\Report\KontrolniHlaseniBuilder;
 use PDO;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use MyInvoice\Tests\Support\VatStatusFixture;
 
 /**
  * Daňová správnost částečných úhrad záloh (#89) end-to-end:
@@ -55,6 +56,8 @@ final class PaymentTaxDocumentVatTest extends TestCase
     /** @var int[] vytvořené faktury — mažou se v opačném pořadí (děti dřív) */
     private array $invoiceIds = [];
     private ?array $origVatFlags = null;
+    /** @var list<array{valid_from: string, status: string, note: ?string}> */
+    private array $origVatHistory = [];
 
     protected function setUp(): void
     {
@@ -88,8 +91,8 @@ final class PaymentTaxDocumentVatTest extends TestCase
         $this->origVatFlags = $pdo->query(
             "SELECT is_vat_payer, is_identified FROM supplier WHERE id = {$this->supplierId}"
         )->fetch(PDO::FETCH_ASSOC) ?: [];
-        $pdo->prepare('UPDATE supplier SET is_vat_payer = 1, is_identified = 0 WHERE id = ?')
-            ->execute([$this->supplierId]);
+        $this->origVatHistory = VatStatusFixture::snapshot($pdo, $this->supplierId);
+        VatStatusFixture::set($pdo, $this->supplierId, true);
 
         $czId = (int) ($pdo->query("SELECT id FROM countries WHERE iso2 = 'CZ' LIMIT 1")->fetchColumn() ?: 0);
         $stmt = $pdo->prepare(
@@ -110,12 +113,7 @@ final class PaymentTaxDocumentVatTest extends TestCase
         }
         $pdo = $this->db->pdo();
         if ($this->origVatFlags !== null && $this->supplierId > 0) {
-            $pdo->prepare('UPDATE supplier SET is_vat_payer = ?, is_identified = ? WHERE id = ?')
-                ->execute([
-                    (int) ($this->origVatFlags['is_vat_payer'] ?? 1),
-                    (int) ($this->origVatFlags['is_identified'] ?? 0),
-                    $this->supplierId,
-                ]);
+            VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
         }
         // Děti (final, tax_document) dřív než proforma; invoice_payments mažou FK cascade.
         foreach (array_reverse($this->invoiceIds) as $id) {

@@ -186,6 +186,26 @@ final class RoleMiddlewareTest extends TestCase
         }
     }
 
+    public function testVatStatusIsReadableByEveryRoleButWritableOnlyByAdmin(): void
+    {
+        foreach (['readonly', 'accountant', 'admin'] as $role) {
+            foreach (['/api/settings/vat-status', '/api/settings/vat-status/history'] as $path) {
+                $response = $this->middleware()->process($this->request('GET', $path, $role), $this->okHandler());
+                self::assertSame(204, $response->getStatusCode(), "$role GET $path");
+            }
+        }
+        foreach (['readonly', 'accountant'] as $role) {
+            foreach ([['POST', '/api/settings/vat-status/history'], ['DELETE', '/api/settings/vat-status/history/7']] as [$method, $path]) {
+                $response = $this->middleware()->process($this->request($method, $path, $role), $this->okHandler());
+                self::assertSame(403, $response->getStatusCode(), "$role $method $path");
+            }
+        }
+        foreach ([['POST', '/api/settings/vat-status/history'], ['DELETE', '/api/settings/vat-status/history/7']] as [$method, $path]) {
+            $response = $this->middleware()->process($this->request($method, $path, 'admin'), $this->okHandler());
+            self::assertSame(204, $response->getStatusCode(), "admin $method $path");
+        }
+    }
+
     /**
      * Klíčová regrese: GET na admin/citlivé endpointy musí být pro non-admin
      * blokované UŽ middlewarem (ne jen guardem v Action) — pojistka proti

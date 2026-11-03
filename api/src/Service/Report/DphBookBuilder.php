@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Report;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\TaxConstantsRepository;
+use MyInvoice\Service\Vat\VatStatusService;
 
 /**
  * Builder pro **Knihu DPH** (interní VAT žurnál).
@@ -42,6 +43,7 @@ final class DphBookBuilder
         private readonly Connection $db,
         private readonly VatLedgerService $ledger,
         private readonly TaxConstantsRepository $taxConstants,
+        private readonly VatStatusService $vatStatus,
     ) {}
 
     /**
@@ -63,14 +65,11 @@ final class DphBookBuilder
         // Kvartální období: $month nese (jako u DPH přiznání) libovolný měsíc kvartálu;
         // kvartál odvodíme přes ceil($month/3) a rozsah natáhneme na celé čtvrtletí.
         $quarter = $period === 'quarterly' ? (int) ceil($month / 3) : null;
-        if ($quarter !== null) {
-            $start = sprintf('%04d-%02d-01', $year, ($quarter - 1) * 3 + 1);
-            $end = (new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $quarter * 3)))
-                ->modify('last day of this month')->format('Y-m-d');
-        } else {
-            $start = sprintf('%04d-%02d-01', $year, $month);
-            $end = (new \DateTimeImmutable($start))->modify('last day of this month')->format('Y-m-d');
-        }
+        [$start, $end] = ReportPeriod::range($year, $month, $period);
+
+        // `is_vat_payer` of the book header = the supplier was a payer on at least one day of the
+        // period (dated history); the ledger below already drops documents outside payer time.
+        $supplier['is_vat_payer'] = $this->vatStatus->history($supplierId)->hasPayerTimeBetween($start, $end);
 
         // Konstanty pro rok období (číselník daňových konstant, admin override).
         $khItemThreshold = $this->taxConstants->khItemThreshold($year);
@@ -423,7 +422,7 @@ final class DphBookBuilder
         $stmt = $this->db->pdo()->prepare(
             "SELECT s.id, s.company_name, s.street, s.city, s.zip,
                     COALESCE(c.iso2, 'CZ') AS country_iso2,
-                    s.ic, s.dic, s.is_vat_payer
+                    s.ic, s.dic
                FROM supplier s
           LEFT JOIN countries c ON c.id = s.country_id
               WHERE s.id = ?"

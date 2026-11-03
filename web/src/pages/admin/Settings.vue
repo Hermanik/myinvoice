@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { settingsApi, type Supplier, type SelfCopyType, type SelfCopyMode, type NaceCode, type NaceResolved } from '@/api/settings'
+import { settingsApi, type Supplier, type SelfCopyType, type SelfCopyMode, type NaceCode, type NaceResolved, type VatStatusOverview } from '@/api/settings'
 import { adminApi, type SampleDataStatus } from '@/api/admin'
 import { clientsApi } from '@/api/clients'
 import { useSupplierStore } from '@/stores/supplier'
@@ -9,6 +9,7 @@ import { useToast } from '@/composables/useToast'
 import { renderVarsymbolTemplate, hasCounterPlaceholder } from '@/utils/varsymbol'
 import { formatDate } from '@/composables/useFormat'
 import BrandingProfilesSettings from '@/components/settings/BrandingProfilesSettings.vue'
+import VatStatusSettings from '@/components/settings/VatStatusSettings.vue'
 import SearchableSelect from '@/components/ui/SearchableSelect.vue'
 
 const { t } = useI18n()
@@ -23,6 +24,7 @@ function syncSupplierStore(s: Supplier) {
     ic: s.ic,
     is_vat_payer: s.is_vat_payer,
     is_identified: s.is_identified ?? false,
+    vat_history: (s.vat_history ?? []).map(r => ({ valid_from: r.valid_from, status: r.status })),
     oss_enabled: s.oss_enabled ?? false,
     taxpayer_type: s.taxpayer_type ?? null,
     default_payment_due_days: s.default_payment_due_days,
@@ -36,6 +38,16 @@ function syncSupplierStore(s: Supplier) {
 
 const supplier = ref<Supplier | null>(null)
 const loading = ref(true)
+
+// The VAT status history is saved by its own section (immediately, not via the "Uložit" button). Mirror the result
+// into the form (flat tax band etc. depend on today's status) and into the supplier store for the editors.
+function onVatChanged(o: VatStatusOverview) {
+  if (!supplier.value) return
+  supplier.value.is_vat_payer = o.is_vat_payer
+  supplier.value.is_identified = o.is_identified
+  supplier.value.vat_history = o.history
+  syncSupplierStore(supplier.value)
+}
 
 // Práh dní pro první upomínku — preset (3 / týden / měsíc) + „vlastní". Stejný „sticky custom"
 // idiom jako dueSelectValue níže: flag drží „vlastní" i když hodnota náhodou odpovídá presetu,
@@ -317,8 +329,7 @@ async function saveSupplier() {
       zip: supplier.value.zip,
       ic: supplier.value.ic,
       dic: supplier.value.dic,
-      is_vat_payer: supplier.value.is_vat_payer,
-      is_identified: supplier.value.is_identified ?? false,
+      // is_vat_payer / is_identified are NOT sent: the VAT status is a dated history, edited in its own section.
       email: supplier.value.email,
       phone: supplier.value.phone,
       web: supplier.value.web,
@@ -504,21 +515,6 @@ async function removeLogo() {
             <input v-model="supplier.dic" type="text" class="w-full h-10 px-3 border border-neutral-300 rounded-md text-sm font-mono" />
           </div>
           <div>
-            <label class="flex items-center gap-2 text-sm mt-7">
-              <input v-model="supplier.is_vat_payer" type="checkbox" class="rounded border-neutral-300 text-primary-600"
-                @change="supplier.is_vat_payer && (((supplier as any).flat_tax_band = 'none'), (supplier.is_identified = false))" />
-              {{ t('settings.is_vat_payer') }}
-            </label>
-            <!-- Identifikovaná osoba (§ 6g–6l ZDPH, #94) — jen pro neplátce; plátce ji vypne. -->
-            <label v-if="!supplier.is_vat_payer" class="flex items-center gap-2 text-sm mt-2">
-              <input v-model="supplier.is_identified" type="checkbox" class="rounded border-neutral-300 text-primary-600" />
-              {{ t('settings.is_identified') }}
-            </label>
-            <p v-if="!supplier.is_vat_payer && supplier.is_identified" class="text-xs text-neutral-500 mt-1 ml-6">
-              {{ t('settings.is_identified_hint') }}
-            </p>
-          </div>
-          <div>
             <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('settings.email') }} *</label>
             <input v-model="supplier.email" type="email" class="w-full h-10 px-3 border border-neutral-300 rounded-md text-sm" />
           </div>
@@ -680,6 +676,9 @@ async function removeLogo() {
           </button>
         </div>
       </section>
+
+      <!-- VAT status ("Plátcovství DPH"): dated history; replaces the former is_vat_payer / is_identified checkboxes -->
+      <VatStatusSettings @changed="onVatChanged" />
 
       <BrandingProfilesSettings v-model:enabled="supplier.branding_profiles_enabled" @changed="load" />
 

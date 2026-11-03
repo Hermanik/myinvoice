@@ -35,6 +35,16 @@ final class CronCatalog
     {
         return [
             [
+                // Flips the cached supplier VAT flags when a dated status row comes into force.
+                'script' => 'cron-refresh-vat-status',
+                'recommended' => 'daily_0005',
+                'linux_cron' => '5 0 * * *',
+                'windows_schtasks' => '/sc daily /st 00:05',
+                'max_age_hours' => 36,
+                'weekdays_only' => false,
+                'critical' => false,
+            ],
+            [
                 'script' => 'cron-cleanup',
                 'recommended' => 'daily_0300',
                 'linux_cron' => '0 3 * * *',

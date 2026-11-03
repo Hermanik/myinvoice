@@ -458,8 +458,11 @@ final class RecurringTemplateAction
             } else {
                 $result = $this->generator->generate($id, $forcedIssueDate, $userId, $ip, $ua, $forceDraft, $advanceSchedule);
             }
-            // Úspěšné ruční vygenerování smaže případný banner z dřívějšího selhání cronu.
-            $this->repo->clearLastError($id);
+            // A successful manual run clears an error banner left by an earlier cron failure
+            // (except for an invoice held as a draft — the generator reports that on the template).
+            if (empty($result['warnings'])) {
+                $this->repo->clearLastError($id);
+            }
         } catch (\DomainException $e) {
             return Json::error($response, 'cannot_generate', $e->getMessage(), 409);
         } catch (\Throwable $e) {

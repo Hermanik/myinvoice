@@ -292,7 +292,7 @@ final class SouhrnneHlaseniBuilder
         $stmt = $this->db->pdo()->prepare(
             "SELECT s.id, s.company_name, s.street, s.city, s.zip,
                     COALESCE(c.iso2, 'CZ') AS country_iso2,
-                    s.ic, s.dic, s.is_vat_payer, s.is_identified,
+                    s.ic, s.dic,
                     s.taxpayer_type, s.financial_office_code,
                     s.workplace_code, s.data_box_id,
                     s.email, s.phone, s.cz_nace_code,

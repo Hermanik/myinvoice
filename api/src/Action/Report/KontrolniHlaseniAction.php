@@ -28,6 +28,7 @@ final class KontrolniHlaseniAction
         private readonly IpMatcher $ipMatcher,
         private readonly \MyInvoice\Service\Report\TaxSubmissionArchiver $archiver,
         private readonly \MyInvoice\Service\Currency\MissingExchangeRateFiller $rateFiller,
+        private readonly \MyInvoice\Service\Vat\VatStatusService $vatStatus,
         private readonly \MyInvoice\Service\Report\EpoIdentityValidator $epoValidator,
     ) {}
 
@@ -96,6 +97,11 @@ final class KontrolniHlaseniAction
         );
         if ($fp['error'] !== null) {
             return Json::error($response, 'validation_failed', $fp['error'], 400);
+        }
+        try {
+            $this->vatStatus->assertVatDutiesInReportPeriod($supplierId, $year, $month, $period);
+        } catch (\MyInvoice\Service\Vat\VatStatusException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
         }
         try {
             $result = $this->builder->build($supplierId, $year, $month, $period, $fp['form'], $fp['d_zjist']);

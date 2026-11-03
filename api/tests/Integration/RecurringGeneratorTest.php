@@ -12,6 +12,7 @@ use MyInvoice\Service\Invoice\RecurringInvoiceGenerator;
 use PDO;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use MyInvoice\Tests\Support\VatStatusFixture;
 
 /**
  * End-to-end test pravidelné fakturace.
@@ -46,6 +47,8 @@ final class RecurringGeneratorTest extends TestCase
     private array $createdInvoiceIds = [];
     /** Původní plátcovství supplier-a — test ho vynucuje na plátce (viz setUp). */
     private ?array $origVatFlags = null;
+    /** @var list<array{valid_from: string, status: string, note: ?string}> */
+    private array $origVatHistory = [];
 
     protected function setUp(): void
     {
@@ -114,19 +117,14 @@ final class RecurringGeneratorTest extends TestCase
             "SELECT is_vat_payer, is_identified FROM supplier WHERE id = {$this->supplierId}"
         )->fetch(PDO::FETCH_ASSOC) ?: [];
         $this->origVatFlags = $flags;
-        $this->db->pdo()->prepare('UPDATE supplier SET is_vat_payer = 1, is_identified = 0 WHERE id = ?')
-            ->execute([$this->supplierId]);
+        $this->origVatHistory = VatStatusFixture::snapshot($this->db->pdo(), $this->supplierId);
+        VatStatusFixture::set($this->db->pdo(), $this->supplierId, true);
     }
 
     protected function tearDown(): void
     {
         if (isset($this->db) && $this->origVatFlags !== null && $this->supplierId > 0) {
-            $this->db->pdo()->prepare('UPDATE supplier SET is_vat_payer = ?, is_identified = ? WHERE id = ?')
-                ->execute([
-                    (int) ($this->origVatFlags['is_vat_payer'] ?? 1),
-                    (int) ($this->origVatFlags['is_identified'] ?? 0),
-                    $this->supplierId,
-                ]);
+            VatStatusFixture::restore($this->db->pdo(), $this->supplierId, $this->origVatHistory);
         }
         if (empty($this->createdInvoiceIds) && empty($this->createdTemplateIds)) {
             if (isset($this->db)) $this->db->close();
@@ -418,12 +416,8 @@ final class RecurringGeneratorTest extends TestCase
             'order_index' => 0,
         ]]);
 
-        // Dočasně přepni dodavatele na neplátce DPH; v finally vrať původní hodnotu.
-        $orig = (int) $this->db->pdo()
-            ->query("SELECT is_vat_payer FROM supplier WHERE id = {$this->supplierId}")
-            ->fetchColumn();
-        $this->db->pdo()->prepare('UPDATE supplier SET is_vat_payer = 0 WHERE id = ?')
-            ->execute([$this->supplierId]);
+        // Temporarily switch the supplier to a non-payer; the finally block restores a payer (tearDown restores the history).
+        VatStatusFixture::set($this->db->pdo(), $this->supplierId, false);
         try {
             $result = $this->generator->generate($tplId, $today, $this->userId, '127.0.0.1', 'phpunit');
             $this->createdInvoiceIds[] = $result['invoice_id'];
@@ -448,9 +442,128 @@ final class RecurringGeneratorTest extends TestCase
                 $this->assertEqualsWithDelta(0.0, (float) $it['total_vat'], 0.001);
             }
         } finally {
-            $this->db->pdo()->prepare('UPDATE supplier SET is_vat_payer = ? WHERE id = ?')
-                ->execute([$orig, $this->supplierId]);
+            VatStatusFixture::set($this->db->pdo(), $this->supplierId, true);
         }
+    }
+
+    /**
+     * Registration as a VAT payer on 2027-01-01: the December invoice (issued 2027-01-05, DUZP
+     * 2026-12-31) must stay a non-payer invoice — 0 % without VAT —, whereas the invoice issued
+     * on 2027-02-05 (DUZP 2027-01-31) carries 21 %. The status history on the DUZP decides, not today's flag.
+     */
+    public function testGeneratorDecidesVatByStatusOnTheDuzpAcrossTheRegistrationBoundary(): void
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT rate_percent FROM vat_rates WHERE id = ?');
+        $stmt->execute([$this->vatRateId]);
+        if ((float) $stmt->fetchColumn() <= 0.0) {
+            $this->markTestSkipped('Default sazba je 0 % — test hranice plátcovství nedává smysl.');
+        }
+        VatStatusFixture::setHistory($this->db->pdo(), $this->supplierId, [
+            ['2000-01-01', 'non_payer'],
+            ['2027-01-01', 'payer'],
+        ]);
+
+        $tplId = $this->repo->create([
+            'supplier_id'      => $this->supplierId,
+            'client_id'        => $this->clientId,
+            'name'             => 'TEST hranice plátcovství (PHPUnit)',
+            'frequency'        => 'monthly',
+            'end_of_month'     => false,
+            'anchor_date'      => '2027-01-05',
+            'next_run_date'    => '2027-01-05',
+            'invoice_type'     => 'invoice',
+            'currency_id'      => $this->currencyId,
+            'language'         => 'cs',
+            'payment_method'   => 'bank_transfer',
+            'payment_due_days' => 14,
+            'tax_date_mode'    => 'previous_month_last_day',
+            'increment_month_in_descriptions' => false,
+            'auto_issue'       => true,
+            'auto_send_email'  => false,
+        ], $this->userId);
+        $this->createdTemplateIds[] = $tplId;
+        $this->repo->replaceItems($tplId, [[
+            'description' => 'Paušál',
+            'quantity' => 1.0,
+            'unit' => 'měs',
+            'unit_price_without_vat' => 1000.00,
+            'vat_rate_id' => $this->vatRateId,
+            'order_index' => 0,
+        ]]);
+
+        $december = $this->generator->generate($tplId, '2027-01-05', $this->userId, '127.0.0.1', 'phpunit', advanceSchedule: false);
+        $this->createdInvoiceIds[] = $december['invoice_id'];
+        $january = $this->generator->generate($tplId, '2027-02-05', $this->userId, '127.0.0.1', 'phpunit', advanceSchedule: false);
+        $this->createdInvoiceIds[] = $january['invoice_id'];
+
+        $row = $this->db->pdo()->prepare(
+            'SELECT tax_date, total_vat, total_with_vat, supplier_snapshot FROM invoices WHERE id = ?'
+        );
+        $row->execute([$december['invoice_id']]);
+        $dec = $row->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('2026-12-31', $dec['tax_date']);
+        $this->assertEqualsWithDelta(0.0, (float) $dec['total_vat'], 0.001, 'DUZP 31. 12. 2026 = neplátce → bez DPH');
+        $this->assertEqualsWithDelta(1000.0, (float) $dec['total_with_vat'], 0.001);
+        $this->assertFalse(json_decode((string) $dec['supplier_snapshot'], true)['is_vat_payer'], 'snapshot nese stav k DUZP');
+
+        $row->execute([$january['invoice_id']]);
+        $jan = $row->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('2027-01-31', $jan['tax_date']);
+        $this->assertGreaterThan(0.0, (float) $jan['total_vat'], 'DUZP 31. 1. 2027 = plátce → DPH se účtuje');
+        $this->assertTrue(json_decode((string) $jan['supplier_snapshot'], true)['is_vat_payer']);
+    }
+
+    /**
+     * A template saved while the supplier was a non-payer keeps the 0 % rate. For a payer the generator
+     * does not rewrite it (0 % is legal), so an invoice with its DUZP in payer time and every line on 0 %
+     * is NOT issued or sent: it stays a draft and the reason shows as a banner (`last_error`) on the template.
+     */
+    public function testGeneratorHoldsAPayerTimeInvoiceWithEveryLineOnZeroPercentAsDraft(): void
+    {
+        $zeroId = (int) $this->db->pdo()->query(
+            'SELECT id FROM vat_rates WHERE rate_percent = 0 AND is_reverse_charge = 0 AND valid_to IS NULL ORDER BY id LIMIT 1'
+        )->fetchColumn();
+        $domestic = Bootstrap::buildApp()->getContainer()->get(\MyInvoice\Repository\InvoiceRepository::class)->clientIsDomestic($this->clientId);
+        if ($zeroId <= 0 || !$domestic) {
+            $this->markTestSkipped('Chybí 0% sazba nebo tuzemský klient.');
+        }
+        // The setUp already made the supplier a payer.
+        $today = (new \DateTimeImmutable('today'))->format('Y-m-d');
+        $tplId = $this->repo->create([
+            'supplier_id'      => $this->supplierId,
+            'client_id'        => $this->clientId,
+            'name'             => 'TEST 0 % po registraci (PHPUnit)',
+            'frequency'        => 'monthly',
+            'end_of_month'     => false,
+            'anchor_date'      => $today,
+            'next_run_date'    => $today,
+            'invoice_type'     => 'invoice',
+            'currency_id'      => $this->currencyId,
+            'language'         => 'cs',
+            'payment_method'   => 'bank_transfer',
+            'payment_due_days' => 14,
+            'increment_month_in_descriptions' => false,
+            'auto_issue'       => true,
+            'auto_send_email'  => false,
+        ], $this->userId);
+        $this->createdTemplateIds[] = $tplId;
+        $this->repo->replaceItems($tplId, [[
+            'description' => 'Paušál', 'quantity' => 1.0, 'unit' => 'měs',
+            'unit_price_without_vat' => 1000.00, 'vat_rate_id' => $zeroId, 'order_index' => 0,
+        ]]);
+
+        $result = $this->generator->generate($tplId, $today, $this->userId, '127.0.0.1', 'phpunit');
+        $this->createdInvoiceIds[] = $result['invoice_id'];
+
+        $this->assertFalse($result['issued'], 'nesmí se vystavit bez DPH');
+        $this->assertNull($result['varsymbol']);
+        $this->assertSame('payer_zero_rated', $result['warnings'][0]['code']);
+        $status = $this->db->pdo()->prepare('SELECT status FROM invoices WHERE id = ?');
+        $status->execute([$result['invoice_id']]);
+        $this->assertSame('draft', $status->fetchColumn());
+        $err = $this->db->pdo()->prepare('SELECT last_error FROM recurring_invoice_templates WHERE id = ?');
+        $err->execute([$tplId]);
+        $this->assertStringContainsString('zůstala jako koncept', (string) $err->fetchColumn());
     }
 
     /**
@@ -1104,6 +1217,8 @@ final class RecurringGeneratorTest extends TestCase
             $container->get(\MyInvoice\Service\Stats\StatsRecomputer::class),
             $container->get(\MyInvoice\Service\ActivityLogger::class),
             $container->get(\MyInvoice\Service\Invoice\RecurringPriceListService::class),
+            $container->get(\MyInvoice\Service\Vat\VatStatusService::class),
+            $container->get(\MyInvoice\Service\Invoice\InvoiceVatAdvisor::class),
         );
 
         $tplId = $this->createPeriodTemplate(

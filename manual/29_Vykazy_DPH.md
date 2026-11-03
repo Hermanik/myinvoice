@@ -76,7 +76,7 @@ odmítne nebo bude generovat formálně neúplný výkaz.
 | Pole v UI | XML atribut | Hodnoty | Kdy použít |
 |---|---|---|---|
 | **Typ poplatníka** | `typ_ds` ve VetaP | `F` (FO/OSVČ) / `P` (PO/s.r.o.) | Podle právní formy. |
-| **Typ plátce DPH** | `typ_platce` ve VetaD | `P` (plátce) / `I` (identifikovaná osoba) | `I` se nastaví automaticky, když je v dodavateli zaškrtnutá **Identifikovaná osoba** (viz [§ 28.1.1](28_Fakturujeme.md#2811-identifikovana-osoba-6g6l-zdph)). Perioda (měsíc/kvartál) jde zvlášť atributy `mesic`/`ctvrt` dle `vat_period`. |
+| **Typ plátce DPH** | `typ_platce` ve VetaD | `P` (plátce) / `I` (identifikovaná osoba) | `I` se nastaví automaticky, když je v období stav **Identifikovaná osoba** (Nastavení → Plátcovství DPH, viz [§ 28.1.1](28_Fakturujeme.md#2811-identifikovana-osoba-6g6l-zdph) a [§ 35.5.7](35_Multi_supplier.md#3557-platcovstvi-dph-historie-podle-data)). Perioda (měsíc/kvartál) jde zvlášť atributy `mesic`/`ctvrt` dle `vat_period`. |
 
 > 🛈 **Identifikovaná osoba**: přiznání obsahuje jen řádky samovyměření
 > z přeshraničních přijatých plnění (ř. 3–6, 12–13) **bez zrcadlového odpočtu
@@ -189,10 +189,12 @@ Pole `street` se ukládá samostatně, EPO chce všechny tři atributy.
 → Vyplň `financial_office_code` v Daňovém nastavení. Bez něj XML neprojde XSD
 validací (`c_ufo` je `use="required"`).
 
-**„Tenant není evidovaný jako plátce DPH"**
-→ V Identifikaci firmy zapni `is_vat_payer = true`. Vyplň DIČ. Pokud jsi
-**identifikovaná osoba**, nech plátce vypnutého a zaškrtni `Identifikovaná
-osoba` — přiznání se pak generuje s `typ_platce='I'`.
+**„V tomto období nebyl dodavatel evidovaný jako plátce DPH"**
+→ V Nastavení → **Plátcovství DPH** přidej záznam *Plátce DPH* s datem, od kterého
+jsi plátcem (lze i zpětně), a vyplň DIČ. Pokud jsi **identifikovaná osoba**, přidej
+stav *Identifikovaná osoba* — přiznání se pak generuje s `typ_platce='I'`. Do výkazu
+se započítají jen doklady s DUZP v době plátcovství; XML za období bez plátcovství
+se nevygeneruje (chyba `not_vat_payer_in_period`).
 
 **Čísla v Veta1/Veta4 nesedí**
 → Zkontroluj **VAT klasifikační kódy** na položkách faktur za období. Každý řádek

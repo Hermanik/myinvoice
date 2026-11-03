@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Invoice;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Vat\VatStatusService;
 use PDO;
 
 /**
@@ -16,18 +17,30 @@ use PDO;
  */
 final class SnapshotBuilder
 {
-    public function __construct(private readonly Connection $db) {}
+    public function __construct(private readonly Connection $db, private readonly VatStatusService $vatStatus) {}
 
     /**
+     * @param ?string $vatStatusDate date deciding the supplier's VAT status stored in the
+     *                               snapshot — the invoice's DUZP (falling back to the issue
+     *                               date); null = today. Never the live flag.
      * @return array{client: array, supplier: array, bank: ?array}
      */
-    public function build(int $clientId, int $currencyId, int $supplierId, ?int $brandingProfileId = null): array
+    public function build(int $clientId, int $currencyId, int $supplierId, ?int $brandingProfileId = null, ?string $vatStatusDate = null): array
     {
         return [
             'client'   => $this->clientSnapshot($clientId),
-            'supplier' => $this->supplierSnapshot($supplierId, $brandingProfileId),
+            'supplier' => $this->supplierSnapshot($supplierId, $brandingProfileId, $vatStatusDate),
             'bank'     => $this->bankSnapshot($currencyId),
         ];
+    }
+
+    /** DUZP (falling back to the issue date) of a stored invoice — for callers that only have its id. */
+    public function vatStatusDateOfInvoice(int $invoiceId): string
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT tax_date, issue_date FROM invoices WHERE id = ?');
+        $stmt->execute([$invoiceId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        return VatStatusService::documentDateOf($row);
     }
 
     private function clientSnapshot(int $clientId): array
@@ -63,7 +76,7 @@ final class SnapshotBuilder
         ];
     }
 
-    private function supplierSnapshot(int $supplierId, ?int $brandingProfileId): array
+    private function supplierSnapshot(int $supplierId, ?int $brandingProfileId, ?string $vatStatusDate): array
     {
         $stmt = $this->db->pdo()->prepare(
             'SELECT s.*, co.iso2 AS country_iso2, co.name_cs AS country_name_cs, co.name_en AS country_name_en
@@ -76,6 +89,9 @@ final class SnapshotBuilder
         if (!$row) {
             throw new \RuntimeException("Supplier #$supplierId nenalezen.");
         }
+        // VAT status AT THE DOCUMENT DATE from the dated history; the supplier columns are
+        // only a cache of "today" and would be wrong for an invoice issued after a change.
+        $vat = $this->vatStatus->flagsAt($supplierId, $vatStatusDate ?? VatStatusService::today());
         $snapshot = [
             'id'           => (int) $row['id'],
             'company_name' => $row['company_name'],
@@ -88,10 +104,10 @@ final class SnapshotBuilder
             'country_name_en' => $row['country_name_en'],
             'ic'           => $row['ic'],
             'dic'          => $row['dic'],
-            'is_vat_payer' => (bool) $row['is_vat_payer'],
+            'is_vat_payer' => $vat['is_vat_payer'],
             // Identifikovaná osoba (§ 6g–6l, issue #94) — PDF podle ní volí RC
             // klauzuli a potlačí „Není plátce DPH" na zahraničním RC dokladu.
-            'is_identified' => (bool) ($row['is_identified'] ?? false),
+            'is_identified' => $vat['is_identified'],
             'email'        => $row['email'],
             'phone'        => $row['phone'],
             'web'          => $row['web'],

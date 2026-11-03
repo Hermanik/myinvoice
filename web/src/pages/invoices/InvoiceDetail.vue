@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { overdueDays } from '@/utils/date'
+import { appIsoDate, overdueDays } from '@/utils/date'
 import LinkedDocumentsPanel from '@/components/documents/LinkedDocumentsPanel.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
@@ -17,6 +17,7 @@ import { apiErrorMessage } from '@/api/errors'
 import { formatMoney, formatDate, formatPercent, statusLabel, typeLabel, statusBadgeClass, displayStatus } from '@/composables/useFormat'
 import { useAuthStore } from '@/stores/auth'
 import { useSupplierStore } from '@/stores/supplier'
+import { documentVatDate } from '@/utils/vatStatus'
 import { useHotkey } from '@/composables/useHotkey'
 import { useToast } from '@/composables/useToast'
 import WorkReportModal from '@/components/modals/WorkReportModal.vue'
@@ -29,7 +30,10 @@ const auth = useAuthStore()
 const isAdmin = computed(() => auth.user?.role === 'admin')
 
 const supplierStore = useSupplierStore()
-const supplierIsVatPayer = computed(() => supplierStore.currentSupplier?.is_vat_payer ?? true)
+// VAT columns follow the supplier's status on the invoice's DUZP (issue date when there is none), not today's flag.
+const supplierIsVatPayer = computed(() => supplierStore.vatFlagsAt(
+  documentVatDate(invoice.value?.tax_date, invoice.value?.issue_date, appIsoDate()),
+).is_vat_payer)
 
 function formatRate(rate: number): string {
   const tag = locale.value === 'cs' ? 'cs-CZ' : 'en-US'
@@ -1352,6 +1356,12 @@ const invoiceActions = computed<ActionItem[]>(() => {
         </span>
       </h1>
       <ActionBar :actions="invoiceActions" />
+    </div>
+
+    <!-- Non-blocking hints before issuing (e.g. a payer's draft with every line on 0 %) -->
+    <div v-if="invoice.warnings?.length" data-invoice-warnings
+      class="rounded-md border border-warning-500/50 bg-warning-50 px-3 py-2 text-sm text-warning-600 space-y-1">
+      <p v-for="w in invoice.warnings" :key="w.code">{{ te('invoice.warnings.' + w.code) ? t('invoice.warnings.' + w.code) : w.message }}</p>
     </div>
 
     <div class="flex items-start justify-between gap-4">

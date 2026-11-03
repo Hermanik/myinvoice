@@ -18,6 +18,7 @@ use MyInvoice\Service\Qr\QrPaymentGenerator;
 use MyInvoice\Service\Signing\Pdf\PdfSigningService;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
+use MyInvoice\Service\Vat\VatStatusService;
 
 /**
  * Renderuje fakturu jako PDF.
@@ -44,6 +45,7 @@ final class InvoicePdfRenderer
         private readonly PdfArchiveService $archive,
         private readonly IsdocExporter $isdoc,
         private readonly PdfSigningService $pdfSigning,
+        private readonly VatStatusService $vatStatus,
     ) {}
 
     /**
@@ -437,7 +439,13 @@ final class InvoicePdfRenderer
      */
     public function resolveSupplier(array $invoice): array
     {
-        $live = $this->getSupplierData((int) ($invoice['supplier_id'] ?? 0));
+        $supplierId = (int) ($invoice['supplier_id'] ?? 0);
+        $live = $this->getSupplierData($supplierId);
+        if ($live !== []) {
+            // The live flags only cache "status today". Drafts and legacy snapshots without flags
+            // take the status at the invoice's DUZP; a snapshot that carries flags overrides this below.
+            $live = array_merge($live, $this->vatStatus->flagsForDocument($supplierId, $invoice));
+        }
         if (!empty($invoice['supplier_snapshot'])) {
             $snap = is_string($invoice['supplier_snapshot']) ? json_decode($invoice['supplier_snapshot'], true) : $invoice['supplier_snapshot'];
             if (is_array($snap)) {
@@ -685,6 +693,7 @@ final class InvoicePdfRenderer
                 (int) $invoice['currency_id'],
                 (int) ($invoice['supplier_id'] ?? 0),
                 isset($invoice['branding_profile_id']) ? (int) $invoice['branding_profile_id'] : null,
+                VatStatusService::documentDateOf($invoice),
             );
         } catch (\Throwable) {
             // Pokud klient/dodavatel neexistuje (smazaný), zachovej původní snapshot.

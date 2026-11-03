@@ -24,10 +24,12 @@ use MyInvoice\Infrastructure\Database\Connection;
 $apply = in_array('--apply', $argv, true);
 
 $config = Config::load(Bootstrap::rootDir());
-$pdo = (new Connection($config))->pdo();
+$conn = new Connection($config);
+$pdo = $conn->pdo();
+$vatStatus = \MyInvoice\Service\Vat\VatStatusService::forConnection($conn);
 
 $rows = $pdo->query(
-    "SELECT id, supplier_id, varsymbol
+    "SELECT id, supplier_id, varsymbol, tax_date, issue_date
        FROM invoices
       WHERE supplier_snapshot IS NOT NULL
         AND (
@@ -89,7 +91,8 @@ foreach ($rows as $r) {
         'country_name_en' => $row['country_name_en'],
         'ic'              => $row['ic'],
         'dic'             => $row['dic'],
-        'is_vat_payer'    => (bool) $row['is_vat_payer'],
+        // VAT status at the invoice's DUZP (dated history), not the live flag.
+        ...$vatStatus->flagsForDocument($sid, $r),
         'email'           => $row['email'],
         'phone'           => $row['phone'],
         'web'             => $row['web'],

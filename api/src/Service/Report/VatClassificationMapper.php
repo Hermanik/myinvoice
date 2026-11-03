@@ -57,7 +57,7 @@ final class VatClassificationMapper
      */
     public function predictDph(int $supplierId, int $year, int $month, string $period = 'monthly'): array
     {
-        [$start, $end] = $this->periodRange($year, $month, $period);
+        [$start, $end] = ReportPeriod::range($year, $month, $period);
         $rows = $this->ledger->rows($supplierId, $start, $end, includeDrafts: true);
         $totals = $this->dphSummaryTotals($this->projectDphLines($rows));
 
@@ -102,24 +102,6 @@ final class VatClassificationMapper
         return ['output' => round($output, 2), 'input' => round($input, 2), 'due' => round($output - $input, 2)];
     }
 
-    /** @return array{0:string, 1:string} [start, end] data rozsahu pro období */
-    private function periodRange(int $year, int $month, string $period): array
-    {
-        if ($period === 'quarterly') {
-            $quarter = (int) ceil($month / 3);
-            $qStartMonth = ($quarter - 1) * 3 + 1;
-            $qEndMonth   = $quarter * 3;
-            $start = sprintf('%04d-%02d-01', $year, $qStartMonth);
-            $end = (new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $qEndMonth)))
-                ->modify('last day of this month')->format('Y-m-d');
-        } else {
-            $start = sprintf('%04d-%02d-01', $year, $month);
-            $end = (new \DateTimeImmutable($start))->modify('last day of this month')->format('Y-m-d');
-        }
-        return [$start, $end];
-    }
-
-
     /**
      * Aggregace pro DPH přiznání DPHDP3 — vrátí summary per řádek výkazu.
      *
@@ -135,7 +117,7 @@ final class VatClassificationMapper
      */
     public function aggregateForDphPriznani(int $supplierId, int $year, int $month, string $period = 'monthly'): array
     {
-        [$start, $end] = $this->periodRange($year, $month, $period);
+        [$start, $end] = ReportPeriod::range($year, $month, $period);
         return $this->projectDphLines($this->ledger->rows($supplierId, $start, $end, includeDrafts: false));
     }
 
@@ -148,7 +130,7 @@ final class VatClassificationMapper
      */
     public function missingRatesForPeriod(int $supplierId, int $year, int $month, string $period = 'monthly'): array
     {
-        [$start, $end] = $this->periodRange($year, $month, $period);
+        [$start, $end] = ReportPeriod::range($year, $month, $period);
         return VatLedgerService::missingExchangeRateRows(
             $this->ledger->rows($supplierId, $start, $end, includeDrafts: false)
         );

@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Report;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\TaxConstantsRepository;
+use MyInvoice\Service\Vat\VatStatusService;
 
 /**
  * Kanonický producent VAT řádků — JEDNO místo se sdílenou logikou pro všechny
@@ -50,6 +51,7 @@ final class VatLedgerService
     public function __construct(
         private readonly Connection $db,
         private readonly TaxConstantsRepository $taxConstants,
+        private readonly VatStatusService $vatStatus,
     ) {}
 
     /**
@@ -67,7 +69,29 @@ final class VatLedgerService
         foreach ($this->fetchPurchases($supplierId, $start, $end, $includeDrafts) as $r) {
             $rows[] = $this->normalize($r, 'purchase', $map, $bucket);
         }
-        return $rows;
+        return $this->onlyInVatTime($supplierId, $rows);
+    }
+
+    /**
+     * Keeps only documents whose DUZP lies in a time the supplier had VAT duties (payer or
+     * identified person): a document dated before the registration (e.g. a December invoice
+     * issued in January) is not part of any VAT return, book or control statement, and a
+     * purchase with a pre-registration DUZP carries no right to deduct. Decided per document
+     * by the dated VAT status history, never by today's flag.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @return list<array<string,mixed>>
+     */
+    private function onlyInVatTime(int $supplierId, array $rows): array
+    {
+        if ($rows === []) {
+            return $rows;
+        }
+        $history = $this->vatStatus->history($supplierId);
+        return array_values(array_filter($rows, static function (array $r) use ($history): bool {
+            $date = (string) ($r['tax_date'] ?? $r['issue_date'] ?? '');
+            return $date === '' || $history->hasVatDutiesAt($date);
+        }));
     }
 
     /**

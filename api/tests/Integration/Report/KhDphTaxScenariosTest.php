@@ -15,6 +15,7 @@ use MyInvoice\Service\Invoice\InvoiceMath;
 use PDO;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use MyInvoice\Tests\Support\VatStatusFixture;
 
 /**
  * Věcná správnost zařazení dokladů do sekcí KH (DPHKH1) a řádků DPH přiznání
@@ -64,6 +65,8 @@ final class KhDphTaxScenariosTest extends TestCase
     private array $createdCurrencyIds = [];
     /** Původní plátcovství supplier-a — test vynucuje plátce (viz setUp). */
     private ?array $origVatFlags = null;
+    /** @var list<array{valid_from: string, status: string, note: ?string}> */
+    private array $origVatHistory = [];
 
     protected function setUp(): void
     {
@@ -104,8 +107,9 @@ final class KhDphTaxScenariosTest extends TestCase
             "SELECT is_vat_payer, is_identified, dic FROM supplier WHERE id = {$this->supplierId}"
         )->fetch(\PDO::FETCH_ASSOC) ?: [];
         $this->origVatFlags = $flags;
-        $pdo->prepare("UPDATE supplier SET is_vat_payer = 1, is_identified = 0, dic = 'CZ12345678' WHERE id = ?")
-            ->execute([$this->supplierId]);
+        $pdo->prepare("UPDATE supplier SET dic = 'CZ12345678' WHERE id = ?")->execute([$this->supplierId]);
+        $this->origVatHistory = VatStatusFixture::snapshot($pdo, $this->supplierId);
+        VatStatusFixture::set($pdo, $this->supplierId, true);
     }
 
     protected function tearDown(): void
@@ -115,13 +119,8 @@ final class KhDphTaxScenariosTest extends TestCase
         }
         $pdo = $this->db->pdo();
         if ($this->origVatFlags !== null && $this->supplierId > 0) {
-            $pdo->prepare('UPDATE supplier SET is_vat_payer = ?, is_identified = ?, dic = ? WHERE id = ?')
-                ->execute([
-                    (int) ($this->origVatFlags['is_vat_payer'] ?? 1),
-                    (int) ($this->origVatFlags['is_identified'] ?? 0),
-                    $this->origVatFlags['dic'] ?? null,
-                    $this->supplierId,
-                ]);
+            $pdo->prepare('UPDATE supplier SET dic = ? WHERE id = ?')->execute([$this->origVatFlags['dic'] ?? null, $this->supplierId]);
+            VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
         }
         foreach ($this->invoiceIds as $id) {
             $pdo->prepare('DELETE FROM invoice_items WHERE invoice_id = ?')->execute([$id]);

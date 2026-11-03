@@ -14,6 +14,8 @@ use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Mail\RecipientResolver;
 use MyInvoice\Service\Mail\SafeLogoPath;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
+use MyInvoice\Service\Vat\VatStatusException;
+use MyInvoice\Service\Vat\VatStatusService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -41,6 +43,7 @@ final class SettingsAction
         private readonly \MyInvoice\Service\Ares\SupplierRegistryEnricher $enricher,
         private readonly \MyInvoice\Service\Report\EpoIdentityValidator $epoValidator,
         private readonly \MyInvoice\Repository\UserSupplierRepository $userSuppliers,
+        private readonly \MyInvoice\Service\Vat\VatStatusService $vatStatus,
     ) {}
 
     /** Aktuální supplier (z X-Supplier-Id middleware). */
@@ -169,6 +172,7 @@ final class SettingsAction
             // Heuristika „má DIČ → je plátce" neplatí pro identifikovanou osobu
             // (§ 6g–6l, issue #94) — IO má DIČ, ale plátce není.
             $isIdentified = !empty($b['is_identified']);
+            $isVatPayer = !$isIdentified && (!empty($b['is_vat_payer']) || !empty($b['dic']));
             $stmt->execute([
                 (string) $b['company_name'],
                 $this->nullable($b, 'display_name') ?: (string) $b['company_name'],
@@ -178,7 +182,7 @@ final class SettingsAction
                 $countryId,
                 $this->nullable($b, 'ic'),
                 $this->nullable($b, 'dic'),
-                $isIdentified ? 0 : (!empty($b['is_vat_payer']) ? 1 : (!empty($b['dic']) ? 1 : 0)),
+                $isVatPayer ? 1 : 0,
                 $isIdentified ? 1 : 0,
                 (string) $b['email'],
                 $this->nullable($b, 'phone'),
@@ -223,6 +227,9 @@ final class SettingsAction
             // 3. Update supplier.default_currency_id na CZK supplier
             $pdo->prepare('UPDATE supplier SET default_currency_id = ? WHERE id = ?')
                 ->execute([$newDefaultCurId, $newSupplierId]);
+
+            // 4. First row of the dated VAT status history, from the same flags the cache columns got.
+            $this->vatStatus->seedInitialRow($newSupplierId, $isVatPayer, $isIdentified);
 
             if ($fkSuspended) {
                 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -277,7 +284,9 @@ final class SettingsAction
 
         $allowed = [
             'company_name', 'display_name', 'street', 'city', 'zip', 'country_id',
-            'ic', 'dic', 'is_vat_payer', 'is_identified', 'email', 'phone', 'web', 'tagline', 'commercial_register',
+            // is_vat_payer / is_identified are NOT mass-assignable: they are a cache of the dated
+            // VAT status history (VatStatusService). A change sent by a client becomes a history row.
+            'ic', 'dic', 'email', 'phone', 'web', 'tagline', 'commercial_register',
             'default_currency_id', 'default_vat_rate_id', 'default_payment_due_days', 'default_payment_due_unit',
             // logo_path / signature_path se NIKDY nemění přes mass-assignment — jen přes
             // dedikované endpointy EmailBrandingAction::uploadLogo (multipart, processed by
@@ -306,20 +315,12 @@ final class SettingsAction
             'self_copy',
         ];
 
-        // Identifikovaná osoba (§ 6g–6l ZDPH, issue #94) je z definice NEPLÁTCE
-        // v tuzemsku — kombinace obou flagů je nevalidní. Kontrolujeme efektivní
-        // stav po této změně (z body, jinak ze současného řádku).
-        if (array_key_exists('is_identified', $body) || array_key_exists('is_vat_payer', $body)) {
-            $stmt = $this->db->pdo()->prepare('SELECT is_vat_payer, is_identified FROM supplier WHERE id = ?');
-            $stmt->execute([$id]);
-            $cur = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-            $effVatPayer   = array_key_exists('is_vat_payer', $body) ? (bool) $body['is_vat_payer'] : (bool) ($cur['is_vat_payer'] ?? false);
-            $effIdentified = array_key_exists('is_identified', $body) ? (bool) $body['is_identified'] : (bool) ($cur['is_identified'] ?? false);
-            if ($effVatPayer && $effIdentified) {
-                return Json::error($response, 'validation_failed',
-                    'Identifikovaná osoba je z definice neplátce DPH — nelze kombinovat s plátcovstvím. Plátce DPH přepínač identifikované osoby vypne.', 422);
-            }
-        }
+        // Legacy flags (old API clients, scripts): translated into a NEW history row valid
+        // from today instead of rewriting history — see VatStatusService::applyFlagChange().
+        $flagPayer      = array_key_exists('is_vat_payer', $body) ? (bool) $body['is_vat_payer'] : null;
+        $flagIdentified = array_key_exists('is_identified', $body) ? (bool) $body['is_identified'] : null;
+        unset($body['is_vat_payer'], $body['is_identified']);
+
         // Validace tax fields
         if (array_key_exists('taxpayer_type', $body) && $body['taxpayer_type'] !== null
             && !in_array($body['taxpayer_type'], ['fo', 'po'], true)) {
@@ -360,19 +361,27 @@ final class SettingsAction
             if (!in_array($band, ['none', 'band1', 'band2', 'band3'], true)) {
                 return Json::error($response, 'validation_failed', "flat_tax_band musí být 'none', 'band1', 'band2' nebo 'band3'.", 400);
             }
-            if ($band !== 'none') {
-                // Efektivní plátcovství DPH po této změně (z body, jinak ze současného stavu).
-                if (array_key_exists('is_vat_payer', $body)) {
-                    $vatPayer = (bool) $body['is_vat_payer'];
-                } else {
-                    $stmt = $this->db->pdo()->prepare('SELECT is_vat_payer FROM supplier WHERE id = ?');
-                    $stmt->execute([$id]);
-                    $vatPayer = (bool) $stmt->fetchColumn();
-                }
-                if ($vatPayer) {
-                    return Json::error($response, 'validation_failed',
-                        'Paušální daň lze zvolit jen pro neplátce DPH (§ 7a ZDP).', 422);
-                }
+        }
+        // Cross-checks of the legacy flags and the flat tax band against the dated VAT status
+        // history (nothing is written yet): identified person + payer together is invalid, and a
+        // flat tax band is refused when the supplier is a payer for any part of the year it
+        // applies to (flat tax regime, § 7a ZDP; the supplier-level band applies to the current year).
+        // An unchanged band (the settings form posts every field) is not re-validated, so a
+        // status flip on a date never blocks unrelated saves; only a band being set is checked.
+        $newBand = null;
+        if (array_key_exists('flat_tax_band', $body)) {
+            $curBand = $this->db->pdo()->prepare('SELECT flat_tax_band FROM supplier WHERE id = ?');
+            $curBand->execute([$id]);
+            if ((string) $curBand->fetchColumn() !== $body['flat_tax_band']) {
+                $newBand = (string) $body['flat_tax_band'];
+            }
+        }
+        $plannedStatus = null;
+        if ($flagPayer !== null || $flagIdentified !== null || $newBand !== null) {
+            try {
+                $plannedStatus = $this->vatStatus->planFlagChange($id, $flagPayer, $flagIdentified, $newBand);
+            } catch (VatStatusException $e) {
+                return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
             }
         }
         // CZ-NACE (c_okec v DPHDP3, BUG 7): kanonizace proti snapshotu číselníku
@@ -503,10 +512,15 @@ final class SettingsAction
         foreach ($allowed as $f) {
             if (array_key_exists($f, $body)) {
                 $sets[] = "$f = ?";
-                $params[] = in_array($f, ['is_vat_payer', 'is_identified', 'oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf'], true)
+                $params[] = in_array($f, ['oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf'], true)
                     ? ((int) (bool) $body[$f])
                     : $body[$f];
             }
+        }
+
+        if ($plannedStatus !== null) {
+            $this->vatStatus->commitFlagChange($id, $plannedStatus, $this->currentUserId($request));
+            $this->log($request, 'supplier.vat_status_added', $id, ['valid_from' => VatStatusService::today(), 'status' => $plannedStatus, 'via' => 'supplier_settings']);
         }
 
         if (empty($sets)) return $this->respondSupplier($response, $id);
@@ -584,6 +598,8 @@ final class SettingsAction
                 // FOREIGN_KEY_CHECKS se NEPROVEDE — musíme uklidit ručně. Jinak by
                 // omezenému uživateli zůstal v setu neexistující dodavatel.
                 $this->userSuppliers->deleteForSupplier($id);
+                // Same reason: the VAT status history cascade does not fire with FK checks off.
+                $this->vatStatus->deleteAllForSupplier($id);
                 $pdo->prepare('DELETE FROM supplier WHERE id = ?')->execute([$id]);
             } finally {
                 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -628,9 +644,16 @@ final class SettingsAction
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         if (!$row) return Json::error($response, 'not_found', 'Supplier nenalezen.', 404);
         $row['id']                       = (int) $row['id'];
-        $row['is_vat_payer']             = (bool) $row['is_vat_payer'];
+        // VAT status TODAY, resolved from the dated history (the supplier columns are only
+        // a cache that may lag behind until the daily refresh), plus the history itself.
         // Identifikovaná osoba (§ 6g–6l, issue #94) — doplněk k neplátci.
-        $row['is_identified']            = (bool) ($row['is_identified'] ?? false);
+        $vat = $this->vatStatus->overview($row['id']);
+        $row['is_vat_payer']             = $vat['is_vat_payer'];
+        $row['is_identified']            = $vat['is_identified'];
+        $row['vat_status']               = $vat['status'];
+        $row['vat_history']              = $vat['history'];
+        $row['vat_next_change']          = $vat['next_change'];
+        $row['vat_flat_tax_conflict_year'] = $vat['flat_tax_conflict_year'];
         $row['oss_enabled']              = (bool) ($row['oss_enabled'] ?? false);
         $row['oss_return_currency']      = (string) ($row['oss_return_currency'] ?? 'EUR');
         $row['default_vat_rate_id']      = (int) $row['default_vat_rate_id'];
@@ -1221,6 +1244,13 @@ final class SettingsAction
         }
         $err = null;
         return true;
+    }
+
+    private function currentUserId(Request $request): ?int
+    {
+        $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
+        $id = (int) ($user['id'] ?? 0);
+        return $id > 0 ? $id : null;
     }
 
     private function log(Request $request, string $action, ?int $entityId, array $payload): void

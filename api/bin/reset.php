@@ -135,6 +135,8 @@ if ($keepUsersSupplier) {
         'users', 'sessions', 'trusted_devices', 'login_otps',
         // Identita dodavatele + měny + číslování dokladů
         'supplier', 'currencies', 'invoice_counters', 'purchase_invoice_counters', 'app_meta',
+        // Dated VAT status history of the kept supplier(s) — without it the status falls back to the cached flags
+        'supplier_vat_status_history',
         // API tokeny (PAT)
         'api_tokens',
         // Podepisování PDF (konfigurace + klíče)

@@ -9,6 +9,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Report\IncomeTaxBuilder;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use MyInvoice\Tests\Support\VatStatusFixture;
 
 /**
  * Daň z příjmů (DPFO/DPPO) — základ tržeb/nákladů musí respektovat plátcovství DPH.
@@ -37,7 +38,8 @@ final class IncomeTaxVatBaseTest extends TestCase
     private int $vatRateId = 0;
     private int $userId = 0;
     private int $czId = 0;
-    private int $origVatPayer = 0;
+    /** @var list<array{valid_from: string, status: string, note: ?string}> */
+    private array $origVatHistory = [];
 
     private int $customerId = 0;
     private int $vendorId = 0;
@@ -71,9 +73,7 @@ final class IncomeTaxVatBaseTest extends TestCase
             $this->markTestSkipped('Chybí základní data (supplier/currency/vat_rate/user/country) v DB.');
         }
 
-        $stmt = $pdo->prepare('SELECT is_vat_payer FROM supplier WHERE id = ?');
-        $stmt->execute([$this->supplierId]);
-        $this->origVatPayer = (int) ($stmt->fetchColumn() ?: 0);
+        $this->origVatHistory = VatStatusFixture::snapshot($pdo, $this->supplierId);
     }
 
     protected function tearDown(): void
@@ -95,9 +95,8 @@ final class IncomeTaxVatBaseTest extends TestCase
                 $pdo->prepare('DELETE FROM clients WHERE id = ?')->execute([$id]);
             }
         }
-        // Obnov původní plátcovství DPH supplieru.
-        $pdo->prepare('UPDATE supplier SET is_vat_payer = ? WHERE id = ?')
-            ->execute([$this->origVatPayer, $this->supplierId]);
+        // Restore the supplier's original VAT status history.
+        VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
         $this->db->close();
     }
 
@@ -165,8 +164,7 @@ final class IncomeTaxVatBaseTest extends TestCase
 
     private function setVatPayer(bool $payer): void
     {
-        $this->db->pdo()->prepare('UPDATE supplier SET is_vat_payer = ? WHERE id = ?')
-            ->execute([$payer ? 1 : 0, $this->supplierId]);
+        VatStatusFixture::set($this->db->pdo(), $this->supplierId, $payer);
     }
 
     private function countryId(string $iso2): int

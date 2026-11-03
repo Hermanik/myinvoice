@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Vat\VatStatusSql;
 use PDO;
 
 /**
@@ -81,11 +82,13 @@ final class TaxProfileRepository
 
     /**
      * Roční příjem (zaplacené faktury daného roku, přepočet na CZK).
-     * Pro plátce DPH se bere bez DPH, pro neplátce s DPH (= fakturovaná částka).
+     * A VAT payer's document counts without VAT, a non-payer's document with VAT (= the invoiced amount);
+     * the status is judged PER DOCUMENT on its DUZP, so a year in which the status changed
+     * adds up correctly.
      */
-    public function annualIncome(int $supplierId, int $year, bool $isVatPayer): float
+    public function annualIncome(int $supplierId, int $year): float
     {
-        $col = $isVatPayer ? 'i.total_without_vat' : 'i.total_with_vat';
+        $col = VatStatusSql::amount('i');
         $stmt = $this->db->pdo()->prepare(
             "SELECT COALESCE(SUM({$col} * COALESCE(IF(cur.code = 'CZK', 1, i.exchange_rate), 1)), 0)
                FROM invoices i
@@ -107,9 +110,9 @@ final class TaxProfileRepository
      * „z toho vyloučeno ze základu daně z příjmů" v daňovém optimalizátoru —
      * do výpočtu daně/pojistného NEvstupuje (ten už osvobozené příjmy nezahrnuje).
      */
-    public function annualExemptIncome(int $supplierId, int $year, bool $isVatPayer): float
+    public function annualExemptIncome(int $supplierId, int $year): float
     {
-        $col = $isVatPayer ? 'i.total_without_vat' : 'i.total_with_vat';
+        $col = VatStatusSql::amount('i');
         $stmt = $this->db->pdo()->prepare(
             "SELECT COALESCE(SUM({$col} * COALESCE(IF(cur.code = 'CZK', 1, i.exchange_rate), 1)), 0)
                FROM invoices i
@@ -129,9 +132,9 @@ final class TaxProfileRepository
      * Měsíční příjmy roku [1..12] => CZK (pro projekci běžícího roku).
      * @return array<int,float>
      */
-    public function monthlyIncome(int $supplierId, int $year, bool $isVatPayer): array
+    public function monthlyIncome(int $supplierId, int $year): array
     {
-        $col = $isVatPayer ? 'i.total_without_vat' : 'i.total_with_vat';
+        $col = VatStatusSql::amount('i');
         $stmt = $this->db->pdo()->prepare(
             "SELECT MONTH(i.paid_at) AS m,
                     COALESCE(SUM({$col} * COALESCE(IF(cur.code = 'CZK', 1, i.exchange_rate), 1)), 0) AS total
@@ -157,9 +160,9 @@ final class TaxProfileRepository
      * Příjem za konkrétní měsíc (zaplacené faktury, 'YYYY-MM', kasová metoda).
      * Pro odhad "čistý příjem za minulý měsíc" v daňovém optimalizátoru.
      */
-    public function monthIncome(int $supplierId, string $ym, bool $isVatPayer): float
+    public function monthIncome(int $supplierId, string $ym): float
     {
-        $col = $isVatPayer ? 'i.total_without_vat' : 'i.total_with_vat';
+        $col = VatStatusSql::amount('i');
         $stmt = $this->db->pdo()->prepare(
             "SELECT COALESCE(SUM({$col} * COALESCE(IF(cur.code = 'CZK', 1, i.exchange_rate), 1)), 0)
                FROM invoices i
@@ -180,9 +183,9 @@ final class TaxProfileRepository
      * Stejná konvence jako PurchaseSummaryAction::advanceCostExclude() — zaplacenou
      * zálohu spárovanou s vyúčtovací fakturou nepočítej dvakrát.
      */
-    public function monthExpenses(int $supplierId, string $ym, bool $isVatPayer): float
+    public function monthExpenses(int $supplierId, string $ym): float
     {
-        $col = $isVatPayer ? 'pi.total_without_vat' : 'pi.total_with_vat';
+        $col = VatStatusSql::amount('pi');
         $stmt = $this->db->pdo()->prepare(
             "SELECT COALESCE(SUM({$col} * COALESCE(IF(cur.code = 'CZK', 1, pi.exchange_rate), 1)), 0)
                FROM purchase_invoices pi

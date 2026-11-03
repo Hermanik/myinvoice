@@ -8,6 +8,7 @@ use MyInvoice\Http\Json;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\Currency\ExchangeRateApplier;
+use MyInvoice\Service\Invoice\InvoiceVatAdvisor;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -16,6 +17,7 @@ final class GetInvoiceAction
     public function __construct(
         private readonly InvoiceRepository $repo,
         private readonly ExchangeRateApplier $rateApplier,
+        private readonly InvoiceVatAdvisor $vatAdvisor,
     ) {}
 
     public function __invoke(Request $request, Response $response, array $args): Response
@@ -35,6 +37,9 @@ final class GetInvoiceAction
             $this->rateApplier->ensureRate($id);
             $invoice = $this->repo->find($id);
         }
+
+        // Hints before issuing (e.g. a payer's draft with every line on 0 %); empty for issued invoices.
+        $invoice['warnings'] = $this->vatAdvisor->warnings($sid, $invoice);
 
         return Json::ok($response, $invoice);
     }

@@ -492,7 +492,7 @@ final class IdokladImportService
     {
         if ($state !== null && $state['status'] !== 'paid') return;
 
-        $snapshots = $this->snapshots->build($clientId, $currencyId, $supplierId);
+        $snapshots = $this->snapshots->build($clientId, $currencyId, $supplierId, null, $this->snapshots->vatStatusDateOfInvoice($invoiceId));
         $snapshotParams = [
             json_encode($snapshots['client'],   JSON_UNESCAPED_UNICODE),
             json_encode($snapshots['supplier'], JSON_UNESCAPED_UNICODE),

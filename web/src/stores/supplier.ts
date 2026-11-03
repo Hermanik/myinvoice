@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type { SupplierBrief } from '@/api/auth'
+import { vatFlagsAt as resolveVatFlagsAt, type VatFlags } from '@/utils/vatStatus'
 
 const STORAGE_KEY = 'myinvoice.current_supplier_id'
 
@@ -35,6 +36,13 @@ export const useSupplierStore = defineStore('supplier', () => {
     else localStorage.removeItem(STORAGE_KEY)
   })
 
+  /** VAT flags of the current supplier on a date (an invoice's DUZP) — from the dated history sent with /me. */
+  function vatFlagsAt(date: string): VatFlags {
+    const s = currentSupplier.value ?? undefined
+    // Empty history (not migrated / not loaded yet) → the supplier's cached flags, not "payer".
+    return resolveVatFlagsAt(s?.vat_history, date, s)
+  }
+
   function setSupplier(id: number) {
     currentSupplierId.value = id
   }
@@ -64,6 +72,7 @@ export const useSupplierStore = defineStore('supplier', () => {
     hasMultiple,
     hasSupplier,
     currentSupplier,
+    vatFlagsAt,
     setSupplier,
     setAvailable,
     patchSupplier,

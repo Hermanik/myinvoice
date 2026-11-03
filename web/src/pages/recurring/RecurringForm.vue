@@ -23,12 +23,23 @@ const route = useRoute()
 const router = useRouter()
 const supplierStore = useSupplierStore()
 
-// Aktivní dodavatel — neplátce DPH fakturuje bez DPH (žádné DPH UI ani sazba), stejně
-// jako u ruční faktury (InvoiceEditor). Backend (RecurringInvoiceGenerator) to navíc
-// vynucuje při generování, takže to platí i pro šablony uložené dřív.
-const supplierIsVatPayer = computed(() => supplierStore.currentSupplier?.is_vat_payer ?? true)
+// Supplier — a non-payer invoices without VAT (no VAT UI or rate), like a manually issued
+// invoice (InvoiceEditor). The backend (RecurringInvoiceGenerator) also enforces it at generation
+// by the status on the generated invoice's DUZP, so it holds for templates saved earlier too.
+// The form follows the status on the DUZP of the NEXT generated invoice (the template's next run; with tax_date_mode
+// "last day of the previous month" that is the end of the previous month).
+const nextRunDate = ref<string | null>(null)
+const vatStatusDate = computed(() => {
+  const run = nextRunDate.value || form.value.anchor_date || today()
+  if (form.value.tax_date_mode !== 'previous_month_last_day') return run
+  const d = new Date(`${run.slice(0, 7)}-01T00:00:00Z`)
+  d.setUTCDate(0) // day 0 of the run month = last day of the previous month
+  return d.toISOString().slice(0, 10)
+})
+const supplierVatFlags = computed(() => supplierStore.vatFlagsAt(vatStatusDate.value))
+const supplierIsVatPayer = computed(() => supplierVatFlags.value.is_vat_payer)
 // Identifikovaná osoba (§ 6g–6l ZDPH, #94) — neplátce s RC u služeb do EU.
-const supplierIsIdentified = computed(() => supplierStore.currentSupplier?.is_identified ?? false)
+const supplierIsIdentified = computed(() => supplierVatFlags.value.is_identified)
 // RC checkbox: plátce vždy, IO taky (její hlavní use-case); čistý neplátce ne.
 const showReverseChargeUI = computed(() => supplierIsVatPayer.value || supplierIsIdentified.value)
 
@@ -626,6 +637,7 @@ onMounted(async () => {
 
     if (isEdit.value && tplId.value) {
       const tpl: RecurringTemplate = await recurringApi.get(tplId.value)
+      nextRunDate.value = tpl.next_run_date.slice(0, 10)
       Object.assign(form.value, {
         client_id: tpl.client_id,
         project_id: tpl.project_id,

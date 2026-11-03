@@ -10,6 +10,7 @@ use MyInvoice\Service\Report\DphPriznaniBuilder;
 use MyInvoice\Service\Report\KontrolniHlaseniBuilder;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use MyInvoice\Tests\Support\VatStatusFixture;
 
 /**
  * Identifikovaná osoba (§ 6g–6l ZDPH, issue #94) v DPH výkazech.
@@ -42,8 +43,8 @@ final class IdentifiedPersonDphTest extends TestCase
     private int $userId = 0;
     private int $czId = 0;
     private int $deId = 0;
-    private int $origVatPayer = 0;
-    private int $origIdentified = 0;
+    /** @var list<array{valid_from: string, status: string, note: ?string}> */
+    private array $origVatHistory = [];
 
     /** @var int[] */
     private array $clientIds = [];
@@ -68,7 +69,7 @@ final class IdentifiedPersonDphTest extends TestCase
         }
 
         $pdo = $this->db->pdo();
-        $row = $pdo->query('SELECT id, is_vat_payer, is_identified FROM supplier ORDER BY id LIMIT 1')->fetch(\PDO::FETCH_ASSOC);
+        $row = $pdo->query('SELECT id FROM supplier ORDER BY id LIMIT 1')->fetch(\PDO::FETCH_ASSOC);
         $this->supplierId = (int) ($row['id'] ?? 0);
         $this->currencyId = (int) ($pdo->query("SELECT id FROM currencies WHERE code = 'CZK' ORDER BY id LIMIT 1")->fetchColumn() ?: 0);
         $this->vatRateId  = (int) ($pdo->query('SELECT id FROM vat_rates ORDER BY id LIMIT 1')->fetchColumn() ?: 0);
@@ -79,10 +80,8 @@ final class IdentifiedPersonDphTest extends TestCase
             $this->markTestSkipped('Chybí základní data (supplier/currency/vat_rate/user/country) v DB.');
         }
 
-        $this->origVatPayer   = (int) $row['is_vat_payer'];
-        $this->origIdentified = (int) ($row['is_identified'] ?? 0);
-        $pdo->prepare('UPDATE supplier SET is_vat_payer = 0, is_identified = 1 WHERE id = ?')
-            ->execute([$this->supplierId]);
+        $this->origVatHistory = VatStatusFixture::snapshot($pdo, $this->supplierId);
+        VatStatusFixture::set($pdo, $this->supplierId, false, true);
     }
 
     protected function tearDown(): void
@@ -102,8 +101,7 @@ final class IdentifiedPersonDphTest extends TestCase
         foreach ($this->clientIds as $id) {
             $pdo->prepare('DELETE FROM clients WHERE id = ?')->execute([$id]);
         }
-        $pdo->prepare('UPDATE supplier SET is_vat_payer = ?, is_identified = ? WHERE id = ?')
-            ->execute([$this->origVatPayer, $this->origIdentified, $this->supplierId]);
+        VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
         $this->db->close();
     }
 
@@ -175,8 +173,7 @@ final class IdentifiedPersonDphTest extends TestCase
     {
         // Kontrola, že IO režim NEprosákl plátcům: přepni zpět na plátce a ověř P + Veta4.
         $pdo = $this->db->pdo();
-        $pdo->prepare('UPDATE supplier SET is_vat_payer = 1, is_identified = 0 WHERE id = ?')
-            ->execute([$this->supplierId]);
+        VatStatusFixture::set($pdo, $this->supplierId, true);
 
         $d = fn (int $day) => sprintf('%04d-%02d-%02d', self::YEAR, self::MONTH, $day);
         $euVend = $this->client('EU dodavatel plátce', $this->deId, 'DE505050505', vendor: true);

@@ -44,7 +44,7 @@ final class VatClassificationMapperTest extends TestCase
         $prop = $ref->getProperty('pdo');
         $prop->setValue($conn, $this->pdo);
 
-        $this->mapper = new VatClassificationMapper($conn, new VatLedgerService($conn, new TaxConstantsRepository($conn)));
+        $this->mapper = new VatClassificationMapper($conn, new VatLedgerService($conn, new TaxConstantsRepository($conn), \MyInvoice\Service\Vat\VatStatusService::forConnection($conn)));
     }
 
     public function testEuAcquisitionInEurAppliesExchangeRate(): void

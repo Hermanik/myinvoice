@@ -29,6 +29,8 @@ import { useToast } from '@/composables/useToast'
 import { focusLastRow } from '@/composables/useRowFocus'
 import { apiErrorMessage } from '@/api/errors'
 import { useSupplierStore } from '@/stores/supplier'
+import { appIsoDate } from '@/utils/date'
+import { documentVatDate } from '@/utils/vatStatus'
 
 const { t, locale } = useI18n()
 const toast = useToast()
@@ -87,7 +89,9 @@ function zeroVatRateId(): number | null {
 }
 const defaultUnit = computed(() => units.value.find(u => u.code === 'ks')?.code || 'ks')
 
-const supplierIsVatPayer = computed(() => supplierStore.currentSupplier?.is_vat_payer ?? true)
+// VAT status on the invoice's DUZP (issue date when there is none), from the dated history — not today's flag.
+const invoiceVatDate = ref<string | null>(null)
+const supplierIsVatPayer = computed(() => supplierStore.vatFlagsAt(documentVatDate(invoiceVatDate.value, null, appIsoDate())).is_vat_payer)
 // Cena s/bez DPH dle režimu dokladu (jen plátce DPH; jinak nemá smysl rozlišovat).
 const pricesInclVat = computed(() => pricesIncludeVat.value && supplierIsVatPayer.value)
 const unitPriceHeaderLabel = computed(() => pricesInclVat.value
@@ -128,6 +132,7 @@ async function load() {
     ])
     wrExistedOnLoad.value = !!wr
     projectId.value = inv.project_id ?? null
+    invoiceVatDate.value = inv.tax_date || inv.issue_date || null
     currency.value = inv.currency || 'CZK'
     pricesIncludeVat.value = !!inv.prices_include_vat
     units.value = unitsList
