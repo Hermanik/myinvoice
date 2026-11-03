@@ -7,6 +7,22 @@ export interface DphPriznaniLine {
   label: string
 }
 
+export interface DphSupplementaryInfo {
+  d_zjist: string
+  reason: string
+  based_on: { submission_id: number; submission_form: string; filed_at: string | null }
+  known_tax: number
+  new_tax: number
+  difference: number
+}
+
+/** Params of the supplementary (D) return; `d_zjist` is in the EPO format DD.MM.YYYY. */
+export interface DphFormParams {
+  form?: string
+  dZjist?: string
+  reason?: string
+}
+
 export interface DphPriznaniPreview {
   summary: {
     period: string
@@ -19,6 +35,11 @@ export interface DphPriznaniPreview {
     is_excess_deduction: boolean
     submission_deadline: string
     supplier_vat_period: string
+    /** Form of the previewed return (B regular, O corrective, D supplementary). */
+    form?: 'B' | 'O' | 'D'
+    /** Supplementary only: signed row 66 (positive = extra tax, negative = reduction). */
+    line_66_dano?: number
+    supplementary?: DphSupplementaryInfo
   }
   warnings: string[]
   /** Chybějící POVINNÁ pole EPO identifikace — náhled neblokují, stažení XML ano. */
@@ -41,9 +62,25 @@ export interface DphSettings {
   has_financial_office: boolean
 }
 
+/** Answer to a call of the tax office (vyzva): `vyzva_odp` B = nil KH, P = confirmation of the last filed KH. */
+export interface KhFormParams {
+  /** B regular / O corrective / N follow-up (B is never sent). */
+  form?: string
+  /** Date of discovery in the EPO format DD.MM.YYYY. */
+  dZjist?: string
+  cJedVyzvy?: string
+  vyzvaOdp?: 'B' | 'P'
+}
+
 export interface KhPreview {
   summary: {
     period: string
+    /** The form in the XML (a quick answer to a call is a nil KH, B). */
+    form: string
+    /** How the statement is archived ('V' for a quick answer to a call). */
+    archive_form?: string
+    /** Answer to a call of the tax office; `answer` is null for a full follow-up KH, the whole object null without a call. */
+    call: { reference: string; answer: 'B' | 'P' | null } | null
     a1_count: number
     a2_count: number
     a4_count: number
@@ -253,13 +290,32 @@ function monthlyExportPeriodParams(period: ExportPeriodArg): Record<string, stri
     : { period: 'monthly', year: period.year, month: period.month }
 }
 
+/** Query params of the return form: B is the default and is never sent. */
+function dphFormQuery({ form, dZjist, reason }: DphFormParams): Record<string, string> {
+  if (!form || form === 'B') return {}
+  return {
+    form,
+    ...(dZjist ? { d_zjist: dZjist } : {}),
+    ...(form === 'D' && reason ? { reason } : {}),
+  }
+}
+
+function khFormQuery({ form, dZjist, cJedVyzvy, vyzvaOdp }: KhFormParams): Record<string, string> {
+  return {
+    ...(form && form !== 'B' ? { form } : {}),
+    ...(dZjist ? { d_zjist: dZjist } : {}),
+    ...(cJedVyzvy ? { c_jed_vyzvy: cJedVyzvy } : {}),
+    ...(vyzvaOdp ? { vyzva_odp: vyzvaOdp } : {}),
+  }
+}
+
 export const reportsApi = {
   dphSettings: () =>
     api.get<DphSettings>('/reports/dphdp3/settings').then(r => r.data),
 
-  dphPreview: (year: number, month: number, period?: 'monthly' | 'quarterly') =>
+  dphPreview: (year: number, month: number, period?: 'monthly' | 'quarterly', formParams: DphFormParams = {}) =>
     api.get<DphPriznaniPreview>('/reports/dphdp3/preview', {
-      params: { year, month, ...(period ? { period } : {}) },
+      params: { year, month, ...(period ? { period } : {}), ...dphFormQuery(formParams) },
     }).then(r => r.data),
 
   dphTrend: (months = 12) =>
@@ -270,9 +326,9 @@ export const reportsApi = {
       params: { year, month, ...(period ? { period } : {}) },
     }).then(r => r.data),
 
-  khPreview: (year: number, month: number, period?: 'monthly' | 'quarterly') =>
+  khPreview: (year: number, month: number, period?: 'monthly' | 'quarterly', formParams: KhFormParams = {}) =>
     api.get<KhPreview>('/reports/dphkh1/preview', {
-      params: { year, month, ...(period ? { period } : {}) },
+      params: { year, month, ...(period ? { period } : {}), ...khFormQuery(formParams) },
     }).then(r => r.data),
 
   // Souhrnné hlášení (EU dodání) — plátci i identifikované osoby; lze kvartálně pro služby
@@ -331,17 +387,14 @@ export const reportsApi = {
     return `/api/reports/income-tax?${params.toString()}`
   },
 
-  khDownloadUrl: (year: number, month: number, period?: 'monthly' | 'quarterly', form?: string, dZjist?: string) => {
+  khDownloadUrl: (year: number, month: number, period?: 'monthly' | 'quarterly', formParams: KhFormParams = {}) => {
     const sid = localStorage.getItem('myinvoice.current_supplier_id')
     const params = new URLSearchParams({ year: String(year), month: String(month) })
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     if (period) params.set('period', period)
     // Forma podání (B řádné / O opravné / N následné) + datum zjištění důvodů
     // pro následné KH (DD.MM.YYYY, povinné u N) — viz KontrolniHlaseniAction.
-    if (form && form !== 'B') {
-      params.set('form', form)
-      if (dZjist) params.set('d_zjist', dZjist)
-    }
+    for (const [k, v] of Object.entries(khFormQuery(formParams))) params.set(k, v)
     return `/api/reports/dphkh1?${params.toString()}`
   },
 
@@ -404,18 +457,13 @@ export const reportsApi = {
   },
 
   /** URL na download endpoint — frontend ho otevírá v novém okně */
-  dphDownloadUrl: (year: number, month: number, period?: 'monthly' | 'quarterly', form?: string, dZjist?: string) => {
+  dphDownloadUrl: (year: number, month: number, period?: 'monthly' | 'quarterly', formParams: DphFormParams = {}) => {
     const sid = localStorage.getItem('myinvoice.current_supplier_id')
     const params = new URLSearchParams({ year: String(year), month: String(month) })
     if (period) params.set('period', period)
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
-    // Forma podání (B řádné / O opravné; dodatečné D/E backend odmítá do
-    // implementace dopočtu rozdílů dle § 141/2 DŘ) + volitelné datum zjištění
-    // důvodů u O (DD.MM.YYYY) — viz DphPriznaniAction.
-    if (form && form !== 'B') {
-      params.set('form', form)
-      if (dZjist) params.set('d_zjist', dZjist)
-    }
+    // Form of the return (B regular / O corrective / D supplementary) — see DphPriznaniAction.
+    for (const [k, v] of Object.entries(dphFormQuery(formParams))) params.set(k, v)
     return `/api/reports/dphdp3?${params.toString()}`
   },
 }

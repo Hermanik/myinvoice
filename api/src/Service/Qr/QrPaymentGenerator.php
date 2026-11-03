@@ -10,6 +10,7 @@ use chillerlan\QRCode\QRCode;
 use chillerlan\QRCode\QROptions;
 use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Service\Bank\VariableSymbolNormalizer;
+use MyInvoice\Service\Export\ExportFilename;
 use Psr\Log\LoggerInterface;
 use Rikudou\CzQrPayment\QrPayment as CzQrPayment;
 use Rikudou\Iban\Iban\CzechIbanAdapter;
@@ -106,12 +107,21 @@ final class QrPaymentGenerator
             ->setCurrency('CZK')
             ->setConstantSymbol((string) $this->config->get('qr.czk_constant_symbol', '0308'))
             ->setDueDate($dueDate ?? new \DateTimeImmutable())
-            ->setComment($message ?? ('Faktura ' . $varsymbol));
+            ->setComment(self::spdText($message ?? ('Faktura ' . $varsymbol)));
         if ($vs !== '') {
             $payment->setVariableSymbol($vs);
         }
 
         return $payment->getQrString();
+    }
+
+    /**
+     * Free text of the Czech payment QR (SPD `MSG`): banking apps read it as ASCII and some break on diacritics, so it is
+     * transliterated (č -> c) and anything outside printable ASCII is dropped.
+     */
+    private static function spdText(string $text): string
+    {
+        return trim((string) preg_replace('/[^\x20-\x7E]/', '', ExportFilename::transliterate($text)));
     }
 
     private function buildSepa(

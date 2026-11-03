@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Tax;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\TaxSubmissionRepository;
+use MyInvoice\Repository\VatRegistrationDeductionRepository;
 use MyInvoice\Service\Report\ReportPeriod;
+use MyInvoice\Service\Vat\RegistrationDeductionCalculator;
 use MyInvoice\Service\Vat\VatStatusService;
 
 /**
@@ -47,6 +50,7 @@ final class ChangesAfterFilingService
     public function __construct(
         private readonly Connection $db,
         private readonly VatStatusService $vatStatus,
+        private readonly VatRegistrationDeductionRepository $deductions,
     ) {}
 
     /**
@@ -66,7 +70,16 @@ final class ChangesAfterFilingService
         if (!in_array($submission['filing_status'] ?? 'generated', ['filed', 'confirmed'], true) || $filedAt === null) {
             return ['filed_at' => null, 'period_start' => $start, 'period_end' => $end, 'items' => [], 'count' => 0];
         }
-        $items = $this->changes((int) $submission['supplier_id'], (string) $filedAt, $start, $end);
+        $supplierId = (int) $submission['supplier_id'];
+        $items = $this->changes($supplierId, (string) $filedAt, $start, $end);
+        if ($submission['form_code'] === TaxSubmissionRepository::FORM_DPH) {
+            // The items of the deduction on registration (row 45) are part of the DPH return, not of the ledger.
+            $deductions = $this->registrationDeductions($supplierId, (string) $filedAt, $start, $end);
+            if ($deductions !== []) {
+                $items = array_merge($items, $deductions);
+                usort($items, self::byFirstChange(...));
+            }
+        }
         return ['filed_at' => (string) $filedAt, 'period_start' => $start, 'period_end' => $end, 'items' => $items, 'count' => count($items)];
     }
 
@@ -86,8 +99,86 @@ final class ChangesAfterFilingService
             $items,
             static fn (array $d): bool => $d['tax_date'] === null || $history->hasVatDutiesAt((string) $d['tax_date']),
         ));
-        usort($items, static fn (array $a, array $b): int => [$a['changes'][0]['at'], $a['source'], (int) $a['id']] <=> [$b['changes'][0]['at'], $b['source'], (int) $b['id']]);
+        usort($items, self::byFirstChange(...));
         return $items;
+    }
+
+    /**
+     * Items of the deduction on registration / its reduction (§ 79, § 79a ZDPH) of the period that were created, edited
+     * or deleted after the return was filed — they sit on row 45, so the filed return may no longer match them.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function registrationDeductions(int $supplierId, string $filedAt, string $start, string $end): array
+    {
+        $out = [];
+        foreach ($this->deductions->all($supplierId) as $d) {
+            if (!RegistrationDeductionCalculator::eventInPeriod($d['kind'], $d['event_date'], $start, $end)) {
+                continue;
+            }
+            $changes = [];
+            if ($d['created_at'] > $filedAt) {
+                $changes[] = ['type' => 'created', 'at' => $d['created_at'], 'user_id' => null];
+            }
+            if ($d['updated_at'] > max($filedAt, $d['created_at'])) {
+                $changes[] = ['type' => 'edited', 'at' => $d['updated_at'], 'user_id' => null];
+            }
+            if ($changes !== []) {
+                $out[] = self::deductionChange($d, $changes);
+            }
+        }
+
+        // The deleted ones are known from the audit entry of the deletion, which carries the item.
+        $deleted = $this->db->pdo()->prepare(
+            "SELECT user_id, payload, created_at FROM activity_log
+              WHERE supplier_id = ? AND created_at > ? AND action = 'tax.registration_deduction_deleted'
+           ORDER BY created_at, id"
+        );
+        $deleted->execute([$supplierId, $filedAt]);
+        foreach ($deleted->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $payload = json_decode((string) $row['payload'], true);
+            if (!is_array($payload) || !isset($payload['id'], $payload['kind'], $payload['event_date'])
+                || !RegistrationDeductionCalculator::eventInPeriod((string) $payload['kind'], (string) $payload['event_date'], $start, $end)
+            ) {
+                continue;
+            }
+            $out[] = self::deductionChange(
+                $payload + ['description' => null, 'deduction_amount' => null],
+                [['type' => 'deleted', 'at' => (string) $row['created_at'], 'user_id' => $row['user_id'] !== null ? (int) $row['user_id'] : null]],
+            );
+        }
+        return $out;
+    }
+
+    /**
+     * @param array<string,mixed> $d an item, or the snapshot of a deleted one from the audit log
+     * @param list<array<string,mixed>> $changes
+     * @return array<string,mixed> a changed document in the shape of {@see liveDocuments()}
+     */
+    private static function deductionChange(array $d, array $changes): array
+    {
+        $deleted = $changes[0]['type'] === 'deleted';
+        $amount = $d['deduction_amount'] !== null ? (float) $d['deduction_amount'] : null;
+        return [
+            'source'         => 'registration_deduction',
+            'id'             => (int) $d['id'],
+            'doc_number'     => $d['description'],
+            'kind'           => $d['kind'],
+            'status'         => $deleted ? 'deleted' : null,
+            'tax_date'       => $d['event_date'],
+            'counterparty'   => null,
+            // Signed the way it enters row 45.
+            'total_with_vat' => $amount !== null && $d['kind'] === 'deregistration' ? -$amount : $amount,
+            'currency'       => 'CZK',
+            'deleted'        => $deleted,
+            'changes'        => $changes,
+        ];
+    }
+
+    /** Orders changed documents by their first change (then source and id). */
+    private static function byFirstChange(array $a, array $b): int
+    {
+        return [$a['changes'][0]['at'], $a['source'], (int) $a['id']] <=> [$b['changes'][0]['at'], $b['source'], (int) $b['id']];
     }
 
     /**

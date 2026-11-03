@@ -12,14 +12,20 @@ use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Vat\VatStatusService;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Report\DphPriznaniBuilder;
+use MyInvoice\Service\Report\ReportFormParams;
+use MyInvoice\Service\Tax\TaxFilingException;
 use MyInvoice\Service\Report\VatClassificationMapper;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
 /**
  * DPH přiznání DPHDP3 endpoints:
- *   GET /api/reports/dphdp3/preview?year=2026&month=5  — JSON summary (řádky + warnings)
+ *   GET /api/reports/dphdp3/preview?year=2026&month=5  — JSON summary (rows + warnings)
  *   GET /api/reports/dphdp3?year=2026&month=5          — XML download
+ *
+ * Both accept `form` (B regular, O corrective, D supplementary), `d_zjist` (DD.MM.YYYY) and, for D, `reason`.
+ * The preview of D shows the differences against the last filed return; 422 `no_filed_return` / `nothing_changed`
+ * when there is none to compare with.
  *
  * Permissions: admin nebo accountant.
  *
@@ -173,7 +179,13 @@ final class DphPriznaniAction
         // `missing[]`, na jejich základě UI zakáže stažení XML.
         $epo = $this->epoValidator->forSupplier($supplierId, \MyInvoice\Service\Report\EpoIdentityValidator::DOC_DPHDP3);
         try {
-            $result = $this->builder->build($supplierId, $year, $month, $period);
+            // Only a supplementary return differs from the regular figures; B and O share the preview.
+            $filing = ReportFormParams::dph($q);
+            $result = $this->builder->build($supplierId, $year, $month, $period, $filing->isSupplementary() ? $filing : null);
+        } catch (TaxFilingException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+        } catch (\InvalidArgumentException $e) {
+            return Json::error($response, 'validation_failed', $e->getMessage(), 400);
         } catch (\Throwable $e) {
             return Json::error($response, 'build_failed', $e->getMessage(), 500);
         }
@@ -252,17 +264,6 @@ final class DphPriznaniAction
         if ($epo['missing'] !== []) {
             return $this->epoIdentityError($response, $epo['missing']);
         }
-        // Forma podání (B/O; dodatečné D/E dočasně nepodporováno — § 141/2 DŘ
-        // vyžaduje vykázání rozdílů, viz DphPriznaniBuilder::FORMS) + volitelné
-        // datum zjištění důvodů u O.
-        $fp = \MyInvoice\Service\Report\ReportFormParams::fromQuery(
-            $q,
-            \MyInvoice\Service\Report\DphPriznaniBuilder::FORMS,
-            \MyInvoice\Service\Report\DphPriznaniBuilder::FORMS_REQUIRING_DZJIST,
-        );
-        if ($fp['error'] !== null) {
-            return Json::error($response, 'validation_failed', $fp['error'], 400);
-        }
         try {
             // Without an explicit period the builder falls back to supplier.vat_period.
             if ($period === null) {
@@ -275,11 +276,13 @@ final class DphPriznaniAction
             return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
         }
         try {
-            $result = $this->builder->build($supplierId, $year, $month, $period, $fp['form'], $fp['d_zjist']);
-            // #238: doplň chybějící kurzy z ČNB a přebuildi; tvrdá chyba jen když ČNB nemá.
+            // Filing form (B / O / D) with the date the reasons were found and the reasons (required for D).
+            $filing = ReportFormParams::dph($q);
+            $result = $this->builder->build($supplierId, $year, $month, $period, $filing);
+            // #238: fill the missing exchange rates from ČNB and rebuild; a hard error only when ČNB has none.
             if (!empty($result['missing_rates'])) {
                 $this->rateFiller->fill($supplierId, $result['missing_rates']);
-                $result = $this->builder->build($supplierId, $year, $month, $period, $fp['form'], $fp['d_zjist']);
+                $result = $this->builder->build($supplierId, $year, $month, $period, $filing);
                 if (!empty($result['missing_rates'])) {
                     $labels = \MyInvoice\Service\Report\VatLedgerService::missingExchangeRateLabels($result['missing_rates']);
                     return Json::error($response, 'exchange_rate_missing',
@@ -287,6 +290,10 @@ final class DphPriznaniAction
                         . '. Doplňte kurz ručně u faktury a zkuste znovu.', 422);
                 }
             }
+        } catch (TaxFilingException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+        } catch (\InvalidArgumentException $e) {
+            return Json::error($response, 'validation_failed', $e->getMessage(), 400);
         } catch (\Throwable $e) {
             return Json::error($response, 'build_failed', $e->getMessage(), 500);
         }
@@ -310,9 +317,9 @@ final class DphPriznaniAction
             'validation_status' => $archived['validation_status'],
         ], $ip, $request->getHeaderLine('User-Agent'));
 
-        $filename = $isQuarterly
-            ? sprintf('dphdp3-%04d-Q%d.xml', $year, (int) ceil($month / 3))
-            : sprintf('dphdp3-%04d-%02d.xml', $year, $month);
+        $filename = ($isQuarterly
+            ? sprintf('dphdp3-%04d-Q%d', $year, (int) ceil($month / 3))
+            : sprintf('dphdp3-%04d-%02d', $year, $month)) . ($filing->isSupplementary() ? '-D' : '') . '.xml';
         $response->getBody()->write($result['xml']);
         return $response
             ->withHeader('Content-Type', 'application/xml; charset=utf-8')

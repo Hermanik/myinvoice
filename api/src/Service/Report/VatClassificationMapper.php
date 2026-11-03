@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Report;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Vat\RegistrationDeductionService;
+use MyInvoice\Service\Vat\VatStatusHistory;
 
 /**
  * Mapper VAT klasifikací — code → dphdp3_line, kh_section, sazba.
@@ -18,6 +20,8 @@ final class VatClassificationMapper
     public function __construct(
         private readonly Connection $db,
         private readonly VatLedgerService $ledger,
+        // The deduction on registration / its reduction (rows 45, 47); optional so that the ledger-only unit tests keep working.
+        private readonly ?RegistrationDeductionService $registration = null,
     ) {}
 
     /**
@@ -59,7 +63,7 @@ final class VatClassificationMapper
     {
         [$start, $end] = ReportPeriod::range($year, $month, $period);
         $rows = $this->ledger->rows($supplierId, $start, $end, includeDrafts: true);
-        $totals = $this->dphSummaryTotals($this->projectDphLines($rows));
+        $totals = $this->dphSummaryTotals($this->withRegistrationDeduction($supplierId, $start, $end, $this->projectDphLines($rows))['lines']);
 
         $saleInv = []; $saleDraft = []; $purInv = []; $purDraft = [];
         foreach ($rows as $r) {
@@ -117,8 +121,36 @@ final class VatClassificationMapper
      */
     public function aggregateForDphPriznani(int $supplierId, int $year, int $month, string $period = 'monthly'): array
     {
+        return $this->dphLinesWithDeduction($supplierId, $year, $month, $period)['lines'];
+    }
+
+    /**
+     * The rows of the DPH return of a period and the deduction on registration / its reduction (§ 79, § 79a ZDPH) that
+     * is part of them (row 45, base of long-term assets on row 47). The single projection behind the return, the trend and the
+     * forecast, so that they agree. `deduction` is the result of {@see RegistrationDeductionService::forPeriod()} (zeros without the agenda).
+     *
+     * @param ?VatStatusHistory $history the supplier's VAT history when the caller has it already
+     * @return array{lines: array<string, array{base:float, vat:float, count:int, label:string}>, deduction: array<string,mixed>}
+     */
+    public function dphLinesWithDeduction(int $supplierId, int $year, int $month, string $period = 'monthly', ?VatStatusHistory $history = null): array
+    {
         [$start, $end] = ReportPeriod::range($year, $month, $period);
-        return $this->projectDphLines($this->ledger->rows($supplierId, $start, $end, includeDrafts: false));
+        return $this->withRegistrationDeduction(
+            $supplierId, $start, $end,
+            $this->projectDphLines($this->ledger->rows($supplierId, $start, $end, includeDrafts: false)),
+            $history,
+        );
+    }
+
+    /**
+     * @param array<string, array{base:float, vat:float, count:int, label:string}> $lines
+     * @return array{lines: array<string, array{base:float, vat:float, count:int, label:string}>, deduction: array<string,mixed>}
+     */
+    private function withRegistrationDeduction(int $supplierId, string $start, string $end, array $lines, ?VatStatusHistory $history = null): array
+    {
+        $deduction = $this->registration?->forPeriod($supplierId, $start, $end, $history)
+            ?? ['vat' => 0.0, 'long_term_base' => 0.0, 'count' => 0, 'items' => [], 'events_without_items' => []];
+        return ['lines' => RegistrationDeductionService::mergeIntoLines($lines, $deduction), 'deduction' => $deduction];
     }
 
     /**

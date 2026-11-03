@@ -46,11 +46,6 @@ final class KontrolniHlaseniBuilder
         private readonly VatStatusService $vatStatus,
     ) {}
 
-    /** Povolené formy podání KH (EPO XSD, § 101e–101f): B řádné, O opravné, N následné, E následné/opravné. */
-    public const FORMS = ['B', 'O', 'N', 'E'];
-    /** Formy, u kterých EPO vyžaduje datum zjištění důvodů (d_zjist) — následná podání. */
-    public const FORMS_REQUIRING_DZJIST = ['N', 'E'];
-
     /**
      * Kódy států pro VetaA2.k_stat — tabulka „Daňová identifikační čísla členských států
      * EU“ z dphkh1.xsd. Řecko má DPH kód EL (ne ISO GR), XI je Severní Irsko.
@@ -66,26 +61,32 @@ final class KontrolniHlaseniBuilder
 
 
     /**
-     * @param string $form khdph_forma — viz FORMS; u N/E je $dZjist povinné
-     * @param string|null $dZjist datum zjištění důvodů pro podání (DD.MM.YYYY)
+     * @param KhFiling|null $filing the filing form (B / O / N / E), the date the reasons were found and the call of the
+     *   tax office it answers (reference number, quick answer); regular by default
      * @return array{xml: string, summary: array<string,mixed>, warnings: list<string>}
      */
-    public function build(int $supplierId, int $year, int $month, string $period = 'monthly', string $form = 'B', ?string $dZjist = null): array
+    public function build(int $supplierId, int $year, int $month, string $period = 'monthly', ?KhFiling $filing = null): array
     {
-        if (!in_array($form, self::FORMS, true)) {
-            throw new \InvalidArgumentException("Neplatná forma hlášení '{$form}' (povolené: " . implode(', ', self::FORMS) . ').');
-        }
-        if (in_array($form, self::FORMS_REQUIRING_DZJIST, true) && ($dZjist === null || $dZjist === '')) {
-            throw new \InvalidArgumentException('Následné kontrolní hlášení vyžaduje datum zjištění důvodů (d_zjist).');
-        }
+        $filing ??= new KhFiling();
+        $form = $filing->form;
+        $callReference = $filing->callReference;
         $supplier = $this->loadSupplier($supplierId);
 
         // A quarter ends on the last day of month quarter*3, INDEPENDENT of the passed $month (see ReportPeriod).
         $quarter = $period === 'quarterly' ? (int) ceil($month / 3) : null;
         [$start, $end] = ReportPeriod::range($year, $month, $period);
+        $periodLabel = $quarter !== null ? sprintf('%04d-Q%d', $year, $quarter) : sprintf('%04d-%02d', $year, $month);
+        // Filing deadline: the 25th of the month after the period, moved to a working day (§ 33/4 DŘ).
+        // For a quarterly filing the end of the quarter decides, NOT the passed $month
+        // (build(..., 4, 'quarterly') = Q2 gives 25. 7., not 25. 5.).
+        $deadline = ReportPeriod::filingDeadline($year, $month, $period);
 
         // VAT status over the filing period from the dated history (not the live flag).
         $warnings = $this->validateSupplier($supplier, $period, $this->vatStatus->history($supplierId), $start, $end);
+
+        if ($filing->isQuickAnswer()) {
+            return $this->buildQuickAnswer($supplier, $year, $month, $period, $quarter, $filing, $periodLabel, $deadline, $warnings);
+        }
 
         // Všechny sekce z jedné projekce kanonických řádků (VatLedgerService).
         ['a1' => $a1, 'a2' => $a2, 'a4' => $a4, 'a5' => $a5, 'b1' => $b1, 'b2' => $b2, 'b3' => $b3,
@@ -118,43 +119,7 @@ final class KontrolniHlaseniBuilder
         $a4 = $this->filterKhAttributeConflicts($a4, 'A.4', $warnings);
         $b2 = $this->filterKhAttributeConflicts($b2, 'B.2', $warnings);
 
-        $dom = new \DOMDocument('1.0', 'UTF-8');
-        $dom->preserveWhiteSpace = false;
-        $dom->formatOutput = true;
-
-        $pisemnost = $dom->createElement('Pisemnost');
-        $pisemnost->setAttribute('nazevSW', 'MyInvoice.cz');
-        $pisemnost->setAttribute('verzeSW', (string) ($this->loadAppVersion() ?? '0'));
-        $dom->appendChild($pisemnost);
-
-        $dphkh = $dom->createElement('DPHKH1');
-        $dphkh->setAttribute('verzePis', '03.01');
-        $pisemnost->appendChild($dphkh);
-
-        // VetaD — identifikační údaje (mesic pro měsíční, ctvrt pro kvartální)
-        $vetaD = $dom->createElement('VetaD');
-        $vetaD->setAttribute('dokument', 'KH1');
-        $vetaD->setAttribute('k_uladis', 'DPH');
-        if ($period === 'quarterly' && $quarter !== null) {
-            $vetaD->setAttribute('ctvrt', (string) $quarter);
-        } else {
-            $vetaD->setAttribute('mesic', (string) $month);
-        }
-        $vetaD->setAttribute('rok', (string) $year);
-        $vetaD->setAttribute('d_poddp', date('d.m.Y')); // datum podání (dnes)
-        // B řádné / O opravné (§ 101f/1) / N následné (§ 101f/2) / E následné-opravné.
-        $vetaD->setAttribute('khdph_forma', $form);
-        // Datum zjištění důvodů pro podání následného KH — EPO ho u N/E vyžaduje
-        // (alternativou v XSD je č.j. výzvy, tu negenerujeme). U O je volitelné.
-        if ($dZjist !== null && $dZjist !== '') {
-            $vetaD->setAttribute('d_zjist', $dZjist);
-        }
-        $dphkh->appendChild($vetaD);
-
-        // VetaP — identifikace plátce (sdíleno s DPHDP3 přes EpoSupplierBlockBuilder)
-        $vetaP = $dom->createElement('VetaP');
-        EpoSupplierBlockBuilder::fillVetaP($vetaP, $supplier);
-        $dphkh->appendChild($vetaP);
+        [$dom, $dphkh] = $this->startDocument($supplier, $year, $month, $period, $quarter, $filing);
 
         // VetaA1 — Přenesená daňová povinnost (dodavatel).
         // XSD vyžaduje: dic_odb, c_evid_dd, duzp (NE "dppd"), zakl_dane1, kod_pred_pl.
@@ -348,17 +313,10 @@ final class KontrolniHlaseniBuilder
         $vetaC->setAttribute('celk_zd_a2',   $this->formatAmount($celkA2));
         $dphkh->appendChild($vetaC);
 
-        // Filing deadline: the 25th of the month after the period, moved to a working day (§ 33/4 DŘ).
-        // For a quarterly filing the end of the quarter decides, NOT the passed $month
-        // (build(..., 4, 'quarterly') = Q2 gives 25. 7., not 25. 5.).
-        $deadline = ReportPeriod::filingDeadline($year, $month, $period);
-
         return [
             'xml'      => $dom->saveXML() ?: '',
             'summary'  => [
-                'period'              => $period === 'quarterly' && $quarter !== null
-                    ? sprintf('%04d-Q%d', $year, $quarter)
-                    : sprintf('%04d-%02d', $year, $month),
+                'period'              => $periodLabel,
                 'a1_count'            => count($a1),
                 'a2_count'            => count($a2),
                 'a4_count'            => count($a4),
@@ -367,6 +325,8 @@ final class KontrolniHlaseniBuilder
                 'b2_count'            => count($b2),
                 'b3_count_aggregated' => $b3['count'],
                 'form'                => $form,
+                'archive_form'        => $filing->archiveForm(),
+                'call'                => $callReference === null ? null : ['reference' => $callReference, 'answer' => null],
                 'submission_deadline' => $deadline,
                 // What the VetaC recapitulation reports, plus the tax — compared with the DPH
                 // return by the cross-check (A.4+A.5 <-> rows 1/2, B.2+B.3 <-> 40/41, A.1 <-> 25,
@@ -382,6 +342,96 @@ final class KontrolniHlaseniBuilder
             'warnings' => $warnings,
             'missing_rates' => $missingRates,
         ];
+    }
+
+    /**
+     * The quick answer to a call of the tax office: header and payer only — rows in A, B or C would make the filing
+     * ineffective. The summary has the shape of a full KH (zero counts and totals), so its consumers need no special case.
+     *
+     * @param array<string,mixed> $supplier
+     * @param list<string> $warnings
+     * @return array{xml: string, summary: array<string,mixed>, warnings: list<string>, missing_rates: list<mixed>}
+     */
+    private function buildQuickAnswer(array $supplier, int $year, int $month, string $period, ?int $quarter, KhFiling $filing, string $periodLabel, string $deadline, array $warnings): array
+    {
+        [$dom] = $this->startDocument($supplier, $year, $month, $period, $quarter, $filing);
+        $zeroBase = ['base21' => 0.0, 'vat21' => 0.0, 'base12' => 0.0, 'vat12' => 0.0];
+        return [
+            'xml'      => $dom->saveXML() ?: '',
+            'summary'  => [
+                'period'              => $periodLabel,
+                'a1_count' => 0, 'a2_count' => 0, 'a4_count' => 0, 'a5_count_aggregated' => 0,
+                'b1_count' => 0, 'b2_count' => 0, 'b3_count_aggregated' => 0,
+                'form'                => $filing->form,
+                'archive_form'        => $filing->archiveForm(),
+                'call'                => ['reference' => $filing->callReference, 'answer' => $filing->callAnswer],
+                'submission_deadline' => $deadline,
+                'totals'              => ['a4_a5' => $zeroBase, 'b2_b3' => $zeroBase, 'a1' => ['base' => 0.0], 'b1' => $zeroBase, 'a2' => ['base' => 0.0, 'vat' => 0.0]],
+            ],
+            'warnings' => array_merge($warnings, [
+                $filing->callAnswer === 'P'
+                    ? 'Rychlá odpověď na výzvu: potvrzujete správnost naposledy podaného kontrolního hlášení, podání neobsahuje žádné řádky oddílů A, B ani C.'
+                    : 'Rychlá odpověď na výzvu: sdělujete, že vám za toto období nevznikla povinnost podat kontrolní hlášení (nulové KH), podání neobsahuje žádné řádky oddílů A, B ani C.',
+                'Lhůta na odpověď je 17 dnů ode dne dodání výzvy do datové schránky, jinak 5 pracovních dnů od oznámení výzvy (§ 101g odst. 3 ZDPH).',
+            ]),
+            'missing_rates' => [],
+        ];
+    }
+
+    /**
+     * The document up to and including VetaD and VetaP (identical for the full KH and the quick answer to a call).
+     *
+     * @param array<string,mixed> $supplier
+     * @return array{0: \DOMDocument, 1: \DOMElement} the document and its DPHKH1 element
+     */
+    private function startDocument(array $supplier, int $year, int $month, string $period, ?int $quarter, KhFiling $filing): array
+    {
+        $dom = new \DOMDocument('1.0', 'UTF-8');
+        $dom->preserveWhiteSpace = false;
+        $dom->formatOutput = true;
+
+        $pisemnost = $dom->createElement('Pisemnost');
+        $pisemnost->setAttribute('nazevSW', 'MyInvoice.cz');
+        $pisemnost->setAttribute('verzeSW', (string) ($this->loadAppVersion() ?? '0'));
+        $dom->appendChild($pisemnost);
+
+        $dphkh = $dom->createElement('DPHKH1');
+        $dphkh->setAttribute('verzePis', '03.01');
+        $pisemnost->appendChild($dphkh);
+
+        // VetaD — identifikační údaje (mesic pro měsíční, ctvrt pro kvartální)
+        $vetaD = $dom->createElement('VetaD');
+        $vetaD->setAttribute('dokument', 'KH1');
+        $vetaD->setAttribute('k_uladis', 'DPH');
+        if ($period === 'quarterly' && $quarter !== null) {
+            $vetaD->setAttribute('ctvrt', (string) $quarter);
+        } else {
+            $vetaD->setAttribute('mesic', (string) $month);
+        }
+        $vetaD->setAttribute('rok', (string) $year);
+        $vetaD->setAttribute('d_poddp', date('d.m.Y')); // datum podání (dnes)
+        // B řádné / O opravné (§ 101f/1) / N následné (§ 101f/2) / E následné-opravné.
+        $vetaD->setAttribute('khdph_forma', $filing->form);
+        // Date the reasons for a subsequent KH were found — EPO requires it for N/E unless the reference number of a
+        // call is given instead. Optional for O.
+        if ($filing->dZjist !== null) {
+            $vetaD->setAttribute('d_zjist', $filing->dZjist);
+        }
+        // The call the filing answers: the change (N/E) or the quick answer carry its reference number.
+        if ($filing->callReference !== null) {
+            $vetaD->setAttribute('c_jed_vyzvy', $filing->callReference);
+        }
+        if ($filing->callAnswer !== null) {
+            $vetaD->setAttribute('vyzva_odp', $filing->callAnswer);
+        }
+        $dphkh->appendChild($vetaD);
+
+        // VetaP — identification of the payer (shared with DPHDP3 via EpoSupplierBlockBuilder)
+        $vetaP = $dom->createElement('VetaP');
+        EpoSupplierBlockBuilder::fillVetaP($vetaP, $supplier);
+        $dphkh->appendChild($vetaP);
+
+        return [$dom, $dphkh];
     }
 
     /**

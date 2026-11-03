@@ -64,7 +64,8 @@ export interface TaxSubmission {
 }
 
 export interface ChangedDocument {
-  source: 'sale' | 'purchase'
+  /** `registration_deduction`: an item of the agenda "Odpočet při registraci" (row 45), `kind` registration | deregistration. */
+  source: 'sale' | 'purchase' | 'registration_deduction'
   id: number
   doc_number: string | null
   kind: string | null
@@ -123,6 +124,8 @@ export interface VatChecks {
   filing: Partial<TaxSubmission> | null
   changed_after_filing: ChangesAfterFiling | null
   payment: VatPayment | null
+  /** Cards of the supplementary returns in force (next to `payment`, the regular/corrective one). */
+  supplementary_payments?: VatPayment[]
 }
 
 export interface TaxCalendarItem {

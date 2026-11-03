@@ -12,6 +12,7 @@ use MyInvoice\Repository\TaxSubmissionRepository;
 use MyInvoice\Service\Report\DphPriznaniBuilder;
 use MyInvoice\Service\Report\VatCrossCheckService;
 use MyInvoice\Service\Tax\ChangesAfterFilingService;
+use MyInvoice\Service\Tax\FiledReturnChain;
 use MyInvoice\Service\Tax\VatPaymentService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -62,15 +63,19 @@ final class VatChecksAction
 
         $quarter = $period === 'quarterly' ? (int) ceil($month / 3) : null;
         $filedRows = $this->submissions->filedForPeriod($supplierId, $form, $year, $quarter === null ? $month : null, $quarter);
-        $effective = array_last($filedRows);
+        $chain = new FiledReturnChain($filedRows);
+        $effective = $chain->last();
+        $isDph = $form === VatPaymentService::FORM_CODE;
+        $card = fn (array $row): array => $this->payments->card($row, withQr: true, filed: $filedRows);
 
         return Json::ok($response, [
             'cross_check'          => $this->crossCheck->check($supplierId, $year, $month, $period),
             'filing'               => $effective === null ? null : $this->slim($effective),
             'changed_after_filing' => $effective === null ? null : $this->changes->forSubmission($effective),
-            'payment'              => $effective !== null && $form === VatPaymentService::FORM_CODE
-                ? $this->payments->card($effective, withQr: true, filed: $filedRows)
-                : null,
+            // The regular / corrective return in force and, separately, the supplementary returns filed after it —
+            // each asks for its own payment ({@see FiledReturnChain}).
+            'payment'              => $isDph && ($base = $chain->base()) !== null ? $card($base) : null,
+            'supplementary_payments' => $isDph ? array_map($card, $chain->supplements()) : [],
         ]);
     }
 

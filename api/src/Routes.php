@@ -743,6 +743,12 @@ final class Routes
         // Tax optimizer — daňový optimalizátor (srovnání režimů + predikce limitů)
         $app->get ('/api/tax/analysis',  [\MyInvoice\Action\Tax\TaxAction::class, 'analysis']);
         $app->put ('/api/tax/profile',   [\MyInvoice\Action\Tax\TaxAction::class, 'updateProfile']);
+        // Deduction on registration (§ 79 ZDPH) and reduction on deregistration (§ 79a): reads for every role, writes admin-only.
+        $app->get   ('/api/tax/registration-deductions',                     [\MyInvoice\Action\Tax\RegistrationDeductionAction::class, 'list']);
+        $app->get   ('/api/tax/registration-deductions/reversal-suggestions', [\MyInvoice\Action\Tax\RegistrationDeductionAction::class, 'suggestions']);
+        $app->post  ('/api/tax/registration-deductions',                     [\MyInvoice\Action\Tax\RegistrationDeductionAction::class, 'create']);
+        $app->put   ('/api/tax/registration-deductions/{id:[0-9]+}',         [\MyInvoice\Action\Tax\RegistrationDeductionAction::class, 'update']);
+        $app->delete('/api/tax/registration-deductions/{id:[0-9]+}',         [\MyInvoice\Action\Tax\RegistrationDeductionAction::class, 'delete']);
 
         // Bank statements (M5b)
         $app->post ('/api/bank-statements/upload',           [BankStatementAction::class, 'upload']);

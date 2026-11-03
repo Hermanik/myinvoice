@@ -15,6 +15,10 @@ Export obsahuje běžná plnění (`VetaR`) i opravy minulých období (`VetaO`)
 Opravy se v editoru položky označují původním čtvrtletím a ve výkazu se
 zobrazují odděleně včetně celkového dopadu na DPH.
 
+Související agendy v této kapitole: [dodatečné přiznání](#dodatečné-přiznání-dphdp3-forma-d),
+[kontrolní hlášení jako odpověď na výzvu](#kontrolní-hlášení-jako-odpověď-na-výzvu-finančního-úřadu)
+a [odpočet při registraci](#odpočet-při-registraci-a-snížení-při-zrušení-registrace).
+
 > [!WARNING]
 > **⚠️ Vygenerovaný XML je pouze pomůcka.** Před odesláním na EPO portál MFČR VŽDY ověř s účetní nebo daňovým poradcem. Aplikace nezaručuje regulatorní správnost — testováno na omezené sadě dat.
 
@@ -279,14 +283,11 @@ hlášení — **neupravuj ji**. Náhled přiznání rozdíl dopředu vypíše v
 - **Toggle Měsíčně / Kvartálně** — override podle `supplier.vat_period`
 - **Month / Year picker** — pro měsíční; **Q1/Q2/Q3/Q4 picker** pro kvartální
 - **Forma podání** — Řádné (výchozí) / Opravné (§ 138 DŘ — nahrazuje řádné
-  před uplynutím lhůty). **Datum zjištění** důvodů je u opravného volitelné —
-  do XML se propíše jako `dapdph_forma` + `d_zjist`.
-  **Dodatečné přiznání (§ 141 DŘ) aplikace zatím negeneruje:** podává se pouze
-  v **rozdílech** proti poslední známé dani (§ 141 odst. 2 DŘ) a dopočet
-  rozdílů není implementován — plné hodnoty za období by byly věcně špatně
-  (v neprospěch poplatníka). Pro dodatečné přiznání použij formulář na portálu
-  EPO / MOJE daně, hodnoty rozdílů spočítej z porovnání s posledním podaným
-  přiznáním.
+  před uplynutím lhůty) / **Dodatečné** (§ 141 DŘ — po lhůtě, v rozdílech proti
+  poslední podanému přiznání; viz [Dodatečné přiznání](#dodatečné-přiznání-dphdp3-forma-d)).
+  **Datum zjištění** důvodů je u opravného volitelné, u dodatečného povinné —
+  do XML se propíše jako `dapdph_forma` + `d_zjist`. Kombinované dodatečné/opravné
+  přiznání (forma E) aplikace nepodporuje.
 - **Stáhnout XML** — generuje DPHDP3 verze 03.01 pro EPO portál
 
 #### 4 KPI karty
@@ -350,7 +351,9 @@ faktur je kurz 1. Přiznání je vždy v korunách, částky se zaokrouhlují na
 | **20-26** (oddíl C) | Dodání zboží do EU, vývoz, služby do JČS — **osvobozená plnění s nárokem na odpočet, jen základ bez daně** | 20 / 22 / 26 |
 | **40 / 41** | Nárok na odpočet — tuzemsko 21 % / 12 % | 40 / 41 |
 | **43** | Nárok na odpočet u samovyměřené daně (zrcadlo ř. 3-13) | (secondary) |
-| **47** | Hodnota pořízeného dlouhodobého majetku — **doplňující údaj** k ř. 40-45 | flag majetek |
+| **45** | Odpočet při registraci a jeho snížení při zrušení registrace (§ 79 až § 79c, sloupec „V plné výši“, `odp_rez_nar`) — viz [Odpočet při registraci](#odpočet-při-registraci-a-snížení-při-zrušení-registrace) | agenda *Odpočet při registraci* |
+| **46 / 63** | Součet odpočtů (`odp_sum_nar`) a odpočet celkem (`odp_zocelk`); ř. 45 do nich vstupuje | — |
+| **47** | Hodnota pořízeného dlouhodobého majetku — **doplňující údaj** k ř. 40-45 (u odpočtu při registraci jde o základ daně dlouhodobého majetku) | flag majetek |
 
 > [!NOTE]
 > **Oddíl C (ř. 20-26)** — dodání do EU (`dod_zb`), vývoz (`pln_vyvoz`), služby do
@@ -502,6 +505,8 @@ odst. 1 — nahrazuje řádné KH před uplynutím lhůty) / **Následné** (§ 
 odst. 2 — po zjištění nesprávných údajů po lhůtě; podává se do 5 pracovních
 dnů, **kompletní znovu se všemi údaji**, ne jen rozdíl). U následného je
 povinné **Datum zjištění** důvodů — do XML jde jako `khdph_forma` + `d_zjist`.
+Má-li podání odpovědět na výzvu finančního úřadu, použij sekci **Podání na výzvu
+finančního úřadu** — viz [níže](#kontrolní-hlášení-jako-odpověď-na-výzvu-finančního-úřadu).
 
 ### Pravidla zařazení do sekcí
 
@@ -557,6 +562,214 @@ Hodnoty se přenesou do `VetaA4.kod_rezim_pl` a `VetaA4/VetaB2.zdph_44`.
 U vystaveného dobropisu, který snižuje daň, přiznání zároveň připomene ověření
 data doručení opravného daňového dokladu podle § 42 ZDPH.
 
+## Dodatečné přiznání (DPHDP3, forma D)
+
+> [!WARNING]
+> **⚠️ Pomůcka, ověřte s účetní.** Dodatečné přiznání mění už podané daňové tvrzení;
+> rozdíly i důvody vždy zkontroluj s účetní nebo daňovým poradcem, než je podáš.
+
+### Kdy a proč dodatečné
+
+**Opravné** přiznání (forma O, § 138 DŘ) nahradí řádné jen **před uplynutím lhůty** pro podání.
+Po ní je jedinou cestou **dodatečné** (§ 141 DŘ):
+
+- Má-li být daň **vyšší** než poslední známá, musíš dodatečné přiznání **podat** do konce měsíce
+  následujícího po měsíci zjištění (odst. 1) a rozdíl ve stejné lhůtě doplatit (odst. 7).
+- Má-li být daň **nižší**, smíš dodatečné podat ve stejné lhůtě jen tehdy, byla-li daň
+  pravomocně stanovena v nesprávné výši (odst. 2).
+- Dodatečné přiznání, které daň nemění, ale mění jen dříve uvedené údaje, je odst. 4.
+- Přiznání uvádí **rozdíl** proti poslední známé dani a datum zjištění; u odst. 2 a 4 i důvody
+  (odst. 5).
+
+### Jak to udělat v aplikaci
+
+1. Původní přiznání musí být v **Daně → Archiv podání** označené jako **podané** (nebo potvrzené).
+2. Na stránce **Daně → DPH přiznání** zvol období a **Formu podání → Dodatečné**.
+3. Vyplň **Datum zjištění** (`d_zjist`) a **Důvody** (povinné, max. 2 000 znaků; do XML jdou jako
+   textová příloha, `VetaR kod_sekce="D"`, max. 72 znaků na řádek).
+4. Aplikace vezme **poslední podané (nebo potvrzené)** přiznání za období, spočte hodnoty znovu
+   podle aktuálních dokladů a do XML vypíše **jen rozdíly po řádcích** (se znaménkem, v celých Kč).
+   Řádky 62 a 63 jsou rozdíly, **ř. 66 (`dano`)** je rozdíl daně se znaménkem; ř. 64 a 65
+   (`dano_da`, `dano_no`) zůstávají prázdné (EPO: u dodatečného se nevyplňují).
+5. Náhled ukáže rozdíly, stav po přiznání, dosud známou a novou daň a termín podání.
+6. Stáhni XML, podej na EPO a v archivu označ jako podané — viz [Evidence podání](#evidence-podání-platba-dph-a-kontroly-před-podáním).
+
+Výsledek: **kladný ř. 66** = doplatek daně, **záporný** = snížení daně / nadměrný odpočet
+(vrácení se žádá podle § 155 DŘ).
+
+Aplikace odmítne dodatečné přiznání, když:
+
+- **ještě neuplynula lhůta** pro podání přiznání za období (`corrective_return_required`) — do té doby
+  se přiznání opravuje **opravným** přiznáním (forma Opravné, § 138 DŘ), dodatečné (§ 141 DŘ) je až pro čas po lhůtě;
+- za období **není podané přiznání** (`no_filed_return`) nebo se **nic nezměnilo** (`nothing_changed`);
+- podané přiznání za období nemá v archivu **uložené řádky** (starý záznam, `base_without_lines`) — rozdíly
+  by nešlo spočítat a D by znovu přiznalo celé přiznání; takové dodatečné sestav na portálu EPO;
+- se D označuje jako podané **dřív než přiznání, ke kterému se vztahuje** (`filed_before_base`) — zadej
+  pozdější datum a čas podání.
+
+Dvě dodatečná přiznání nejdou označit jako podaná současně: označení podání zamkne podaná přiznání
+za období a druhé D, spočtené ještě proti starému stavu, aplikace odmítne (`stale_supplementary`).
+
+### Příklad: zapomenutá přijatá faktura
+
+Řádné přiznání (B) za leden jsi podal s daní **10 000 Kč** (ř. 64). V březnu zjistíš, že jsi
+nezapočítal přijatou fakturu se základem 10 000 Kč a DPH **2 100 Kč**, s nárokem na odpočet.
+
+1. Fakturu doplníš do Přijatých faktur (DUZP v lednu).
+2. Vygeneruješ **Dodatečné** za leden, datum zjištění např. 12. 3., důvod „Doplněna přijatá
+   faktura č. … s nárokem na odpočet“.
+3. V XML jsou jen rozdíly: ř. 40 základ **+10 000**, DPH **+2 100**; ř. 63 (odpočet celkem)
+   **+2 100**; **ř. 66 = −2 100**. Nová daň je 7 900 Kč, dosud známá 10 000 Kč.
+
+Je to snížení daně, takže platí podmínky § 141 odst. 2 DŘ — s účetní si ověř, že ho smíš podat.
+
+**Druhé dodatečné.** Za týž leden najdeš další zapomenutou fakturu s DPH 1 050 Kč. Nejdřív musí
+být první dodatečné (D) v archivu **označené jako podané**. Druhé D se počítá vůči stavu, který
+přineslo první (daň 7 900 Kč), takže v něm je jen nový rozdíl: **ř. 66 = −1 050** (nová daň
+6 850 Kč). Rozdíly se tedy kumulují; každé D nese vždy jen změnu proti předchozímu.
+
+> [!NOTE]
+> Když mezitím vznikne jiné podané přiznání, D spočtené dřív už neodpovídá —
+> aplikace ho nenechá označit jako podané (`stale_supplementary`); vygeneruj ho znovu.
+
+### Co aplikace nehlídá (dodatečné přiznání)
+
+- Zda **vznikl nárok** na dodatečné nebo zda ho smíš podat (odst. 2 a 4) — rozhodnutí je na tobě
+  a účetní.
+- Lhůty, penále a úrok z prodlení z doplatku.
+- Kombinované dodatečné/opravné přiznání (forma **E**).
+- Změny, které nevyplývají z dokladů v aplikaci (ruční korekce mimo MyInvoice).
+
+## Kontrolní hlášení jako odpověď na výzvu finančního úřadu
+
+> [!WARNING]
+> **⚠️ Pomůcka, ověřte s účetní.** Lhůty na výzvy jsou krátké a postihy citelné.
+
+Finanční úřad může podle § 101g ZDPH vyzvat:
+
+- k **podání chybějícího KH** do 5 dnů (i když povinnost nevznikla — pak to oznámíš podáním KH),
+- ke **změně, doplnění nebo potvrzení údajů** do 17 dnů od doručení do datové schránky, jinak do
+  5 pracovních dnů od oznámení — **následným KH** (§ 101f odst. 2).
+
+Pokuty podle § 101h jsou 10 000 / 30 000 / 50 000 Kč (u fyzických osob a kvartálních plátců poloviční).
+
+Na stránce **Daně → Kontrolní hlášení** je sekce **Podání na výzvu finančního úřadu**. Do pole
+**Č. j. výzvy** zadej číslo jednací včetně lomítek a pomlček (např. `12345678/26/1234-12345-123456`;
+formát aplikace ověří) a vyber:
+
+| Volba | Co se stane |
+|---|---|
+| **Ne** | Běžné podání bez výzvy. |
+| **Změna nebo doplnění údajů** | Následné KH (N) s **plnými údaji** a č. j. výzvy (`c_jed_vyzvy`). **Datum zjištění** je volitelné — místo něj stačí č. j. |
+| **Potvrzení správnosti naposledy podaného KH** | Rychlá odpověď `vyzva_odp = P`. XML neobsahuje žádné řádky sekcí A, B, C. |
+| **Nemám povinnost podat KH** | Rychlá odpověď `vyzva_odp = B` (nulové KH). XML neobsahuje žádné řádky sekcí A, B, C. |
+
+Rychlé odpovědi se do XML zapisují s `khdph_forma="B"`, v **Archivu podání** se ale ukládají jako
+forma **V — Odpověď na výzvu**, aby nekolidovaly s řádným KH za totéž období. K jednomu období můžeš
+postupně podat víc N / E / V.
+
+> [!NOTE]
+> Rychlá odpověď musí být bez řádků sekcí A, B, C — jinak je to od 1. 1. 2017 chyba EPO
+> a podání je neúčinné. Náhled rychlé odpovědi proto nezobrazuje počty ani součty.
+
+### Příklad
+
+Úřad ti doručí výzvu k potvrzení údajů za únor. Pokud je podané KH správné, vyber **Potvrzení
+správnosti**, vyplň č. j. výzvy, stáhni XML, podej a v archivu označ jako podané (forma V). Pokud
+jsi našel chybu, vyber **Změna nebo doplnění údajů** — vznikne kompletní následné KH s opraveným
+obsahem.
+
+### Co aplikace nehlídá (výzvy)
+
+- Že lhůta z výzvy (5 dnů, 17 dnů / 5 pracovních dnů) neuplynula.
+- Zda odpověď věcně odpovídá tomu, co úřad požaduje.
+- Že č. j. výzvy patří právě k tomuto období a výzvě.
+
+## Odpočet při registraci a snížení při zrušení registrace
+
+> [!WARNING]
+> **⚠️ Pomůcka, ověřte s účetní.** Agenda pokrývá jen základní případ; zbytek řeš s účetní.
+
+**Cesta:** `Daně → Odpočet při registraci` (`/tax/registration-deductions`).
+
+### K čemu to slouží
+
+Podle § 79 odst. 1 ZDPH smí ten, kdo se stal plátcem, odpočítat DPH z přijatých zdanitelných
+plnění za **12 po sobě jdoucích měsíců před dnem registrace**, pokud je plnění ke dni registrace
+součástí obchodního majetku. Při **zrušení registrace** naopak podle § 79a musí odpočet z majetku,
+který zůstává v obchodním majetku, **snížit**.
+
+### Jak to funguje
+
+Položky se zavěšují na události v **historii plátcovství** (Systém → Nastavení → *Plátcovství DPH*,
+viz [§ 35.5.7](35_Multi_supplier.md#3557-platcovstvi-dph-historie-podle-data)): řádek, který stav
+přepíná na *Plátce DPH*, je **registrace**; řádek, který stav z plátce mění jinam, je **zrušení
+registrace**. Bez takového řádku položku přidat nejde (aplikace vrátí chybu). Po přidání řádku
+registrace v historii plátcovství se zobrazí nápověda s odkazem na tuto agendu.
+
+Pole položky:
+
+| Pole | Význam |
+|---|---|
+| **Popis** | Co je předmětem odpočtu. |
+| **Druh majetku** | *Zásoby* / *Dlouhodobý majetek* / *Jiný majetek*. |
+| **Datum pořízení** | DUZP; u registrace musí ležet v 12měsíčním okně před dnem registrace. |
+| **Základ daně**, **DPH** | Částky z dokladu. Do pole *DPH* zadej skutečně uplatňované DPH — poměrný nebo krácený odpočet (§ 75, § 76) se nemodeluje. |
+| **Doba úpravy odpočtu** | 5 nebo 10 let (10 pro budovy, jednotky a pozemky, § 78 odst. 3) — jen u dlouhodobého majetku. |
+| **Stále součástí obchodního majetku** | Nezaškrtnuto = bez odpočtu. |
+| **Přijatá faktura** | Volitelný odkaz na doklad. Pro odpočet je podle § 73 stále nutný daňový doklad. |
+| **Poznámka** | Volitelná. |
+
+Výši odpočtu počítá **server** (pole *Odpočet*).
+
+### Dlouhodobý majetek — příklad
+
+Majetek s DPH **21 000 Kč** pořízený v roce 2026, registrace **1. 1. 2027**. Úprava odpočtu trvá
+5 let od kalendářního roku pořízení (2026–2030); do konce zbývají 4 roky včetně roku registrace
+(2027–2030). Odpočet = 21 000 / 5 × 4 = **16 800 Kč** (podle § 79 odst. 6 a § 78d odst. 2).
+
+### Zrušení registrace (§ 79a)
+
+U zrušení aplikace sama nabídne návrhy snížení spočtené z položek registrace (přidáš je jednotlivě
+nebo všechny najednou); další majetek přidáš ručně. Snížení se počítá takto:
+
+- **Zásoby** — v plné výši uplatněného odpočtu.
+- **Dlouhodobý majetek** — podle § 78d odst. 2 (DPH / 5 nebo 10 × zbývající roky, rok zrušení se počítá).
+- **Jiný majetek** s uplatněným odpočtem alespoň **2 100 Kč**, pořízený v posledních 11 kalendářních
+  měsících před měsícem zrušení nebo v něm: 1/12 odpočtu za každý celý kalendářní měsíc z 12měsíčního
+  období, kdy ještě nebyl součástí obchodního majetku.
+
+Za **poslední den registrace** aplikace bere den před prvním dnem stavu neplátce v historii plátcovství.
+
+### Kam to jde v DPH přiznání
+
+- **Registrace:** řádek **45** (sloupec „V plné výši“, `odp_rez_nar`) přiznání za období, do kterého
+  spadá den registrace — **kladně**. První období je jednorázové, později jde odpočet uplatnit jen
+  dodatečným přiznáním (§ 79 odst. 7).
+- **Zrušení registrace:** snížení jde **záporně** do přiznání za **poslední období registrace**
+  (§ 79a odst. 5).
+- Součet vstupuje do ř. 46 (`odp_sum_nar`), ř. 63 (`odp_zocelk`) a do výsledné daně; základ daně
+  dlouhodobého majetku se uvede také na ř. 47 (`nar_maj`).
+
+Spadá-li registrace nebo zrušení do období a **nejsou zadané žádné položky**, výkaz DPH ukáže
+upozornění. Je-li přiznání za období už podané, změnu podej jako [dodatečné přiznání](#dodatečné-přiznání-dphdp3-forma-d).
+
+### Oprávnění a API
+
+Číst smí každá role, měnit jen **admin**. Endpointy jsou popsané ve specifikaci `api/openapi.yaml` (`/api/v1/tax/registration-deductions`).
+
+### Co aplikace nehlídá
+
+Agenda pokrývá jen **§ 79 odst. 1** (včetně pravidla částky u dlouhodobého majetku). Nezahrnuje:
+
+- nedokončený dlouhodobý majetek s 60měsíčním oknem (odst. 2), vývoz (odst. 3), nárok na vrácení (odst. 4)
+  a přeměny (odst. 5) — řeš s účetní;
+- poměrný a krácený odpočet (§ 75, § 76);
+- případy podle § 79c, kdy snížení nevzniká (např. zánik společnosti bez likvidace);
+- **ř. 47 (`nar_maj`) u majetku z § 79** — aplikace do něj dává základ daně dlouhodobého majetku uplatněného
+  při registraci, ale správné vyplnění tohoto řádku (a sloupce s daní) pro majetek z registrace **není
+  ověřené** — konzultuj s účetní, než přiznání podáš.
+
 ## Evidence podání, platba DPH a kontroly před podáním
 
 MyInvoice výkazy **nepodává** — XML stáhneš a podáš na portálu EPO nebo datovou
@@ -577,12 +790,22 @@ Záznam má stav:
 - **Označit jako podané**, **Nahrát potvrzení**, jeho nahrazení či odebrání a
   **Zrušit označení podání** (vrátí záznam do stavu Vygenerováno a smaže i potvrzení —
   pro případ omylu) může jen **admin**. Všechny tyto kroky se zapisují do auditního logu.
+- Forma podání v archivu: DPH **B** řádné / **O** opravné / **D** dodatečné; KH **B / O / N / E**
+  a **V** = *Odpověď na výzvu* (rychlá odpověď, viz [níže](#kontrolní-hlášení-jako-odpověď-na-výzvu-finančního-úřadu));
+  SH **R**.
 - Za jednu kombinaci **typ výkazu + období + forma podání** (řádné B, opravné O,
-  následné N …) smí být podané nebo potvrzené **jen jedno** podání. Stáhneš-li XML
+  následné N …) smí být podané nebo potvrzené **jen jedno** podání. **Výjimka:** dodatečné
+  přiznání **D** a u KH formy **N, E a V** — těch smí být za jedno období podáno víc po sobě
+  (jednoznačnost se u nich nehlídá). Stáhneš-li XML
   víckrát, vznikne víc záznamů; označit jako podané jde jen jeden z nich, druhý
   pokus aplikace odmítne a napíše, které podání už je podané. Řádné a opravné přiznání
   za stejné období jsou různé formy, takže obě podané být mohou — platí to pozdější
   (řazení podle data a času podání, při shodě podle pořadí vzniku záznamu).
+- **Dodatečné přiznání D** jde označit jako podané jen nad přiznáním, proti kterému bylo
+  spočteno; pokud mezitím přibylo jiné podané přiznání, aplikace odmítne (chyba
+  `stale_supplementary`) a je potřeba D vygenerovat znovu. Naopak **přiznání nejde odznačit
+  jako podané**, dokud je za stejné období podané pozdější dodatečné přiznání (chyba
+  `later_supplementary`) — nejdřív zruš označení dodatečného.
 - Podané nebo potvrzené podání nejde z archivu smazat, dokud se označení nezruší.
 - **Detail** řádku ukáže údaje o potvrzení, kartu **Platba DPH** a **doklady změněné po podání**.
 
@@ -612,6 +835,12 @@ U **nadměrného odpočtu** (řádek 66) karta ukáže **vrácení** — nic se 
 
 Je-li za období podané víc přiznání (řádné a opravné), platí pozdější; co jsi už
 zaplatil u nahrazeného, se od částky odečte.
+
+**Dodatečné přiznání (D)** má kartu vlastní: ukáže **doplatek** = |ř. 66| (kladný rozdíl)
+se splatností podle § 141 odst. 7 DŘ (konec měsíce následujícího po měsíci zjištění,
+posunutý na pracovní den) — to je jiný termín než 25. dne u řádného přiznání. Platby
+dřívějších přiznání se u D **neodečítají** (D nese jen rozdíl). **Záporný rozdíl** se
+zobrazí jako **vrácení** (nic se neplatí; vrácení se případně žádá podle § 155 DŘ).
 
 **Zaplaceno** se označí dvěma způsoby:
 
@@ -657,7 +886,9 @@ Je-li výkaz za období označený jako podaný, ukáže panel **Doklady změně
 vystavené a přijaté doklady s DUZP v tomto období, které byly **po čase podání vytvořeny,
 vystaveny, upraveny, stornovány nebo smazány**. Zdrojem jsou data dokladů a auditní log
 (odeslání faktury, její úhrada ani zaúčtování přijatého dokladu se za změnu nepočítá —
-žádná z těch věcí nemění částky ve výkazu). Smazaný doklad jde zařadit do
+žádná z těch věcí nemění částky ve výkazu). U přiznání k DPH panel ukáže i **položky agendy
+[Odpočet při registraci](#odpočet-při-registraci-a-snížení-při-zrušení-registrace)** (ř. 45), které se po podání
+přidaly, upravily nebo smazaly — změnu uplatníš dodatečným přiznáním. Smazaný doklad jde zařadit do
 období jen tehdy, když ho smazání zapsalo do logu s datem DUZP. Takový doklad může být
 důvod k **opravnému** (jen do konce lhůty) nebo **dodatečnému** podání.
 

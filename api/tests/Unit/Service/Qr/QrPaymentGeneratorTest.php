@@ -65,6 +65,16 @@ final class QrPaymentGeneratorTest extends TestCase
         self::assertNotNull($uri);
     }
 
+    public function testCzkPaymentMessageIsTransliteratedToAscii(): void
+    {
+        // The SPD MSG field must stay plain ASCII: banking apps break on diacritics.
+        $build = new \ReflectionMethod($this->gen, 'buildCzk');
+        $payload = (string) $build->invoke($this->gen, 1050.0, '12345678', ['account_number' => '2000145399', 'bank_code' => '0800'], null, 'DPH 06/2026 dodatečné — Příliš žluťoučký kůň');
+
+        self::assertStringContainsString('MSG:DPH 06/2026 dodatecne  Prilis zlutoucky kun', $payload);
+        self::assertDoesNotMatchRegularExpression('/[^\x20-\x7E]/', $payload, 'nothing but printable ASCII in the SPD string');
+    }
+
     public function testCzkWithDashedVarsymbolStillGenerates(): void
     {
         // Regrese #58: varsymbol s pomlčkou (číslo dokladu „2026-00001") dřív SPAYD

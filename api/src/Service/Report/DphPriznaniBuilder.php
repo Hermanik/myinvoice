@@ -5,9 +5,14 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Report;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\TaxSubmissionRepository;
+use MyInvoice\Service\Tax\FiledReturnChain;
+use MyInvoice\Service\Tax\TaxFilingException;
+use MyInvoice\Service\Vat\RegistrationDeductionService;
 use MyInvoice\Service\Vat\VatStatus;
 use MyInvoice\Service\Vat\VatStatusHistory;
 use MyInvoice\Service\Vat\VatStatusService;
+use Psr\Clock\ClockInterface;
 
 /**
  * Builder XML pro DPH přiznání (DPHDP3) — EPO portál MFČR.
@@ -25,39 +30,23 @@ final class DphPriznaniBuilder
         private readonly Connection $db,
         private readonly VatClassificationMapper $mapper,
         private readonly VatStatusService $vatStatus,
+        private readonly TaxSubmissionRepository $submissions,
+        private readonly ClockInterface $clock,
     ) {}
 
     /**
-     * Povolené formy podání: B řádné, O opravné (§ 138 DŘ).
+     * Builds the XML of the DPH return of a month / quarter.
      *
-     * Dodatečné formy D/E (§ 141 DŘ) jsou ZÁMĚRNĚ vypnuté: dodatečné přiznání
-     * se dle § 141 odst. 2 DŘ podává v ROZDÍLECH proti poslední známé dani,
-     * builder ale umí jen plné hodnoty za období — vygenerované XML by bylo
-     * věcně špatně (znovu přiznaná celá daň, v neprospěch poplatníka).
-     * Re-enable = vrátit 'D'/'E' sem a do FORMS_REQUIRING_DZJIST, až bude
-     * implementován dopočet rozdílů proti poslední známé dani.
-     * (Následné KH je jiný případ — podává se kompletní, KH formy se nemění.)
-     */
-    public const FORMS = ['B', 'O'];
-    /** Formy, u kterých EPO vyžaduje datum zjištění důvodů (d_zjist) — dodatečná podání (§ 141 DŘ). */
-    public const FORMS_REQUIRING_DZJIST = [];
-
-    /**
-     * Sestaví XML pro DPH přiznání za daný měsíc/kvartál.
-     *
-     * @param string $period 'monthly' (default) nebo 'quarterly' (sumuje celý kvartál)
-     * @param string $form dapdph_forma — viz FORMS; u O je $dZjist volitelné
-     * @param string|null $dZjist datum zjištění důvodů pro podání (DD.MM.YYYY)
+     * @param string $period 'monthly' (default) or 'quarterly' (sums the whole quarter)
+     * @param DphFiling|null $filing the filing form (B regular, O corrective, D supplementary) and its dates / reasons; regular by default
      * @return array{xml: string, summary: array<string, mixed>, warnings: list<string>}
+     * @throws TaxFilingException form D cannot be built (no filed return for the period, nothing changed since)
      */
-    public function build(int $supplierId, int $year, int $month, ?string $period = null, string $form = 'B', ?string $dZjist = null): array
+    public function build(int $supplierId, int $year, int $month, ?string $period = null, ?DphFiling $filing = null): array
     {
-        if (!in_array($form, self::FORMS, true)) {
-            throw new \InvalidArgumentException("Neplatná forma přiznání '{$form}' (povolené: " . implode(', ', self::FORMS) . ').');
-        }
-        if (in_array($form, self::FORMS_REQUIRING_DZJIST, true) && ($dZjist === null || $dZjist === '')) {
-            throw new \InvalidArgumentException('Dodatečné přiznání vyžaduje datum zjištění důvodů (d_zjist).');
-        }
+        $filing ??= new DphFiling();
+        $form = $filing->form;
+        $dZjist = $filing->dZjist;
         $supplier = $this->loadSupplier($supplierId);
         $period = self::normalizePeriod($period, $supplier['vat_period'] ?? null);
         // The VAT status comes from the dated history over the filing period (never the
@@ -101,7 +90,9 @@ final class DphPriznaniBuilder
             $isIdentified = $history->hasStatusBetween($periodStart, $periodEnd, [VatStatus::IDENTIFIED]);
         }
 
-        $lines = $this->mapper->aggregateForDphPriznani($supplierId, $year, $month, $period);
+        // The ledger rows plus the deduction on registration / its reduction (rows 45, 47) — the same projection the trend and the forecast use.
+        ['lines' => $lines, 'deduction' => $deduction] = $this->mapper->dphLinesWithDeduction($supplierId, $year, $month, $period, $history);
+        array_push($warnings, ...RegistrationDeductionService::missingItemsWarnings($deduction['events_without_items']));
         // #238: doklady v cizí měně bez kurzu — NEházíme chybu, vrátíme je v
         // `missing_rates` a akce je při stažení doplní z ČNB (náhled jen varuje).
         $missingRates = $this->mapper->missingRatesForPeriod($supplierId, $year, $month, $period);
@@ -115,6 +106,15 @@ final class DphPriznaniBuilder
             $lines = $this->filterLinesForIdentified($lines, $warnings);
         }
         $quarter = $period === 'quarterly' ? (int) ceil($month / 3) : null;
+
+        // A supplementary return lists only the differences against the last known return of the period.
+        $fullLines = $lines;
+        $supplementary = null;
+        if ($filing->isSupplementary()) {
+            $supplementary = $this->supplementaryBase($supplierId, $year, $month, $period, $quarter, $lines);
+            $lines = $supplementary['difference']['lines'];
+            $warnings[] = 'Dodatečné přiznání obsahuje jen rozdíly proti poslednímu podanému přiznání za toto období (§ 141 odst. 5 daňového řádu).';
+        }
 
         $dom = new \DOMDocument('1.0', 'UTF-8');
         $dom->preserveWhiteSpace = false;
@@ -141,11 +141,9 @@ final class DphPriznaniBuilder
         } else {
             $vetaD->setAttribute('mesic', (string) $month);
         }
-        // B = řádné (default), O = opravné. Dodatečné D/E jsou vypnuté do
-        // implementace dopočtu rozdílů dle § 141/2 DŘ — viz komentář u FORMS.
+        // B = regular (default), O = corrective, D = supplementary (differences only, see FORMS).
         $vetaD->setAttribute('dapdph_forma', $form);
-        // Datum zjištění důvodů (§ 141 DŘ) — u O volitelně propustíme, když ho
-        // uživatel vyplní.
+        // Date the reasons were found (§ 141 DŘ): required for D, passed through for O when the user fills it in.
         if ($dZjist !== null && $dZjist !== '') {
             $vetaD->setAttribute('d_zjist', $dZjist);
         }
@@ -195,64 +193,17 @@ final class DphPriznaniBuilder
         //   ř.42 dov_cu/odp_cu_nar       = dovoz CÚ
         //   ř.43 nar_zdp23/od_zdp23      = odpočet ze samovyměřených plnění (ř. 3-13),
         //                                  sloupec „V plné výši", ZÁKLADNÍ sazba (21 %).
-        //   ř.44 nar_zdp5/od_zdp5        = totéž ve SNÍŽENÉ sazbě (12 %) — RC řádek s 12%
-        //                                  sazbou se sem remapuje ve VatLedgerService (S3).
-        //                                  POZOR: odp_rezim/odp_rez_nar je ř.45 (korekce
-        //                                  odpočtu dle §75/§77/§79 — registrace, vyrovnání),
-        //                                  NE ř.44. Ř.45 se negeneruje automaticky (mimo
-        //                                  rozsah, řeší účetní) — případný custom kód mířící
-        //                                  na ř.45 se nevykreslí ani nezapočte (viz guard níže).
-        //   ř.46 odp_sum_nar             = součtový řádek odpočtu (ř.40-45, „V plné výši")
-        //   ř.47 nar_maj/—               = hodnota pořízeného majetku
-        //                                  (doplňující údaj, jen základ; XSD má
-        //                                  jediný atribut, daň se neuvádí)
-        $lineMap = [
-            // Veta1 (výstup)
-            '1'  => ['veta' => 1, 'base' => 'obrat23',    'vat' => 'dan23'],
-            '2'  => ['veta' => 1, 'base' => 'obrat5',     'vat' => 'dan5'],
-            '3'  => ['veta' => 1, 'base' => 'p_zb23',     'vat' => 'dan_pzb23'],
-            '4'  => ['veta' => 1, 'base' => 'p_zb5',      'vat' => 'dan_pzb5'],
-            '5'  => ['veta' => 1, 'base' => 'p_sl23_e',   'vat' => 'dan_psl23_e'],
-            '6'  => ['veta' => 1, 'base' => 'p_sl5_e',    'vat' => 'dan_psl5_e'],
-            '7'  => ['veta' => 1, 'base' => 'dov_zb23',   'vat' => 'dan_dzb23'],
-            '8'  => ['veta' => 1, 'base' => 'dov_zb5',    'vat' => 'dan_dzb5'],
-            '10' => ['veta' => 1, 'base' => 'rez_pren23', 'vat' => 'dan_rpren23'],
-            '11' => ['veta' => 1, 'base' => 'rez_pren5',  'vat' => 'dan_rpren5'],
-            '12' => ['veta' => 1, 'base' => 'p_sl23_z',   'vat' => 'dan_psl23_z'],
-            '13' => ['veta' => 1, 'base' => 'p_sl5_z',    'vat' => 'dan_psl5_z'],
-            // Veta2 (oddíl C — ostatní plnění s nárokem na odpočet; jen základ, bez daně):
-            //   ř.20 dodání zboží do JČS · ř.21 služby do JČS (§9/1) · ř.22 vývoz (§66)
-            //   ř.23 dodání nového dopr. prostředku neregistrované osobě · ř.24 zasílání zboží
-            //   ř.25 RC dodavatel (§92a) · ř.26 ostatní plnění s nárokem na odpočet
-            '20' => ['veta' => 2, 'base' => 'dod_zb',      'vat' => null],
-            '21' => ['veta' => 2, 'base' => 'pln_sluzby',  'vat' => null],
-            '22' => ['veta' => 2, 'base' => 'pln_vyvoz',   'vat' => null],
-            '23' => ['veta' => 2, 'base' => 'dod_dop_nrg', 'vat' => null],
-            '24' => ['veta' => 2, 'base' => 'pln_zaslani', 'vat' => null],
-            '25' => ['veta' => 2, 'base' => 'pln_rez_pren','vat' => null],
-            '26' => ['veta' => 2, 'base' => 'pln_ost',     'vat' => null],
-            // Veta3 (oddíl C — doplňující údaje; jen základ, bez daně):
-            //   ř.30 pořízení zboží prostřední osobou · ř.31 dodání zboží prostřední osobou
-            //   (třístranný obchod § 17). Hodnota z ř.31 jde do souhrnného hlášení s kódem 2.
-            '30' => ['veta' => 3, 'base' => 'tri_pozb',   'vat' => null],
-            '31' => ['veta' => 3, 'base' => 'tri_dozb',   'vat' => null],
-            // Veta5 (oddíl B — krácení nároku na odpočet §76):
-            //   ř.50 plnosv_kf = plnění osvobozená od daně bez nároku na odpočet (§51),
-            //   sloupec „S nárokem na odpočet" vstupující do koeficientu §76. Jen základ,
-            //   bez daně (osvobozené plnění daň nenese). Plný koeficient (koef_p20_*,
-            //   ř.52/53) se needituje — mimo rozsah, řeší účetní.
-            '50' => ['veta' => 5, 'base' => 'plnosv_kf',  'vat' => null],
-            // Veta4 (odpočet)
-            '40' => ['veta' => 4, 'base' => 'pln23',      'vat' => 'odp_tuz23_nar'],
-            '41' => ['veta' => 4, 'base' => 'pln5',       'vat' => 'odp_tuz5_nar'],
-            '42' => ['veta' => 4, 'base' => 'dov_cu',     'vat' => 'odp_cu_nar'],
-            '43' => ['veta' => 4, 'base' => 'nar_zdp23',  'vat' => 'od_zdp23'],
-            '44' => ['veta' => 4, 'base' => 'nar_zdp5',   'vat' => 'od_zdp5'],
-            '47' => ['veta' => 4, 'base' => 'nar_maj',    'vat' => null],
-        ];
-
-        $totalDanZdanitelne = 0.0;
-        $totalDanOdpocitatelne = 0.0;
+        //   ř.44 nar_zdp5/od_zdp5        = the same at the REDUCED rate (12 %) — a reverse-charge row
+        //                                  with the 12 % rate is remapped here in VatLedgerService (S3).
+        //   ř.45 —/odp_rez_nar           = corrections of the deduction (§ 75, § 77, § 77a, § 79 - § 79c, § 79e),
+        //                                  column "V plné výši", no base column. Only the deduction on registration
+        //                                  and its reduction on deregistration (§ 79, § 79a) are generated, from the
+        //                                  agenda "Odpočet při registraci" (positive in the return of the period of
+        //                                  registration, negative in the last return of the registration); a custom
+        //                                  classification code aimed at row 45 is neither rendered nor counted.
+        //   ř.46 odp_sum_nar             = total of the deduction (rows 40-45, "V plné výši")
+        //   ř.47 nar_maj/—               = value of the acquired assets (supplementary data; the builder emits the base
+        //                                  only, the tax is not entered). Includes the long-term assets claimed on registration.
         $veta1Attrs = [];
         $veta2Attrs = [];
         $veta3Attrs = [];
@@ -261,34 +212,27 @@ final class DphPriznaniBuilder
 
         foreach ($lines as $lineNum => $data) {
             $lineKey = (string) $lineNum;
-            // Řádek mimo lineMap (builder ho neumí vykreslit — např. custom kód na ř.45)
+            // A row outside Dphdp3Lines::MAP (builder ho neumí vykreslit — např. custom kód na ř.45)
             // se NEvykreslí ANI nezapočítá do rekapitulace. Dřív se tiše přičítal do
             // ř.46/62/63, aniž by byl v detailu → EPO hlásilo nekonzistenci (audit 2026-07).
-            if (!isset($lineMap[$lineKey])) {
+            if (!isset(Dphdp3Lines::MAP[$lineKey])) {
                 continue;
             }
-            $m = $lineMap[$lineKey];
+            $m = Dphdp3Lines::MAP[$lineKey];
             $target = &${'veta' . $m['veta'] . 'Attrs'};
-            $target[$m['base']] = $this->formatAmount($data['base']);
+            if ($m['base'] !== null) {
+                $target[$m['base']] = $this->formatAmount($data['base']);
+            }
             if ($m['vat'] !== null) {
                 $target[$m['vat']] = $this->formatAmount($data['vat']);
             }
             unset($target);
-
-            // Rekapitulace jen z řádků, které NESOU daň (mají vat atribut). Řádky jen se
-            // základem — oddíl C (ř.20-31), osvobozené (ř.50), majetek (ř.47) — do ř.62/63
-            // nepatří; jinak by zbloudilá daň na základovém řádku nafoukla ř.62. Sčítáme
-            // zaokrouhleně na celé Kč (jak se vykazují), aby ř.62/63 seděly se součtem detailu.
-            if ($m['vat'] === null) {
-                continue;
-            }
-            $lineVat = round($data['vat']);
-            if ($this->isOutputLine($lineKey)) {
-                $totalDanZdanitelne += $lineVat;
-            } else {
-                $totalDanOdpocitatelne += $lineVat;
-            }
         }
+        // Recapitulation (rows 62 / 63 / difference) only from the rows that CARRY a tax: base-only rows — section C
+        // (ř.20-31), exempt supplies (ř.50), assets (ř.47) — are not part of it. Summed rounded to whole CZK, as entered.
+        $totals = Dphdp3Lines::totals($lines);
+        $totalDanZdanitelne = (float) $totals['output'];
+        $totalDanOdpocitatelne = (float) $totals['input'];
         if (!empty($veta1Attrs)) {
             $veta1 = $dom->createElement('Veta1');
             foreach ($veta1Attrs as $k => $v) $veta1->setAttribute($k, $v);
@@ -325,31 +269,48 @@ final class DphPriznaniBuilder
             $dphdp3->appendChild($veta5);
         }
 
-        $vlastniDan = $totalDanZdanitelne - $totalDanOdpocitatelne;
-        // Rows 64 (own tax liability, `dano_da`) and 66 (excess deduction, `dano_no`) in whole CZK,
-        // written to Veta6 and to the summary alike (the VAT payment card reads the summary).
-        $line64 = $vlastniDan > 0 ? (int) round($vlastniDan) : 0;
-        $line66 = $vlastniDan < 0 ? (int) round(-$vlastniDan) : 0;
+        $vlastniDan = (float) $totals['tax'];
+        // Own tax liability (row 64, `dano_da`) and excess deduction (row 65, `dano_no`) in whole CZK, written to
+        // Veta6 and to the summary alike (the VAT payment card reads the summary). The summary keys keep their
+        // historic names: `line_66_dano_no` IS row 65 of the official form; row 66 is `dano`, see below.
+        // A supplementary return has neither: it reports the signed difference on row 66 instead.
+        $isSupplementary = $filing->isSupplementary();
+        $line64 = !$isSupplementary && $vlastniDan > 0 ? (int) round($vlastniDan) : 0;
+        $line66 = !$isSupplementary && $vlastniDan < 0 ? (int) round(-$vlastniDan) : 0;
 
-        // ── Veta6: rekapitulace (XSD pořadí Veta4 → Veta6 → VetaR) ───────
-        // ř.62 dan_zocelk = daň na výstupu celkem, ř.63 odp_zocelk = odpočet celkem,
-        // ř.64 dano_da = vlastní daň (jen když výstup > odpočet),
-        // ř.66 dano_no = nadměrný odpočet (kladné číslo, jen když odpočet > výstup).
-        // EPO si rekapitulaci po importu sice dopočítá, ale úplný soubor je správnější.
+        // ── Veta6: recapitulation (XSD order Veta4 → Veta6 → VetaR) ───────
+        // ř.62 dan_zocelk = output tax in total, ř.63 odp_zocelk = deduction in total,
+        // ř.64 dano_da = own tax liability (only when output > deduction),
+        // ř.65 dano_no = excess deduction (positive number, only when deduction > output),
+        // ř.66 dano = (supplementary return only) signed difference against the last known tax = ř.62 - ř.63.
+        // EPO recomputes the recapitulation on import, but a complete file is more correct.
         $veta6 = $dom->createElement('Veta6');
         $veta6->setAttribute('dan_zocelk', $this->formatAmount($totalDanZdanitelne));
         $veta6->setAttribute('odp_zocelk', $this->formatAmount($totalDanOdpocitatelne));
-        if ($vlastniDan > 0) {
+        if ($isSupplementary) {
+            $veta6->setAttribute('dano', $this->formatAmount($vlastniDan));
+        } elseif ($vlastniDan > 0) {
             $veta6->setAttribute('dano_da', (string) $line64);
         } elseif ($vlastniDan < 0) {
             $veta6->setAttribute('dano_no', (string) $line66);
         }
         $dphdp3->appendChild($veta6);
 
-        // ── VetaR: poradi (wrapper element, summary attrs jdou jinam) ────
-        $vetaR = $dom->createElement('VetaR');
-        $vetaR->setAttribute('poradi', '1');
-        $dphdp3->appendChild($vetaR);
+        // ── VetaR: text attachment lines. A regular return keeps the empty placeholder line; the reasons of a
+        // supplementary return (§ 141 odst. 5 DŘ) are the lines of section D, at most 72 characters each.
+        if ($isSupplementary) {
+            foreach (DphSupplementaryDifference::reasonLines((string) $filing->reason) as $i => $text) {
+                $vetaR = $dom->createElement('VetaR');
+                $vetaR->setAttribute('poradi', (string) ($i + 1));
+                $vetaR->setAttribute('kod_sekce', 'D');
+                $vetaR->setAttribute('t_prilohy', $text);
+                $dphdp3->appendChild($vetaR);
+            }
+        } else {
+            $vetaR = $dom->createElement('VetaR');
+            $vetaR->setAttribute('poradi', '1');
+            $dphdp3->appendChild($vetaR);
+        }
 
         // ⚠️ `trans` NENÍ znaménko daně, ale zaškrtávátko „Neexistují-li údaje
         // pro C. oddíl". EPO podle něj oddíl C buď vykreslí, nebo PŘEŠKRTNE —
@@ -371,7 +332,10 @@ final class DphPriznaniBuilder
         $vetaD->setAttribute('trans', ($vlastniDan > 0 || $sectionCHasData) ? 'A' : 'N');
 
         // Filing deadline: the 25th of the month after the period, moved to a working day (§ 33/4 DŘ).
-        $deadline = ReportPeriod::filingDeadline($year, $month, $period);
+        // A supplementary return is due by the end of the month after the discovery (§ 141/1 DŘ).
+        $deadline = $isSupplementary
+            ? DphSupplementaryDifference::deadline(ReportFormParams::epoDateToIso((string) $filing->dZjist))
+            : ReportPeriod::filingDeadline($year, $month, $period);
 
         $summary = [
             'period'                  => sprintf('%04d-%02d', $year, $month),
@@ -388,7 +352,24 @@ final class DphPriznaniBuilder
             'is_excess_deduction'     => $vlastniDan < 0,
             'submission_deadline'     => $deadline,
             'supplier_vat_period'     => (string) ($supplier['vat_period'] ?? ''),
+            // What the return asks the taxpayer to pay (or to be refunded), kept in the summary so that the payment
+            // card does not have to re-derive it per form (row 64 / 65, row 66 of a supplementary return).
+            'liability'               => self::liability($isSupplementary ? (int) $vlastniDan : $line64 - $line66),
         ];
+        if ($supplementary !== null) {
+            // `lines` above are the differences printed on the form; `full_lines` are the whole state of the period
+            // this return brings the last known tax to - the next supplementary return is computed against them.
+            $summary['full_lines'] = $fullLines;
+            $summary['line_66_dano'] = (int) $vlastniDan;
+            $summary['supplementary'] = [
+                'd_zjist'   => (string) $filing->dZjist,
+                'reason'    => $filing->reason,
+                'based_on'  => $supplementary['based_on'],
+                'known_tax' => $supplementary['known_tax'],
+                'new_tax'   => $supplementary['new_tax'],
+                'difference' => (int) $vlastniDan,
+            ];
+        }
 
         return [
             'xml'      => $dom->saveXML() ?: '',
@@ -396,6 +377,72 @@ final class DphPriznaniBuilder
             'warnings' => $warnings,
             'missing_rates' => $missingRates,
         ];
+    }
+
+    /**
+     * The last known return of the period and the differences of the current state against it (form D).
+     *
+     * @param array<string, array{base:float, vat:float, count:int, label:string}> $current
+     * @return array{based_on: array<string,mixed>, known_tax: int, new_tax: int, difference: array<string,mixed>}
+     * @throws TaxFilingException there is no filed return of the period, or nothing changed since
+     */
+    private function supplementaryBase(int $supplierId, int $year, int $month, string $period, ?int $quarter, array $current): array
+    {
+        // Until the regular deadline of the period a return is corrected by a CORRECTIVE return (§ 138 DŘ); the
+        // supplementary one (§ 141 DŘ) is for the time after it.
+        $deadline = ReportPeriod::filingDeadline($year, $month, $period);
+        $today = $this->clock->now()->setTimezone(new \DateTimeZone(date_default_timezone_get()))->format('Y-m-d');
+        if ($today <= $deadline) {
+            throw new TaxFilingException(
+                sprintf(
+                    'Lhůta pro podání přiznání za toto období ještě neuplynula (do %s). Do té doby se přiznání opravuje opravným přiznáním (forma Opravné, § 138 daňového řádu); dodatečné přiznání (§ 141) lze podat až po uplynutí lhůty.',
+                    (new \DateTimeImmutable($deadline))->format('j. n. Y'),
+                ),
+                'corrective_return_required',
+            );
+        }
+        $last = (new FiledReturnChain(
+            $this->submissions->filedForPeriod($supplierId, TaxSubmissionRepository::FORM_DPH, $year, $quarter === null ? $month : null, $quarter),
+        ))->last();
+        if ($last === null) {
+            throw new TaxFilingException(
+                'Za toto období není podané žádné přiznání k DPH. Dodatečné přiznání lze podat jen k již podanému přiznání — nejdřív označte řádné přiznání jako podané v Archivu podání.',
+                'no_filed_return',
+            );
+        }
+
+        if (!DphSupplementaryDifference::hasKnownLines($last)) {
+            // Returns archived before the summary carried the rows: a difference against nothing would restate the whole return.
+            throw new TaxFilingException(
+                'Poslední podané přiznání za toto období nemá v archivu uložené řádky, takže z něj nejde spočítat rozdíly. Dodatečné přiznání sestav ručně na portálu EPO.',
+                'base_without_lines',
+            );
+        }
+        $known = DphSupplementaryDifference::knownLines($last);
+        $difference = DphSupplementaryDifference::compute($current, $known);
+        if ($difference['lines'] === []) {
+            throw new TaxFilingException(
+                'Od posledního podaného přiznání za toto období se údaje nezměnily — není co dodatečně přiznat.',
+                'nothing_changed',
+            );
+        }
+        $knownTax = Dphdp3Lines::totals($known)['tax'];
+        return [
+            'based_on'   => [
+                'submission_id'   => (int) $last['id'],
+                'submission_form' => (string) $last['submission_form'],
+                'filed_at'        => (string) $last['filed_at'],
+            ],
+            'known_tax'  => $knownTax,
+            'new_tax'    => $knownTax + $difference['tax'],
+            'difference' => $difference,
+        ];
+    }
+
+    /** @return array{kind: 'payment'|'refund'|'none', amount: int} */
+    private static function liability(int $signedTax): array
+    {
+        return ['kind' => $signedTax > 0 ? 'payment' : ($signedTax < 0 ? 'refund' : 'none'), 'amount' => abs($signedTax)];
     }
 
     /**
@@ -540,15 +587,6 @@ final class DphPriznaniBuilder
     }
 
     // VetaP a normalizeOkec přesunuto do EpoSupplierBlockBuilder (sdíleno s KH/SHV).
-
-    /**
-     * Output lines (DPH na výstupu): 1-29 dle DPHDP3.
-     * Input lines (DPH na vstupu, odpočet): 40+ dle DPHDP3.
-     */
-    private function isOutputLine(string $line): bool
-    {
-        return (int) $line < 40;
-    }
 
     /**
      * Formátování částky pro EPO XML — celé číslo Kč (zaokrouhleno).

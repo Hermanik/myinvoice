@@ -230,7 +230,7 @@ final class TaxSubmissionFilingTest extends TestCase
 
     public function testHttpWritesAreAdminOnlyAndReceiptRoundTrips(): void
     {
-        $id = $this->fx->submission('dphkh1', 2099, 10, null, 'N');
+        $id = $this->fx->submission('dphkh1', 2099, 10, null, 'B');
         $action = $this->fx->container->get(TaxSubmissionFilingAction::class);
 
         $denied = $action->markFiled($this->request('POST', 'accountant', ['channel' => 'epo']), new Response(), ['id' => $id]);
@@ -241,7 +241,7 @@ final class TaxSubmissionFilingTest extends TestCase
         self::assertSame(200, $ok->getStatusCode());
         self::assertSame('filed', $this->json($ok)['filing_status']);
 
-        $dup = $this->fx->submission('dphkh1', 2099, 10, null, 'N');
+        $dup = $this->fx->submission('dphkh1', 2099, 10, null, 'B');
         $conflict = $action->markFiled($this->request('POST', 'admin', ['channel' => 'epo']), new Response(), ['id' => $dup]);
         self::assertSame(409, $conflict->getStatusCode());
         self::assertSame('duplicate_filing', $this->json($conflict)['error']['code']);

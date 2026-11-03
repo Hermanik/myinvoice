@@ -17,8 +17,9 @@ export function nowForDatetimeLocal(now: Date = new Date()): string {
 export const VAT_FORMS = ['dphdp3', 'dphkh1', 'dphshv'] as const
 export type VatForm = typeof VAT_FORMS[number]
 
-/** The page of a ledger document (issued invoice or received invoice). */
-export function documentLink(d: { source: 'sale' | 'purchase'; id: number }): string {
+/** The page of a document of a return: an issued invoice, a received invoice or the agenda of the deduction on registration. */
+export function documentLink(d: { source: 'sale' | 'purchase' | 'registration_deduction'; id: number }): string {
+  if (d.source === 'registration_deduction') return '/tax/registration-deductions'
   return d.source === 'sale' ? `/invoices/${d.id}` : `/purchase-invoices/${d.id}`
 }
 

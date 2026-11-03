@@ -39,6 +39,27 @@ final class VatPaymentLiabilityTest extends TestCase
         self::assertSame(['kind' => 'refund', 'amount' => 120], VatPaymentService::liability(['form_code' => 'dphdp3', 'summary' => ['tax_due' => -120.0]]));
     }
 
+    public function testLiabilityStoredInTheSummaryWinsOverTheRows(): void
+    {
+        $submission = static fn (array $liability): array => ['form_code' => 'dphdp3', 'submission_form' => 'D', 'summary' => [
+            // Whatever the legacy rows say, the stored liability (row 66 of a supplementary return) decides.
+            'line_64_dano_da' => 999, 'line_66_dano_no' => 888, 'liability' => $liability,
+        ]];
+
+        self::assertSame(['kind' => 'payment', 'amount' => 1050], VatPaymentService::liability($submission(['kind' => 'payment', 'amount' => 1050])));
+        self::assertSame(['kind' => 'refund', 'amount' => 2100], VatPaymentService::liability($submission(['kind' => 'refund', 'amount' => 2100])));
+        self::assertSame(['kind' => 'none', 'amount' => 0], VatPaymentService::liability($submission(['kind' => 'none', 'amount' => 0])));
+    }
+
+    public function testStoredDeadlineWinsOverThePeriodDerivation(): void
+    {
+        $d = ['form_code' => 'dphdp3', 'submission_form' => 'D', 'period_year' => 2026, 'period_month' => 6, 'period_quarter' => null,
+              'summary' => ['submission_deadline' => '2026-11-30']];
+
+        self::assertSame('2026-11-30', VatPaymentService::dueDate($d), '§ 141 odst. 7 DŘ: the end of the month after the discovery');
+        self::assertSame('2026-07-27', VatPaymentService::dueDate(['summary' => []] + $d), 'archived before the deadline was stored: the filing deadline of the period');
+    }
+
     /** @return array<string, array{array<string,mixed>, string, string}> */
     public static function dueDates(): array
     {

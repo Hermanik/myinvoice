@@ -97,6 +97,13 @@ final class Bootstrap
 
             ResponseFactory::class => fn () => new ResponseFactory(),
             Connection::class      => fn (ContainerInterface $c) => new Connection($c->get(Config::class), $c->get(LoggerInterface::class)),
+            // The deduction on registration (rows 45, 47) is an optional argument of the mapper, so its ledger-only unit tests
+            // need no agenda tables; PHP-DI would leave an optional parameter at its default, hence the explicit binding.
+            \MyInvoice\Service\Report\VatClassificationMapper::class => fn (ContainerInterface $c) => new \MyInvoice\Service\Report\VatClassificationMapper(
+                $c->get(Connection::class),
+                $c->get(\MyInvoice\Service\Report\VatLedgerService::class),
+                $c->get(\MyInvoice\Service\Vat\RegistrationDeductionService::class),
+            ),
             RedisProbe::class      => fn (ContainerInterface $c) => new RedisProbe($c->get(Config::class)),
             RedisFactory::class    => fn (ContainerInterface $c) => new RedisFactory($c->get(Config::class)),
             // Nativní updater si cesty (root / data dir) rozřeší sám; explicitní bind,

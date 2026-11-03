@@ -10,6 +10,7 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Report\KontrolniHlaseniBuilder;
+use MyInvoice\Service\Report\ReportFormParams;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -17,6 +18,10 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  * Kontrolní hlášení DPHKH1 endpoints:
  *   GET /api/reports/dphkh1/preview?year=2026&month=5[&period=quarterly] → JSON summary
  *   GET /api/reports/dphkh1?year=2026&month=5[&period=quarterly]         → XML download
+ *
+ * Both accept `form` (B, O, N, E), `d_zjist` and the call of the tax office the KH answers: `c_jed_vyzvy` (its
+ * reference number; replaces `d_zjist` for N / E) and `vyzva_odp` (B nil KH / P confirmation of the last KH — the
+ * quick answer, a document without the sections A, B and C).
  *
  * PO = vždy měsíční (§ 101e odst. 1); FO = může být kvartální (§ 101e odst. 2).
  */
@@ -62,7 +67,9 @@ final class KontrolniHlaseniAction
         // základě UI zakáže stažení XML.
         $epo = $this->epoValidator->forSupplier($supplierId, \MyInvoice\Service\Report\EpoIdentityValidator::DOC_DPHKH1);
         try {
-            $result = $this->builder->build($supplierId, $year, $month, $period);
+            $result = $this->builder->build($supplierId, $year, $month, $period, ReportFormParams::kh($request->getQueryParams()));
+        } catch (\InvalidArgumentException $e) {
+            return Json::error($response, 'validation_failed', $e->getMessage(), 400);
         } catch (\Throwable $e) {
             return Json::error($response, 'build_failed', $e->getMessage(), 500);
         }
@@ -89,26 +96,18 @@ final class KontrolniHlaseniAction
         if ($epo['missing'] !== []) {
             return $this->epoIdentityError($response, $epo['missing']);
         }
-        // Forma podání (B/O/N/E) + datum zjištění důvodů pro následné KH (§ 101f).
-        $fp = \MyInvoice\Service\Report\ReportFormParams::fromQuery(
-            $request->getQueryParams(),
-            KontrolniHlaseniBuilder::FORMS,
-            KontrolniHlaseniBuilder::FORMS_REQUIRING_DZJIST,
-        );
-        if ($fp['error'] !== null) {
-            return Json::error($response, 'validation_failed', $fp['error'], 400);
-        }
         try {
             $this->vatStatus->assertVatDutiesInReportPeriod($supplierId, $year, $month, $period);
         } catch (\MyInvoice\Service\Vat\VatStatusException $e) {
             return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
         }
         try {
-            $result = $this->builder->build($supplierId, $year, $month, $period, $fp['form'], $fp['d_zjist']);
-            // #238: doplň chybějící kurzy z ČNB a přebuildi; tvrdá chyba jen když ČNB nemá.
+            $filing = ReportFormParams::kh($request->getQueryParams());
+            $result = $this->builder->build($supplierId, $year, $month, $period, $filing);
+            // #238: fill the missing exchange rates from ČNB and rebuild; a hard error only when ČNB has none.
             if (!empty($result['missing_rates'])) {
                 $this->rateFiller->fill($supplierId, $result['missing_rates']);
-                $result = $this->builder->build($supplierId, $year, $month, $period, $fp['form'], $fp['d_zjist']);
+                $result = $this->builder->build($supplierId, $year, $month, $period, $filing);
                 if (!empty($result['missing_rates'])) {
                     $labels = \MyInvoice\Service\Report\VatLedgerService::missingExchangeRateLabels($result['missing_rates']);
                     return Json::error($response, 'exchange_rate_missing',
@@ -116,6 +115,8 @@ final class KontrolniHlaseniAction
                         . '. Doplňte kurz ručně u faktury a zkuste znovu.', 422);
                 }
             }
+        } catch (\InvalidArgumentException $e) {
+            return Json::error($response, 'validation_failed', $e->getMessage(), 400);
         } catch (\Throwable $e) {
             return Json::error($response, 'build_failed', $e->getMessage(), 500);
         }
@@ -134,9 +135,9 @@ final class KontrolniHlaseniAction
             'validation_status' => $archived['validation_status'],
         ], $ip, $request->getHeaderLine('User-Agent'));
 
-        $filename = $isQuarterly
-            ? sprintf('dphkh1-%04d-Q%d.xml', $year, $quarter)
-            : sprintf('dphkh1-%04d-%02d.xml', $year, $month);
+        $filename = ($isQuarterly
+            ? sprintf('dphkh1-%04d-Q%d', $year, $quarter)
+            : sprintf('dphkh1-%04d-%02d', $year, $month)) . ($filing->isQuickAnswer() ? '-odpoved' : '') . '.xml';
         $response->getBody()->write($result['xml']);
         return $response
             ->withHeader('Content-Type', 'application/xml; charset=utf-8')

@@ -50,6 +50,10 @@ final class FilingFixture
     private array $transactionIds = [];
     /** @var list<int> */
     private array $activityIds = [];
+    /** @var list<int> */
+    private array $deductionIds = [];
+    /** Highest activity_log id at boot: log rows the code under test wrote afterwards are removed again. */
+    private int $activityWatermark = 0;
 
     private function __construct() {}
 
@@ -81,6 +85,7 @@ final class FilingFixture
         }
 
         // Snapshot only now, after every skip check.
+        $fx->activityWatermark = (int) ($fx->pdo->query('SELECT COALESCE(MAX(id), 0) FROM activity_log')->fetchColumn() ?: 0);
         $fx->vatHistory = VatStatusFixture::snapshot($fx->pdo, $fx->supplierId);
         $fx->supplierRow = $fx->pdo->query(
             "SELECT dic, financial_office_code, taxpayer_type, vat_period, flat_tax_band
@@ -121,10 +126,16 @@ final class FilingFixture
         foreach ($this->activityIds as $id) {
             $pdo->prepare('DELETE FROM activity_log WHERE id = ?')->execute([$id]);
         }
+        // Entries of the endpoints exercised through their actions (report downloads, registration deductions).
+        $pdo->prepare("DELETE FROM activity_log WHERE id > ? AND (action LIKE 'report.dph%\_downloaded' OR action LIKE 'tax.registration\_deduction\_%')")
+            ->execute([$this->activityWatermark]);
         if ($this->submissionIds !== []) {
             $in = implode(',', $this->submissionIds);
             $pdo->exec("DELETE FROM activity_log WHERE entity_type = 'tax_submission' AND entity_id IN ({$in})");
             $pdo->exec("DELETE FROM tax_submissions WHERE id IN ({$in})");
+        }
+        if ($this->deductionIds !== []) {
+            $pdo->exec('DELETE FROM vat_registration_deductions WHERE id IN (' . implode(',', $this->deductionIds) . ')');
         }
         foreach ($this->invoiceIds as $id) {
             $pdo->exec("DELETE FROM activity_log WHERE entity_type = 'invoice' AND entity_id = {$id}");
@@ -145,7 +156,7 @@ final class FilingFixture
         foreach ($this->clientIds as $id) {
             $pdo->prepare('DELETE FROM clients WHERE id = ?')->execute([$id]);
         }
-        $this->invoiceIds = $this->purchaseIds = $this->submissionIds = $this->clientIds = $this->statementIds = $this->transactionIds = $this->activityIds = [];
+        $this->invoiceIds = $this->purchaseIds = $this->submissionIds = $this->clientIds = $this->statementIds = $this->transactionIds = $this->activityIds = $this->deductionIds = [];
 
         $cols = $this->supplierRow;
         $pdo->prepare('UPDATE supplier SET dic = ?, financial_office_code = ?, taxpayer_type = ?, vat_period = ?, flat_tax_band = ? WHERE id = ?')
@@ -178,6 +189,12 @@ final class FilingFixture
         $id = (int) $this->pdo->lastInsertId();
         $this->submissionIds[] = $id;
         return $id;
+    }
+
+    /** Registers a registration-deduction item created by the code under test, so that it is removed again. */
+    public function trackDeduction(int $id): void
+    {
+        $this->deductionIds[] = $id;
     }
 
     /** Registers an archive row created by the code under test, so that it is removed again. */

@@ -17,7 +17,7 @@ import SubmissionSendModal from '@/components/databox/SubmissionSendModal.vue'
 import VatPaymentCard from '@/components/reports/VatPaymentCard.vue'
 import ChangedAfterFilingList from '@/components/reports/ChangedAfterFilingList.vue'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const toast = useToast()
 const auth = useAuthStore()
 
@@ -79,6 +79,12 @@ function sendLabelKey(s: TaxSubmission): string {
 async function onDataboxSent() {
   sendingId.value = null
   await load() // the send marked the submission filed: refresh the badge and the chip
+}
+
+/** Letter of the submission form; the supplementary (D) and call-answer (V) forms get a word label. */
+function submissionFormLabel(f: string): string {
+  const key = `reports.submissions.sform_${f}`
+  return te(key) ? t(key) : f
 }
 
 function formCodeLabel(c: string): string {
@@ -314,7 +320,7 @@ onMounted(load)
             <tr class="hover:bg-neutral-50" :data-submission="s.id" :data-filing-status="s.filing_status">
               <td class="px-4 py-2.5 font-medium">
                 {{ formCodeLabel(s.form_code) }}
-                <span class="ml-1 text-xs font-mono text-neutral-500" :title="t('reports.filing.form_label')">{{ s.submission_form }}</span>
+                <span class="ml-1 text-xs font-mono text-neutral-500" :title="t('reports.filing.form_label')">{{ submissionFormLabel(s.submission_form) }}</span>
               </td>
               <td class="px-3 py-2.5 font-mono text-xs">{{ submissionPeriodLabel(s) }}</td>
               <td class="px-3 py-2.5 text-xs text-neutral-500">
@@ -424,7 +430,7 @@ onMounted(load)
     <Modal v-if="fileTarget" :title="t('reports.filing.mark_filed_title')" width-class="max-w-lg" @close="fileTarget = null">
       <form id="file-form" class="space-y-4" @submit.prevent="submitFile">
         <p class="text-sm text-neutral-600">
-          {{ formCodeLabel(fileTarget.form_code) }} · {{ submissionPeriodLabel(fileTarget) }} · {{ t('reports.filing.form_label') }} {{ fileTarget.submission_form }}
+          {{ formCodeLabel(fileTarget.form_code) }} · {{ submissionPeriodLabel(fileTarget) }} · {{ t('reports.filing.form_label') }} {{ submissionFormLabel(fileTarget.submission_form) }}
         </p>
         <label class="block text-sm">
           <span class="text-neutral-700">{{ t('reports.filing.filed_at') }}</span>

@@ -39,6 +39,9 @@ export interface VatStatusRow {
   is_current: boolean
   /** The earliest row is the floor of the history and cannot be deleted. */
   can_delete: boolean
+  /** 'registration' = the row switches the supplier to a VAT payer (section 79 deduction),
+   *  'deregistration' = it ends the VAT payer status (section 79a reduction). */
+  deduction_event: 'registration' | 'deregistration' | null
 }
 
 export interface VatStatusOverview {
