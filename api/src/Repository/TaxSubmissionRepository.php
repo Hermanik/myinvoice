@@ -16,6 +16,19 @@ use MyInvoice\Infrastructure\Database\Connection;
  */
 final class TaxSubmissionRepository
 {
+    public const FORM_DPH = 'dphdp3';
+    public const FORM_KH = 'dphkh1';
+    /** DPH supplementary return (dodatečné přiznání, § 141 DŘ): states the difference against the last known tax. */
+    public const DPH_SUPPLEMENTARY = 'D';
+
+    /**
+     * Forms that may be filed repeatedly for the same period, in sequence (form code => forms): the supplementary
+     * DPH return D (each reports the difference against the last known tax, § 141 DŘ) and the subsequent KH N / E
+     * and the quick answer to a call V. Their `filed_slot` of migration 9006 is NULL, so the unique index does not
+     * apply to them — keep the list in the migration in step.
+     */
+    public const REPEATABLE_FORMS = [self::FORM_DPH => [self::DPH_SUPPLEMENTARY], self::FORM_KH => ['N', 'E', 'V']];
+
     public function __construct(private readonly Connection $db) {}
 
     /**
@@ -131,11 +144,15 @@ final class TaxSubmissionRepository
 
     /**
      * Another submission of the same (supplier, type, period, form) that is already filed/confirmed.
+     * Null for the forms that may be filed repeatedly ({@see REPEATABLE_FORMS}).
      *
      * @param array<string,mixed> $submission a row from {@see findMeta()}
      */
     public function findFiledSibling(array $submission): ?array
     {
+        if (in_array($submission['submission_form'], self::REPEATABLE_FORMS[$submission['form_code']] ?? [], true)) {
+            return null;
+        }
         return $this->fetchOne(
             'SELECT ' . self::META_COLUMNS . '
                FROM tax_submissions
@@ -153,8 +170,9 @@ final class TaxSubmissionRepository
 
     /**
      * Filed/confirmed submissions of one type + period (all forms), in the order of filing: by `filed_at`,
-     * ties by id. The LAST row is the return in force (the earlier ones are superseded); that is why a
-     * second return of a period must be filed with a full date and time.
+     * ties by id. Which of them are in force is decided by {@see \MyInvoice\Service\Tax\FiledReturnChain}
+     * (a regular / corrective return replaces the earlier ones, a supplementary one only adds to them); that is
+     * why a second return of a period must be filed with a full date and time.
      *
      * @return list<array<string,mixed>>
      */
@@ -174,7 +192,7 @@ final class TaxSubmissionRepository
 
     /**
      * Every filed/confirmed submission of the given types for a supplier (calendar badges, payment feed),
-     * per period in the order of filing — `filed_at`, ties by id — so the last of a period is the one in force.
+     * per period in the order of filing — `filed_at`, ties by id; see {@see \MyInvoice\Service\Tax\FiledReturnChain}.
      *
      * @param list<string> $formCodes
      * @param bool $withSummary false skips the (large) summary JSON when the caller only needs the filing facts

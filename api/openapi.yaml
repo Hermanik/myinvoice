@@ -3883,6 +3883,12 @@ paths:
         - { in: query, name: year,   required: true, schema: { type: integer, minimum: 2020, maximum: 2050 } }
         - { in: query, name: month,  schema: { type: integer, minimum: 1, maximum: 12 }, description: 'Pro měsíční periodu' }
         - { in: query, name: quarter, schema: { type: integer, minimum: 1, maximum: 4 }, description: 'Pro kvartální periodu' }
+        - { in: query, name: form, schema: { type: string, enum: [B, O, D], default: B },
+            description: 'Forma podání (dapdph_forma): B řádné, O opravné, D dodatečné (§ 141 DŘ — v rozdílech proti poslední podanému přiznání)' }
+        - { in: query, name: d_zjist, schema: { type: string, pattern: '^\d{2}\.\d{2}\.\d{4}$' },
+            description: 'Datum zjištění důvodů (DD.MM.YYYY) — povinné u D, volitelné u O' }
+        - { in: query, name: reason, schema: { type: string, maxLength: 2000 },
+            description: 'Důvody dodatečného přiznání — povinné u D (do XML jde jako textová příloha, max 72 znaků na řádek)' }
       responses:
         '200':
           description: |
@@ -3890,10 +3896,20 @@ paths:
             pole identifikace, propustné chyby EPO) + missing[] (chybějící XSD-povinná
             pole identifikace). Náhled se nikdy neblokuje — missing[] jen znamená, že
             stažení XML vrátí 422.
+
+            U dodatečného přiznání (`form=D`) má summary `form: 'D'`, `lines` (rozdíly po řádcích
+            proti poslednímu podanému přiznání, se znaménkem, celé Kč), `full_lines` (stav po tomto
+            přiznání), `line_66_dano` (rozdíl daně se znaménkem), `submission_deadline` a
+            `supplementary: { d_zjist, reason, based_on: { submission_id, submission_form, filed_at },
+            known_tax, new_tax, difference }`. Druhé dodatečné přiznání se počítá proti stavu, který
+            přineslo předchozí (kumulativně). Summary každé formy nese `liability: { kind: payment|refund|none, amount }`
+            (co přiznání ukládá zaplatit, resp. co se vrací) a `submission_deadline` — z nich vychází karta platby.
           content:
             application/json:
               schema: { type: object }
+        '400': { description: Neplatná forma podání nebo chybějící/neplatné `d_zjist` / `reason` }
         '403': { description: Pouze admin/accountant }
+        '422': { description: 'Dodatečné přiznání nejde sestavit: `no_filed_return` (za období není podané ani potvrzené přiznání) nebo `nothing_changed` (proti poslednímu podanému se nic nezměnilo)' }
 
   /api/v1/reports/dphdp3:
     get:
@@ -3904,17 +3920,19 @@ paths:
         - { in: query, name: year, required: true, schema: { type: integer } }
         - { in: query, name: month, schema: { type: integer } }
         - { in: query, name: quarter, schema: { type: integer } }
-        - { in: query, name: form, schema: { type: string, enum: [B, O], default: B },
-            description: 'Forma podání (dapdph_forma): B řádné, O opravné (§ 138 DŘ). Dodatečné D/E dočasně nepodporováno — § 141/2 DŘ vyžaduje vykázání rozdílů proti poslední známé dani a builder umí jen plné hodnoty období.' }
+        - { in: query, name: form, schema: { type: string, enum: [B, O, D], default: B },
+            description: 'Forma podání (dapdph_forma): B řádné, O opravné (§ 138 DŘ), D dodatečné (§ 141 DŘ) — v XML jsou jen rozdíly proti poslednímu podanému přiznání za období; ř. 64 a 65 zůstávají prázdné, ř. 66 nese rozdíl daně se znaménkem. Kombinované dodatečné/opravné E se nepodporuje.' }
         - { in: query, name: d_zjist, schema: { type: string, pattern: '^\d{2}\.\d{2}\.\d{4}$' },
-            description: 'Datum zjištění důvodů pro podání (DD.MM.YYYY) — volitelné u O' }
+            description: 'Datum zjištění důvodů pro podání (DD.MM.YYYY) — povinné u D, volitelné u O' }
+        - { in: query, name: reason, schema: { type: string, maxLength: 2000 },
+            description: 'Důvody dodatečného přiznání — povinné u D (textová příloha XML, `VetaR kod_sekce="D"`)' }
       responses:
         '200':
           description: XML download
           content:
             application/xml: {}
-        '400': { description: Neplatná forma podání nebo chybějící/neplatné d_zjist }
-        '422': { description: 'epo_identity_incomplete — chybí XSD-povinná EPO identifikace (kód FÚ, DIČ, typ poplatníka); tělo obsahuje missing[] a settings_url' }
+        '400': { description: Neplatná forma podání nebo chybějící/neplatné `d_zjist` / `reason` }
+        '422': { description: 'Dodatečné přiznání nejde sestavit: `no_filed_return` (za období není podané ani potvrzené přiznání) nebo `nothing_changed`; jinak `epo_identity_incomplete` (chybí XSD-povinná EPO identifikace — kód FÚ, DIČ, typ poplatníka; tělo obsahuje missing[] a settings_url)' }
         '403': { description: Pouze admin/accountant }
 
   /api/v1/reports/dphkh1/preview:
@@ -3927,8 +3945,13 @@ paths:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: query, name: year,  required: true, schema: { type: integer } }
         - { in: query, name: month, required: true, schema: { type: integer, minimum: 1, maximum: 12 } }
+        - { in: query, name: c_jed_vyzvy, schema: { type: string, pattern: '^\d{1,8}/\d{2}/\d{4}-\d{5}-\d{6}$', example: '12345678/26/1234-12345-123456' },
+            description: 'Číslo jednací výzvy finančního úřadu (§ 101g ZDPH) včetně lomítek a pomlček — formát se ověřuje' }
+        - { in: query, name: vyzva_odp, schema: { type: string, enum: [B, P] },
+            description: 'Rychlá odpověď na výzvu (vyžaduje `c_jed_vyzvy`): B = nemám povinnost podat KH (nulové), P = potvrzuji správnost naposledy podaného KH' }
       responses:
-        '200': { description: 'Summary s counts sekcí A.1/A.2/A.4/A.5/B.1/B.2/B.3 + warnings[] + missing[] (chybějící XSD-povinná pole identifikace; náhled se neblokuje, stažení XML vrátí 422)' }
+        '200': { description: 'Summary s counts sekcí A.1/A.2/A.4/A.5/B.1/B.2/B.3 + warnings[] + missing[] (chybějící XSD-povinná pole identifikace; náhled se neblokuje, stažení XML vrátí 422). U rychlé odpovědi na výzvu má summary `form: B` (forma v XML), `archive_form: V` (forma v archivu), `call: { reference, answer: B|P }` a nulové počty i součty; u plného následného KH odpovídajícího na výzvu `call: { reference, answer: null }`, bez výzvy `call: null`.' }
+        '400': { description: Neplatný formát čísla jednacího výzvy nebo `vyzva_odp` bez `c_jed_vyzvy` }
         '403': { description: Pouze admin/accountant }
 
   /api/v1/reports/dphkh1:
@@ -3942,13 +3965,17 @@ paths:
         - { in: query, name: form, schema: { type: string, enum: [B, O, N, E], default: B },
             description: 'Forma podání (khdph_forma): B řádné, O opravné, N následné, E následné/opravné (§ 101e–101f ZDPH)' }
         - { in: query, name: d_zjist, schema: { type: string, pattern: '^\d{2}\.\d{2}\.\d{4}$' },
-            description: 'Datum zjištění důvodů pro podání (DD.MM.YYYY) — povinné u form=N/E, volitelné u O' }
+            description: 'Datum zjištění důvodů pro podání (DD.MM.YYYY) — povinné u form=N/E, volitelné u O; u N/E podaného na výzvu (`c_jed_vyzvy`) nepovinné' }
+        - { in: query, name: c_jed_vyzvy, schema: { type: string, pattern: '^\d{1,8}/\d{2}/\d{4}-\d{5}-\d{6}$', example: '12345678/26/1234-12345-123456' },
+            description: 'Číslo jednací výzvy finančního úřadu (§ 101g ZDPH) včetně lomítek a pomlček. U N/E nahrazuje `d_zjist`.' }
+        - { in: query, name: vyzva_odp, schema: { type: string, enum: [B, P] },
+            description: 'Rychlá odpověď na výzvu (vyžaduje `c_jed_vyzvy`, XML nesmí obsahovat řádky sekcí A, B, C): B = nemám povinnost podat KH (nulové), P = potvrzuji správnost naposledy podaného KH. V XML se zapíše s `khdph_forma="B"`, v archivu se ukládá jako forma V.' }
       responses:
         '200':
           description: XML download
           content:
             application/xml: {}
-        '400': { description: Neplatná forma podání nebo chybějící/neplatné d_zjist }
+        '400': { description: Neplatná forma podání, chybějící/neplatné d_zjist nebo neplatný formát `c_jed_vyzvy` / `vyzva_odp` }
         '422': { description: 'epo_identity_incomplete — chybí XSD-povinná EPO identifikace (kód FÚ, DIČ, typ poplatníka); tělo obsahuje missing[] a settings_url' }
 
   /api/v1/reports/dphshv/preview:
@@ -4017,7 +4044,7 @@ paths:
       summary: Historie všech generovaných EPO XML výkazů
       description: |
         Každý záznam nese stav podání (`filing_status`: `generated` → `filed` → `confirmed`),
-        formu podání (`submission_form`: B/O/N/E, SH `R`) a u přiznání k DPH s daňovou
+        formu podání (`submission_form`: B/O/D (DPH), B/O/N/E/V (KH; V = odpověď na výzvu), SH `R`) a u přiznání k DPH s daňovou
         povinností nebo nadměrným odpočtem kartu `payment` (bez QR).
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
@@ -4070,7 +4097,10 @@ paths:
       description: |
         Stav `generated` → `filed`. Za jednu kombinaci dodavatel + typ výkazu + období + forma
         podání smí být podané/potvrzené jen jedno podání — druhé skončí `409 duplicate_filing`
-        (v `error.conflict` je id a čas podání toho, které už je podané). Změna se zapisuje do auditního logu.
+        (v `error.conflict` je id a čas podání toho, které už je podané). Pro formy D (dodatečné DPH)
+        a N/E/V (KH) tato jednoznačnost neplatí — za jedno období jich smí být podáno víc po sobě.
+        Dodatečné přiznání D lze označit jako podané jen nad přiznáním, proti kterému bylo spočteno
+        (jinak `409 stale_supplementary` — vygeneruj ho znovu). Změna se zapisuje do auditního logu.
       parameters:
         - { in: path, name: id, required: true, schema: { type: integer } }
         - $ref: '#/components/parameters/SupplierIdHeader'
@@ -4094,13 +4124,15 @@ paths:
         '400': { description: Neplatný čas nebo způsob podání }
         '403': { description: Pouze admin }
         '404': { description: Not found }
-        '409': { description: 'Už je podané (`already_filed`) nebo podání téhož výkazu už existuje (`duplicate_filing`)' }
+        '409': { description: 'Už je podané (`already_filed`), podání téhož výkazu už existuje (`duplicate_filing`) nebo dodatečné přiznání bylo spočteno proti jinému stavu (`stale_supplementary`)' }
 
   /api/v1/reports/submissions/{id}/unfile:
     post:
       tags: [Reports]
       summary: Zruší označení podání (jen admin)
-      description: Vrátí podané/potvrzené podání do stavu `generated`; nahrané potvrzení se smaže.
+      description: |
+        Vrátí podané/potvrzené podání do stavu `generated`; nahrané potvrzení se smaže.
+        Přiznání nejde odznačit, dokud je za stejné období podané pozdější dodatečné přiznání (`409 later_supplementary`).
       parameters:
         - { in: path, name: id, required: true, schema: { type: integer } }
         - $ref: '#/components/parameters/SupplierIdHeader'
@@ -4112,7 +4144,7 @@ paths:
               schema: { $ref: '#/components/schemas/TaxSubmission' }
         '403': { description: Pouze admin }
         '404': { description: Not found }
-        '409': { description: Podání není označené jako podané (`not_filed`) }
+        '409': { description: 'Podání není označené jako podané (`not_filed`) nebo je za období podané pozdější dodatečné přiznání (`later_supplementary`)' }
 
   /api/v1/reports/submissions/{id}/receipt:
     post:
@@ -4182,7 +4214,10 @@ paths:
         Částka k úhradě (ř. 64, vlastní daňová povinnost), splatnost (25. dne měsíce po období, při
         víkendu/svátku nejbližší pracovní den), účet FÚ (předčíslí 705, matrika podle kódu FÚ dodavatele,
         banka 0710), variabilní symbol (číselná část DIČ) a QR platba. U nadměrného odpočtu (ř. 66)
-        `kind: refund` — nic se neplatí. Odchozí platba na tento účet se stejným VS a částkou se při importu
+        `kind: refund` — nic se neplatí. U dodatečného přiznání (forma D) karta ukazuje doplatek
+        |ř. 66| se splatností podle § 141 odst. 7 DŘ (konec měsíce následujícího po měsíci zjištění,
+        posunutý na pracovní den), platby dřívějších přiznání se neodečítají a záporný rozdíl je `kind: refund`.
+        Odchozí platba na tento účet se stejným VS a částkou se při importu
         výpisu nebo e-mailového avíza označí jako zaplacená sama.
       parameters:
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -4265,7 +4300,9 @@ paths:
         `cross_check` porovnává stejná plnění ve třech výstupech (ř. 1/2 ↔ KH A.4+A.5, ř. 25 ↔ A.1,
         ř. 10/11 ↔ B.1, ř. 40/41 ↔ B.2+B.3, ř. 3–6, 12, 13 ↔ A.2, ř. 20/21/31 ↔ SH), rozdíl ukáže
         v částkách i s doklady, které ho způsobují. `filing` / `changed_after_filing` / `payment`
-        jsou vyplněné, jen když je výkaz za období podaný.
+        jsou vyplněné, jen když je výkaz za období podaný. `filing` je poslední podání, `payment` karta
+        platné řádné/opravné přiznání a `supplementary_payments` karty dodatečných přiznání (D) podaných po něm —
+        každé dodatečné se platí zvlášť.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: query, name: form, schema: { type: string, enum: [dphdp3, dphkh1, dphshv], default: dphdp3 } }
@@ -5421,6 +5458,112 @@ paths:
         '400': { description: Žádný supplier scope }
         '422': { description: Neplatný rok }
 
+  # ── Odpočet při registraci (§ 79 a § 79a ZDPH) ───────────────────────────
+  /api/v1/tax/registration-deductions:
+    get:
+      tags: [Tax]
+      summary: Odpočet při registraci a snížení odpočtu při zrušení registrace
+      description: |
+        Události historie plátcovství (registrace / zrušení registrace) s položkami odpočtu daně
+        z majetku (§ 79 odst. 1 ZDPH) a snížení odpočtu (§ 79a ZDPH). Čtení smí každá role.
+        `orphaned` jsou položky, jejichž událost už v historii plátcovství neexistuje.
+        Pokrývá jen § 79 odst. 1 (+ pravidlo částky u dlouhodobého majetku); ostatní případy § 79
+        a § 79c se neřeší. ⚠️ Pomůcka — ověř s účetní.
+      parameters: [{ $ref: '#/components/parameters/SupplierIdHeader' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items: { $ref: '#/components/schemas/RegistrationDeductionEvent' }
+                  orphaned:
+                    type: array
+                    items: { $ref: '#/components/schemas/RegistrationDeductionItem' }
+    post:
+      tags: [Tax]
+      summary: Přidá položku odpočtu při registraci / snížení při zrušení registrace (jen admin)
+      description: |
+        Výši odpočtu (`deduction_amount`) počítá server. Událost (`event_date`) musí odpovídat řádku
+        historie plátcovství — registraci u `kind=registration`, zrušení u `kind=deregistration`.
+        U registrace musí `acquired_on` ležet v 12 měsících před dnem registrace.
+        Chyby: `422 outside_window`, `422 no_registration_event`, `422 no_deregistration_event`,
+        `422 validation_failed`, `409 duplicate`.
+      parameters: [{ $ref: '#/components/parameters/SupplierIdHeader' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrationDeductionInput' }
+      responses:
+        '201':
+          description: Vytvořená položka
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistrationDeductionItem' }
+        '403': { description: Pouze admin }
+        '409': { description: Duplicitní položka (`duplicate`) }
+        '422': { description: 'Chyba validace (`validation_failed`, `outside_window`, `no_registration_event`, `no_deregistration_event`)' }
+
+  /api/v1/tax/registration-deductions/reversal-suggestions:
+    get:
+      tags: [Tax]
+      summary: Navržené položky snížení odpočtu při zrušení registrace
+      description: |
+        Z položek registrace spočte návrhy snížení (§ 79a ZDPH: zásoby v plné výši, dlouhodobý majetek
+        podle § 78d odst. 2, jiný majetek po 1/12 za celé měsíce). Návrh se neukládá — uloží se až
+        `POST /api/v1/tax/registration-deductions` s `source_item_id`.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+        - { in: query, name: event_date, required: true, schema: { type: string, format: date }, description: 'Datum události zrušení registrace (YYYY-MM-DD) z historie plátcovství' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  suggestions:
+                    type: array
+                    items: { $ref: '#/components/schemas/RegistrationDeductionItem' }
+        '422': { description: 'Neplatné datum nebo `no_deregistration_event`' }
+
+  /api/v1/tax/registration-deductions/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: integer } }
+      - $ref: '#/components/parameters/SupplierIdHeader'
+    put:
+      tags: [Tax]
+      summary: Upraví položku odpočtu při registraci (jen admin)
+      description: Stejné chyby jako při vytvoření.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrationDeductionInput' }
+      responses:
+        '200':
+          description: Upravená položka
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistrationDeductionItem' }
+        '403': { description: Pouze admin }
+        '404': { description: Položka nenalezena (`not_found`) }
+        '409': { description: Duplicitní položka (`duplicate`) }
+        '422': { description: 'Chyba validace (`validation_failed`, `outside_window`, `no_registration_event`, `no_deregistration_event`)' }
+    delete:
+      tags: [Tax]
+      summary: Smaže položku odpočtu při registraci (jen admin)
+      responses:
+        '200': { description: Smazáno }
+        '403': { description: Pouze admin }
+        '404': { description: Položka nenalezena (`not_found`) }
+
   # ── Klienti / vyhledávání — doplňující endpointy ─────────────────────────
   /api/v1/clients/{id}/vat-status:
     parameters:
@@ -5994,7 +6137,7 @@ components:
       properties:
         id: { type: integer }
         form_code: { type: string, enum: [dphdp3, dphkh1, dphshv, ossei1, dpfdp5, dppdp9] }
-        submission_form: { type: string, description: 'Forma podání: B/O (DPH), B/O/N/E (KH), R (SH), jinak B' }
+        submission_form: { type: string, description: 'Forma podání: B/O/D (DPH; D = dodatečné), B/O/N/E/V (KH; V = rychlá odpověď na výzvu), R (SH), jinak B' }
         period_year: { type: integer }
         period_month: { type: integer, nullable: true }
         period_quarter: { type: integer, nullable: true }
@@ -6145,6 +6288,10 @@ components:
         payment:
           nullable: true
           allOf: [ { $ref: '#/components/schemas/VatPayment' } ]
+        supplementary_payments:
+          type: array
+          description: 'Karty plateb dodatečných přiznání (D) podaných po platném řádném/opravném přiznání; každé se platí zvlášť'
+          items: { $ref: '#/components/schemas/VatPayment' }
     TaxCalendarItem:
       type: object
       properties:
@@ -7699,6 +7846,83 @@ components:
       enum: [payer, non_payer, identified]
       description: "payer = plátce DPH, non_payer = neplátce, identified = identifikovaná osoba."
 
+    RegistrationDeductionItem:
+      type: object
+      description: Položka odpočtu při registraci (§ 79 ZDPH) nebo snížení odpočtu při zrušení registrace (§ 79a ZDPH)
+      properties:
+        id: { type: integer }
+        kind: { type: string, enum: [registration, deregistration] }
+        event_date: { type: string, format: date, description: 'Den registrace, resp. zrušení registrace (řádek historie plátcovství)' }
+        description: { type: string }
+        asset_type: { type: string, enum: [inventory, long_term_asset, other], description: 'Zásoby / dlouhodobý majetek / jiný majetek' }
+        acquired_on: { type: string, format: date, description: 'Datum pořízení (DUZP)' }
+        tax_base: { type: number }
+        vat_amount: { type: number }
+        adjustment_years: { type: [integer, 'null'], enum: [5, 10, null], description: 'Délka úpravy odpočtu — jen u dlouhodobého majetku' }
+        in_business_assets: { type: boolean, description: 'Stále součástí obchodního majetku (nezaškrtnuto = bez odpočtu)' }
+        deduction_amount: { type: number, minimum: 0, description: 'Vypočtený odpočet; u kind=deregistration výše snížení odpočtu (kladné číslo)' }
+        purchase_invoice_id: { type: [integer, 'null'] }
+        purchase_invoice_number: { type: [string, 'null'] }
+        source_item_id: { type: [integer, 'null'], description: 'U snížení: položka registrace, ze které vzniklo' }
+        note: { type: [string, 'null'] }
+        created_at: { type: string }
+        updated_at: { type: string }
+
+    RegistrationDeductionInput:
+      type: object
+      required: [kind, event_date, description, asset_type, acquired_on, tax_base, vat_amount]
+      properties:
+        kind: { type: string, enum: [registration, deregistration] }
+        event_date: { type: string, format: date }
+        description: { type: string }
+        asset_type: { type: string, enum: [inventory, long_term_asset, other] }
+        acquired_on: { type: string, format: date }
+        tax_base: { type: number }
+        vat_amount: { type: number, description: 'Skutečně uplatňované DPH (poměrný/krácený odpočet se nemodeluje)' }
+        adjustment_years: { type: [integer, 'null'], enum: [5, 10, null], description: 'Jen u dlouhodobého majetku' }
+        in_business_assets: { type: boolean, default: true }
+        purchase_invoice_id: { type: [integer, 'null'] }
+        source_item_id: { type: [integer, 'null'], description: 'Jen u kind=deregistration' }
+        note: { type: [string, 'null'] }
+
+    RegistrationDeductionEvent:
+      type: object
+      properties:
+        kind: { type: string, enum: [registration, deregistration] }
+        date: { type: string, format: date }
+        return_period:
+          type: object
+          description: 'Období přiznání, do kterého odpočet spadá (u zrušení poslední období registrace)'
+          properties:
+            year: { type: integer }
+            month: { type: integer }
+            quarter: { type: [integer, 'null'] }
+            start: { type: string, format: date }
+            end: { type: string, format: date }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/RegistrationDeductionItem' }
+        total: { type: number, description: 'Součet odpočtů (u zrušení součet snížení)' }
+        filed_return:
+          type: [object, 'null']
+          description: 'Podané přiznání za dotčené období — změna se pak podává jako dodatečné přiznání'
+          properties:
+            id: { type: integer }
+            submission_form: { type: string }
+            filing_status: { type: string, enum: [filed, confirmed] }
+            filed_at: { type: string }
+        window:
+          type: object
+          description: 'Jen u registrace: 12měsíční okno pro DUZP pořízení'
+          properties:
+            start: { type: string, format: date }
+            end: { type: string, format: date }
+        last_day: { type: string, format: date, description: 'Jen u zrušení: poslední den registrace' }
+        suggestions:
+          type: array
+          description: 'Jen u zrušení: návrhy snížení z položek registrace'
+          items: { $ref: '#/components/schemas/RegistrationDeductionItem' }
+
     VatStatusRow:
       type: object
       properties:
@@ -7709,6 +7933,10 @@ components:
         is_future: { type: boolean, description: "Záznam ještě nenastal (budoucí změna)" }
         is_current: { type: boolean, description: "Záznam platí dnes" }
         can_delete: { type: boolean, description: "Nejstarší záznam nelze smazat" }
+        deduction_event:
+          type: [string, 'null']
+          enum: [registration, deregistration, null]
+          description: "registration = záznam přepíná stav na plátce (lze k němu vést odpočet při registraci, § 79 ZDPH); deregistration = přepíná ze stavu plátce pryč (snížení odpočtu, § 79a ZDPH); jinak null"
 
     SupplierUpdate:
       type: object

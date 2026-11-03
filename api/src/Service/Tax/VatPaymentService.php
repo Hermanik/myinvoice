@@ -19,13 +19,16 @@ use MyInvoice\Service\Report\ReportPeriod;
  * the next working day) to the VAT account of the supplier's office ({@see FinancialOfficeAccounts}),
  * variable symbol = DIČ root.
  *
- * Several submissions of one period (an "opravné" O after a "řádné" B) can be filed: the LAST filed
- * one is the effective return, the earlier ones are superseded. What was already paid towards the
- * superseded ones is deducted from what the effective one still asks for.
+ * Several submissions of one period can be filed. A regular (B) or corrective (O) return REPLACES the earlier
+ * ones: the last of them is the effective return, the earlier ones are superseded, and what was already paid
+ * towards the superseded ones is deducted from what the effective one still asks for. A supplementary return
+ * (D, § 141 DŘ) does not replace anything: it states the difference against the last known tax, so its liability
+ * is that difference (row 66, `dano`) and it is paid on its own, by the end of the month following the month
+ * the reasons were found (§ 141 odst. 7 DŘ). A negative difference is a refund the tax office pays out.
  */
 final class VatPaymentService
 {
-    public const FORM_CODE = 'dphdp3';
+    public const FORM_CODE = TaxSubmissionRepository::FORM_DPH;
 
     public function __construct(
         private readonly TaxSubmissionRepository $repo,
@@ -35,7 +38,8 @@ final class VatPaymentService
     ) {}
 
     /**
-     * The liability in whole CZK as filed on rows 64 / 66.
+     * The liability in whole CZK: stored in the summary at build time (`liability`, every form — row 64 / 65, row 66 of
+     * a supplementary return); returns archived before that carry the rows only.
      *
      * @param array<string,mixed> $submission
      * @return array{kind:'payment'|'refund'|'none', amount:int}
@@ -46,6 +50,9 @@ final class VatPaymentService
             return ['kind' => 'none', 'amount' => 0];
         }
         $summary = (array) ($submission['summary'] ?? []);
+        if (isset($summary['liability']['kind'])) {
+            return ['kind' => (string) $summary['liability']['kind'], 'amount' => (int) $summary['liability']['amount']];
+        }
         if (array_key_exists('line_64_dano_da', $summary) || array_key_exists('line_66_dano_no', $summary)) {
             $due = (int) ($summary['line_64_dano_da'] ?? 0);
             $refund = (int) ($summary['line_66_dano_no'] ?? 0);
@@ -78,9 +85,19 @@ final class VatPaymentService
                 'label' => sprintf('%d-%02d', $year, $month)];
     }
 
-    /** @param array<string,mixed> $submission */
+    /**
+     * Due date: the `submission_deadline` stored at build time (the 25th of the month after the period, § 98/1 ZDPH,
+     * or the end of the month after the discovery for a supplementary return, § 141 odst. 7 DŘ); derived from the
+     * period for returns archived before that.
+     *
+     * @param array<string,mixed> $submission
+     */
     public static function dueDate(array $submission): string
     {
+        $stored = (string) ($submission['summary']['submission_deadline'] ?? '');
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $stored) === 1) {
+            return $stored;
+        }
         $p = self::period($submission);
         return ReportPeriod::filingDeadline($p['year'], $p['month'], $p['period']);
     }
@@ -124,14 +141,14 @@ final class VatPaymentService
 
         $filed ??= $this->repo->filedForPeriod($supplierId, self::FORM_CODE, $period['year'],
             $period['quarter'] === null ? $period['month'] : null, $period['quarter']);
-        $effective = array_last($filed);
+        $chain = new FiledReturnChain($filed);
         $isFiled = in_array($submission['filing_status'], ['filed', 'confirmed'], true);
-        $isEffective = $isFiled && $effective !== null && (int) $effective['id'] === (int) $submission['id'];
+        $isEffective = $isFiled && $chain->isInForce((int) $submission['id']);
 
-        // What was already paid towards the superseded returns of this period.
+        // What was already paid towards the superseded returns of this period (a supplementary return stands on its own).
         $alreadyPaid = 0.0;
-        foreach ($filed as $row) {
-            if ((int) $row['id'] !== (int) $submission['id'] && $row['paid_at'] !== null) {
+        foreach (FiledReturnChain::isSupplementary($submission) ? [] : $filed as $row) {
+            if (!$chain->isInForce((int) $row['id']) && (int) $row['id'] !== (int) $submission['id'] && $row['paid_at'] !== null) {
                 $alreadyPaid += (float) $row['paid_amount'];
             }
         }
@@ -187,7 +204,8 @@ final class VatPaymentService
                 ['account_number' => $account['prefix'] . '-' . $account['number'], 'bank_code' => $account['bank_code'], 'iban' => $account['iban']],
                 (string) ($supplier['company_name'] ?? ''),
                 null,
-                $period['quarter'] !== null ? sprintf('DPH Q%d %d', $period['quarter'], $period['year']) : sprintf('DPH %02d/%d', $period['month'], $period['year']),
+                ($period['quarter'] !== null ? sprintf('DPH Q%d %d', $period['quarter'], $period['year']) : sprintf('DPH %02d/%d', $period['month'], $period['year']))
+                    . (FiledReturnChain::isSupplementary($submission) ? ' dodatečné' : ''),
             );
         }
         return $card;
@@ -204,13 +222,14 @@ final class VatPaymentService
         $supplier = $this->supplier($supplierId);
         $out = [];
         foreach ($this->filedByPeriod($supplierId) as $rows) {
-            $effective = array_last($rows);
-            if ($effective['paid_at'] !== null) {
-                continue;
-            }
-            $card = $this->card($effective, false, $rows, $supplier);
-            if ($card['payable']) {
-                $out[] = $card;
+            foreach ((new FiledReturnChain($rows))->inForce() as $row) {
+                if ($row['paid_at'] !== null) {
+                    continue;
+                }
+                $card = $this->card($row, false, $rows, $supplier);
+                if ($card['payable']) {
+                    $out[] = $card;
+                }
             }
         }
         usort($out, static fn (array $a, array $b): int => [$a['due_date'], $a['submission_id']] <=> [$b['due_date'], $b['submission_id']]);

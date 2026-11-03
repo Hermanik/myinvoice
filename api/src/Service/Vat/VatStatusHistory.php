@@ -123,6 +123,46 @@ final class VatStatusHistory
         return null;
     }
 
+    /**
+     * Days a person became a VAT payer: the `valid_from` of every row that switches the status TO payer from
+     * another status (a redundant payer row, and the floor row, are not a registration).
+     *
+     * @return list<string>
+     */
+    public function registrationDates(): array
+    {
+        return $this->transitionDates(static fn (string $from, string $to): bool => $to === VatStatus::PAYER && $from !== VatStatus::PAYER);
+    }
+
+    /**
+     * Days a payer stopped being one: the `valid_from` of every row that switches the status FROM payer to
+     * non-payer / identified person (cancellation of the registration). The last day of the registration is
+     * the day before.
+     *
+     * @return list<string>
+     */
+    public function deregistrationDates(): array
+    {
+        return $this->transitionDates(static fn (string $from, string $to): bool => $from === VatStatus::PAYER && $to !== VatStatus::PAYER);
+    }
+
+    /**
+     * @param callable(string, string): bool $isWanted receives the previous and the new status
+     * @return list<string>
+     */
+    private function transitionDates(callable $isWanted): array
+    {
+        $dates = [];
+        $previous = null;
+        foreach ($this->rows as $row) {
+            if ($previous !== null && $isWanted($previous, $row['status'])) {
+                $dates[] = $row['valid_from'];
+            }
+            $previous = $row['status'];
+        }
+        return $dates;
+    }
+
     public static function day(string $date): string
     {
         return substr($date, 0, 10);

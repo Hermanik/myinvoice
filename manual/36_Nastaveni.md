@@ -4,6 +4,11 @@ V hlavním menu **Systém** je rozbalovací podmenu se sekcemi pro konfiguraci
 aplikace:
 
 - **Dodavatelé** — viz [35. Multi-supplier](35_Multi_supplier.md)
+- **Plátcovství DPH** — historie stavů dodavatele (sekce v Nastavení, popis v
+  [§ 35.5.7](35_Multi_supplier.md#3557-platcovstvi-dph-historie-podle-data)). Po přidání řádku
+  registrace k DPH se zobrazí nápověda s odkazem na agendu **Daně → Odpočet při registraci**
+  (odpočet DPH z majetku pořízeného před registrací, viz
+  [kapitola 29](29_Vykazy_DPH.md#odpočet-při-registraci-a-snížení-při-zrušení-registrace))
 - **Číselníky** — DPH sazby, země, jednotky a další pomocné seznamy
 - **Uživatelé** — správa lidí, kteří se přihlašují
 - **E-mail šablony** — texty automatických e-mailů

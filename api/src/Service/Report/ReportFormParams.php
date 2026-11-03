@@ -5,56 +5,64 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Report;
 
 /**
- * Parser query parametrů `form` (khdph_forma / dapdph_forma) a `d_zjist`
- * pro generování opravných/následných/dodatečných podání — sdílený mezi
- * KontrolniHlaseniAction a DphPriznaniAction.
- *
- * Pravidla:
- *   - `form` musí být z povolené množiny (default 'B' = řádné),
- *   - `d_zjist` (datum zjištění důvodů, § 141 DŘ / § 101f ZDPH) je POVINNÉ
- *     u následných/dodatečných forem (N/E u KH, D/E u DP3), volitelné u O,
- *   - formát přesně DD.MM.YYYY (EPO formát data) a musí jít o platné datum.
+ * Parsers of the query parameters of the DPH / KH report endpoints into the validated filing value objects
+ * ({@see DphFiling}, {@see KhFiling}), plus the EPO date helpers they share. An invalid combination throws
+ * \InvalidArgumentException with a Czech message (the actions answer it with 400).
  */
 final class ReportFormParams
 {
     /**
-     * @param array<string,mixed> $query query parametry requestu
-     * @param list<string> $allowedForms povolené hodnoty form
-     * @param list<string> $formsRequiringDzjist formy s povinným d_zjist
-     * @return array{form:string, d_zjist:?string, error:?string}
+     * `form`, `d_zjist`, `reason`.
+     *
+     * @param array<string,mixed> $query
+     * @throws \InvalidArgumentException
      */
-    public static function fromQuery(array $query, array $allowedForms, array $formsRequiringDzjist): array
+    public static function dph(array $query): DphFiling
     {
-        $form = strtoupper(trim((string) ($query['form'] ?? 'B')));
-        if ($form === '') {
-            $form = 'B';
-        }
-        $dZjist = trim((string) ($query['d_zjist'] ?? ''));
-        $dZjist = $dZjist === '' ? null : $dZjist;
-
-        if (!in_array($form, $allowedForms, true)) {
-            return ['form' => 'B', 'd_zjist' => null,
-                    'error' => "Neplatná forma podání '{$form}'. Povolené: " . implode(', ', $allowedForms) . '.'];
-        }
-        if ($dZjist !== null && !self::isValidEpoDate($dZjist)) {
-            return ['form' => $form, 'd_zjist' => null,
-                    'error' => "Neplatné datum zjištění '{$dZjist}' — očekává se formát DD.MM.YYYY."];
-        }
-        if ($dZjist === null && in_array($form, $formsRequiringDzjist, true)) {
-            return ['form' => $form, 'd_zjist' => null,
-                    'error' => 'Pro tuto formu podání je povinné datum zjištění důvodů (d_zjist, formát DD.MM.YYYY).'];
-        }
-        // d_zjist bez smyslu u řádného podání — tiše zahodit, ať se nepropíše do XML.
-        if ($form === 'B') {
-            $dZjist = null;
-        }
-        return ['form' => $form, 'd_zjist' => $dZjist, 'error' => null];
+        return new DphFiling((string) ($query['form'] ?? 'B'), self::str($query, 'd_zjist'), self::str($query, 'reason'));
     }
 
-    /** Přesný formát DD.MM.YYYY + reálná platnost data (žádné 31.02.). */
+    /**
+     * `form`, `d_zjist`, `c_jed_vyzvy`, `vyzva_odp`.
+     *
+     * @param array<string,mixed> $query
+     * @throws \InvalidArgumentException
+     */
+    public static function kh(array $query): KhFiling
+    {
+        return new KhFiling((string) ($query['form'] ?? 'B'), self::str($query, 'd_zjist'), self::str($query, 'c_jed_vyzvy'), self::str($query, 'vyzva_odp'));
+    }
+
+    /** An EPO date (DD.MM.YYYY) trimmed, null when empty. @throws \InvalidArgumentException when it is not a real date */
+    public static function cleanEpoDate(?string $value): ?string
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return null;
+        }
+        if (!self::isValidEpoDate($value)) {
+            throw new \InvalidArgumentException("Neplatné datum zjištění '{$value}' — očekává se formát DD.MM.YYYY.");
+        }
+        return $value;
+    }
+
+    /** Exact format DD.MM.YYYY + a real date (no 31.02.). */
     public static function isValidEpoDate(string $value): bool
     {
         $dt = \DateTimeImmutable::createFromFormat('!d.m.Y', $value);
         return $dt !== false && $dt->format('d.m.Y') === $value;
+    }
+
+    /** DD.MM.YYYY (EPO date) -> YYYY-MM-DD; anything else is returned as it is. */
+    public static function epoDateToIso(string $date): string
+    {
+        $parsed = \DateTimeImmutable::createFromFormat('!d.m.Y', $date);
+        return $parsed !== false ? $parsed->format('Y-m-d') : $date;
+    }
+
+    /** @param array<string,mixed> $query */
+    private static function str(array $query, string $key): ?string
+    {
+        return isset($query[$key]) ? (string) $query[$key] : null;
     }
 }

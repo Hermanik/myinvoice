@@ -8,7 +8,9 @@ use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\PurchaseInvoiceRepository;
 use MyInvoice\Service\Report\DphBookBuilder;
+use MyInvoice\Service\Report\DphFiling;
 use MyInvoice\Service\Report\DphPriznaniBuilder;
+use MyInvoice\Service\Report\KhFiling;
 use MyInvoice\Service\Report\KontrolniHlaseniBuilder;
 use MyInvoice\Service\Report\SouhrnneHlaseniBuilder;
 use MyInvoice\Service\Invoice\InvoiceMath;
@@ -1881,32 +1883,32 @@ final class KhDphTaxScenariosTest extends TestCase
 
     /**
      * BUG 3 (2026-07) — následné KH (khdph_forma='N') s datem zjištění důvodů;
-     * u DP3 jen opravné 'O' (dodatečné D/E jsou vypnuté — § 141/2 DŘ vyžaduje
-     * vykázání rozdílů proti poslední známé dani a builder umí jen plné hodnoty
-     * období; viz review PR #245 bod 2). Bez d_zjist musí build následného KH selhat.
+     * u DP3 opravné 'O' s volitelným d_zjist. Dodatečné D (rozdíly proti poslední známé dani,
+     * § 141/2 DŘ) viz SupplementaryReturnTest. Bez d_zjist musí build následného KH selhat.
      */
     public function testSubmissionFormAttributesAndDzjist(): void
     {
         $khXml = new \SimpleXMLElement(
-            $this->kh->build($this->supplierId, self::YEAR, self::MONTH, 'monthly', 'N', '05.08.2099')['xml']
+            $this->kh->build($this->supplierId, self::YEAR, self::MONTH, 'monthly', new KhFiling('N', '05.08.2099'))['xml']
         );
         $this->assertSame('N', (string) $khXml->DPHKH1->VetaD['khdph_forma']);
         $this->assertSame('05.08.2099', (string) $khXml->DPHKH1->VetaD['d_zjist']);
 
         // Opravné DP3 (O) projde, volitelně vyplněný d_zjist se propustí.
         $dphXml = new \SimpleXMLElement(
-            $this->dph->build($this->supplierId, self::YEAR, self::MONTH, 'monthly', 'O', '05.08.2099')['xml']
+            $this->dph->build($this->supplierId, self::YEAR, self::MONTH, 'monthly', new DphFiling('O', '05.08.2099'))['xml']
         );
         $this->assertSame('O', (string) $dphXml->DPHDP3->VetaD['dapdph_forma']);
         $this->assertSame('05.08.2099', (string) $dphXml->DPHDP3->VetaD['d_zjist']);
 
-        // Dodatečné formy D/E builder odmítá, dokud neumí rozdíly dle § 141/2 DŘ.
-        foreach (['D', 'E'] as $additional) {
+        // The combined supplementary/corrective form E is not built; D needs its reasons and a filed return
+        // of the period (covered in SupplementaryReturnTest).
+        foreach ([['E', '05.08.2025', 'důvod', 'Neplatná forma'], ['D', '05.08.2025', null, 'důvody'], ['D', '05.08.2099', 'důvod', 'v budoucnosti']] as [$form, $dZjist, $reason, $message]) {
             try {
-                $this->dph->build($this->supplierId, self::YEAR, self::MONTH, 'monthly', $additional, '05.08.2099');
-                $this->fail("forma '{$additional}' musí být na DP3 odmítnuta");
+                new DphFiling($form, $dZjist, $reason);
+                $this->fail("DP3 form '{$form}' without its prerequisites must be refused");
             } catch (\InvalidArgumentException $e) {
-                $this->assertStringContainsString('Neplatná forma', $e->getMessage());
+                $this->assertStringContainsString($message, $e->getMessage());
             }
         }
 
@@ -1916,7 +1918,7 @@ final class KhDphTaxScenariosTest extends TestCase
         $this->assertNull($regular->DPHKH1->VetaD['d_zjist']);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->kh->build($this->supplierId, self::YEAR, self::MONTH, 'monthly', 'N');
+        new KhFiling('N');
     }
 
     /**

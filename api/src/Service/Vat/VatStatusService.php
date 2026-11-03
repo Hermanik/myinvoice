@@ -119,6 +119,9 @@ final class VatStatusService
             }
         }
         $earliestId = $rows[0]['id'] ?? null;
+        // Registration / deregistration rows are the events of the agenda "Odpočet při registraci" (§ 79, § 79a ZDPH).
+        $registrations = $history->registrationDates();
+        $deregistrations = $history->deregistrationDates();
         $list = array_map(static fn (array $r): array => [
             'id'         => $r['id'],
             'valid_from' => $r['valid_from'],
@@ -129,6 +132,9 @@ final class VatStatusService
             'is_future'  => $r['valid_from'] > $today,
             'is_current' => $r['id'] === $currentId,
             'can_delete' => $r['id'] !== $earliestId,
+            // The event of the agenda "Odpočet při registraci" this row is, if any.
+            'deduction_event' => in_array($r['valid_from'], $registrations, true) ? 'registration'
+                : (in_array($r['valid_from'], $deregistrations, true) ? 'deregistration' : null),
         ], $rows);
 
         $conflicts = $this->flatTaxConflictYears($supplierId, $history, null, (int) substr($today, 0, 4));

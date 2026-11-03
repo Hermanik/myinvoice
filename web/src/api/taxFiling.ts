@@ -123,6 +123,8 @@ export interface VatChecks {
   filing: Partial<TaxSubmission> | null
   changed_after_filing: ChangesAfterFiling | null
   payment: VatPayment | null
+  /** Cards of the supplementary returns in force (next to `payment`, the regular/corrective one). */
+  supplementary_payments?: VatPayment[]
 }
 
 export interface TaxCalendarItem {

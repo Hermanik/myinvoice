@@ -221,6 +221,7 @@ const navSections = computed<NavSection[]>(() => {
         { to: '/reports/income-tax',  label: t('nav.reports_income_tax'),  icon: ICONS.tax_income },
         ...(isOsvc ? [{ to: '/tax', label: t('nav.tax_optimizer'), icon: ICONS.tax_optimizer }] : []),
         ...(ossEnabled ? [{ to: '/reports/oss', label: t('nav.reports_oss'), icon: ICONS.tax_shv }] : []),
+        { to: '/tax/registration-deductions', label: t('nav.registration_deduction'), icon: ICONS.tax_optimizer },
         { to: '/reports/submissions', label: t('nav.reports_submissions'), icon: ICONS.tax_archive },
         { to: '/reports/monthly-export', label: t('nav.reports_monthly_export'), icon: ICONS.exports },
       ],

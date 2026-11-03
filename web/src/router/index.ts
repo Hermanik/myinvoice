@@ -77,6 +77,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'reports/monthly-export', name: 'reports-monthly-export', component: () => import('@/pages/reports/MonthlyExportReport.vue') },
       { path: 'reports/oss',            name: 'reports-oss',        component: () => import('@/pages/reports/OssReport.vue'), meta: { requiresOss: true } },
       { path: 'tax',                    name: 'tax-optimizer',      component: () => import('@/pages/tax/TaxOptimizer.vue') },
+      { path: 'tax/registration-deductions', name: 'tax-registration-deductions', component: () => import('@/pages/tax/RegistrationDeductions.vue') },
       { path: 'admin/email-templates',  name: 'admin-email-templates', component: () => import('@/pages/admin/EmailTemplates.vue'), meta: { adminOnly: true } },
       // Sekce E-maily — záložky: Odeslané / Šablony / Elektronické podpisy (vzor Codebooks)
       { path: 'admin/emails',           name: 'admin-emails',    component: () => import('@/pages/admin/Emails.vue'), meta: { adminOnly: true } },

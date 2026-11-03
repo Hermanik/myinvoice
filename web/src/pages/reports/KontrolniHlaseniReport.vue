@@ -2,9 +2,10 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { reportsApi, type DphSettings } from '@/api/reports'
+import { reportsApi, type DphSettings, type KhFormParams } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
 import { useYearOptions } from '@/composables/useYearOptions'
+import { isoToEpoDate } from '@/utils/epoDate'
 import VatPrecheckPanels from '@/components/reports/VatPrecheckPanels.vue'
 
 const { t, locale } = useI18n()
@@ -57,12 +58,52 @@ const sectionBRows = computed<KhSectionRow[]>(() => preview.value ? [
   { code: 'B.3', labelKey: 'reports.kh.b3_label', count: preview.value.summary.b3_count_aggregated, aggregated: true },
 ] : [])
 
-async function loadPreview() {
-  loading.value = true
+// Form of the statement: B regular / O corrective (section 101f/1) / N follow-up (section 101f/2).
+// A follow-up needs the date of discovery (d_zjist) — or the reference of the call of the tax office.
+const form = ref<'B' | 'O' | 'N'>('B')
+const dZjist = ref('') // ISO (YYYY-MM-DD) from <input type="date">
+
+// Answer to a call of the tax office (vyzva): a full follow-up KH, or a quick answer without sections A/B/C.
+type CallMode = 'none' | 'change' | 'confirm' | 'nil'
+const callMode = ref<CallMode>('none')
+const cJedVyzvy = ref('')
+const CALL_REFERENCE_PATTERN = /^\d{1,8}\/\d{2}\/\d{4}-\d{5}-\d{6}$/
+const callActive = computed(() => callMode.value !== 'none')
+const callValid = computed(() => CALL_REFERENCE_PATTERN.test(cJedVyzvy.value.trim()))
+const effForm = computed<'B' | 'O' | 'N'>(() => callMode.value === 'change' ? 'N' : callActive.value ? 'B' : form.value)
+// The date of discovery only applies to the regular forms and to the follow-up answer.
+const effDZjist = computed(() => {
+  if (callActive.value ? callMode.value !== 'change' : form.value === 'B') return ''
+  return dZjist.value ? isoToEpoDate(dZjist.value) : ''
+})
+const formParams = computed<KhFormParams>(() => ({
+  form: effForm.value,
+  dZjist: effDZjist.value,
+  ...(callActive.value
+    ? {
+        cJedVyzvy: cJedVyzvy.value.trim(),
+        ...(callMode.value === 'confirm' ? { vyzvaOdp: 'P' as const } : callMode.value === 'nil' ? { vyzvaOdp: 'B' as const } : {}),
+      }
+    : {}),
+}))
+// The discovery date is only sent with the follow-up answer to a call; only then does it affect the preview.
+const previewDZjist = computed(() => callMode.value === 'change' ? effDZjist.value : '')
+const dZjistRequired = computed(() => !callActive.value && form.value === 'N')
+// A quick answer (vyzva_odp B/P) carries the call and is archived as form V.
+const isQuickAnswer = computed(() => preview.value?.summary.call?.answer != null)
+
+// `silent` refreshes keep the page content (and the precheck panels) mounted instead of showing the spinner.
+async function loadPreview(silent = false) {
+  if (!silent) loading.value = true
   error.value = ''
   epoMissing.value = null
   try {
-    preview.value = await reportsApi.khPreview(year.value, month.value, effectivePeriod.value)
+    if (callActive.value && !callValid.value) {
+      preview.value = null
+      return
+    }
+    // Without a call the preview does not depend on the form (the follow-up fields only matter for the XML).
+    preview.value = await reportsApi.khPreview(year.value, month.value, effectivePeriod.value, callActive.value ? formParams.value : {})
     epoMissing.value = preview.value.missing ?? null
   } catch (e) {
     epoMissing.value = null
@@ -72,19 +113,8 @@ async function loadPreview() {
   }
 }
 
-// Forma podání: B řádné / O opravné (§ 101f/1) / N následné (§ 101f/2).
-// U následného EPO vyžaduje datum zjištění důvodů (d_zjist) — datepicker níže.
-const form = ref<'B' | 'O' | 'N'>('B')
-const dZjist = ref('') // ISO (YYYY-MM-DD) z <input type="date">
-const dZjistRequired = computed(() => form.value === 'N')
-const dZjistEpo = computed(() => {
-  if (!dZjist.value) return ''
-  const [y, m, d] = dZjist.value.split('-')
-  return `${d}.${m}.${y}` // EPO formát DD.MM.YYYY
-})
-
 function downloadXml() {
-  window.open(reportsApi.khDownloadUrl(year.value, month.value, effectivePeriod.value, form.value, dZjistEpo.value), '_blank')
+  window.open(reportsApi.khDownloadUrl(year.value, month.value, effectivePeriod.value, formParams.value), '_blank')
 }
 
 const monthOptions = computed(() =>
@@ -103,7 +133,8 @@ const daysToDeadline = computed(() => {
   return Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 })
 
-watch([year, month, effectivePeriod], loadPreview)
+watch([year, month, effectivePeriod], () => loadPreview())
+watch([callMode, cJedVyzvy, previewDZjist], () => loadPreview(true))
 onMounted(async () => {
   try { settings.value = await reportsApi.dphSettings() } catch {}
   loadPreview()
@@ -160,13 +191,13 @@ onMounted(async () => {
           </select>
         </template>
         <!-- Forma hlášení (řádné/opravné/následné) + datum zjištění důvodů u následného -->
-        <select v-model="form" :title="t('reports.form.label')"
+        <select v-if="!callActive" v-model="form" :title="t('reports.form.label')"
           class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option value="B">{{ t('reports.form.b') }}</option>
           <option value="O">{{ t('reports.form.o') }}</option>
           <option value="N">{{ t('reports.form.n') }}</option>
         </select>
-        <label v-if="form !== 'B'" class="inline-flex items-center gap-1.5 text-sm text-neutral-600">
+        <label v-if="!callActive && form !== 'B'" class="inline-flex items-center gap-1.5 text-sm text-neutral-600">
           <span>{{ t('reports.form.d_zjist') }}<span v-if="dZjistRequired" class="text-danger-500">*</span></span>
           <input v-model="dZjist" type="date"
             class="h-9 px-2 border border-neutral-300 rounded-md bg-surface text-sm" />
@@ -194,8 +225,41 @@ onMounted(async () => {
       </RouterLink>
     </div>
 
+    <!-- Answer to a call of the tax office (vyzva) -->
+    <section class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-4 mb-4" data-testid="kh-call">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ t('reports.kh.call.title') }}</h2>
+      <div class="mt-3 grid grid-cols-1 md:grid-cols-[18rem_1fr_auto] gap-3 items-end">
+        <div>
+          <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('reports.kh.call.answer') }}</label>
+          <select v-model="callMode" class="w-full h-9 px-3 border border-neutral-300 rounded-md text-sm bg-surface">
+            <option value="none">{{ t('reports.kh.call.mode_none') }}</option>
+            <option value="change">{{ t('reports.kh.call.mode_change') }}</option>
+            <option value="confirm">{{ t('reports.kh.call.mode_confirm') }}</option>
+            <option value="nil">{{ t('reports.kh.call.mode_nil') }}</option>
+          </select>
+        </div>
+        <div v-if="callActive">
+          <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('reports.kh.call.reference') }}<span class="text-danger-500">*</span></label>
+          <input v-model.trim="cJedVyzvy" type="text" maxlength="40" placeholder="1234567/26/2100-23542-501001"
+            class="w-full h-9 px-3 border rounded-md text-sm bg-surface font-mono"
+            :class="cJedVyzvy && !callValid ? 'border-danger-500' : 'border-neutral-300'" />
+          <p class="text-xs mt-1" :class="cJedVyzvy && !callValid ? 'text-danger-500' : 'text-neutral-500'">{{ t('reports.kh.call.reference_hint') }}</p>
+        </div>
+        <div v-if="callMode === 'change'">
+          <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('reports.form.d_zjist') }}</label>
+          <input v-model="dZjist" type="date" class="h-9 px-2 border border-neutral-300 rounded-md bg-surface text-sm" />
+        </div>
+      </div>
+      <p v-if="callActive" class="text-xs text-neutral-500 mt-3">{{ t('reports.kh.call.deadline_note') }}</p>
+      <p v-if="callMode === 'confirm' || callMode === 'nil'" class="text-xs text-neutral-500 mt-1">{{ t('reports.kh.call.no_sections_note') }}</p>
+    </section>
+
     <div v-if="loading" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-8 text-center text-neutral-400">{{ t('common.loading') }}…</div>
     <div v-else-if="error" class="bg-danger-50 border border-danger-500/40 text-danger-500 rounded-md p-3 text-sm">{{ error }}</div>
+
+    <div v-else-if="callActive && !callValid" class="bg-primary-50 border border-primary-200 rounded-md p-3 text-sm text-primary-700">
+      {{ t('reports.kh.call.fill_in') }}
+    </div>
 
     <div v-else-if="preview" class="space-y-4">
       <!-- Warnings -->
@@ -223,8 +287,14 @@ onMounted(async () => {
         </div>
       </div>
 
+      <div v-if="isQuickAnswer && preview.summary.call" class="bg-surface border-2 border-primary-500 rounded-lg shadow-sm p-4 text-sm" data-testid="kh-quick-answer">
+        <strong>{{ preview.summary.call.answer === 'P' ? t('reports.kh.call.mode_confirm') : t('reports.kh.call.mode_nil') }}</strong>
+        · <span class="font-mono">{{ preview.summary.call.reference }}</span>
+        <p class="text-xs text-neutral-500 mt-1">{{ t('reports.kh.call.no_sections_note') }}</p>
+      </div>
+
       <!-- Sekce A — plnění s povinností přiznat daň -->
-      <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
+      <div v-if="!isQuickAnswer" class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
         <header class="px-5 py-3 border-b border-neutral-200 bg-neutral-50">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-neutral-700">{{ t('reports.kh.section_a_title') }}</h3>
         </header>
@@ -243,7 +313,7 @@ onMounted(async () => {
       </div>
 
       <!-- Sekce B — přijaté -->
-      <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
+      <div v-if="!isQuickAnswer" class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
         <header class="px-5 py-3 border-b border-neutral-200 bg-neutral-50">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-neutral-700">{{ t('reports.kh.section_b_title') }}</h3>
         </header>

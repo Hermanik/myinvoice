@@ -106,8 +106,11 @@ final class TaxSubmissionFilingService
             if ($row['filing_status'] !== 'generated') {
                 throw new TaxFilingException('Toto podání už je označené jako podané.', 'already_filed', 409);
             }
-            $otherFiledOfThePeriod = $this->repo->filedForPeriod($row['supplier_id'], $row['form_code'], $row['period_year'], $row['period_month'], $row['period_quarter']) !== [];
-            $filedAt = self::parseFiledAt($filedAt, new \DateTimeImmutable(), requireTime: $otherFiledOfThePeriod);
+            $filedOfThePeriod = $this->repo->filedForPeriod($row['supplier_id'], $row['form_code'], $row['period_year'], $row['period_month'], $row['period_quarter']);
+            if (FiledReturnChain::isSupplementary($row)) {
+                (new FiledReturnChain($filedOfThePeriod))->assertCurrentBaseOf($row);
+            }
+            $filedAt = self::parseFiledAt($filedAt, new \DateTimeImmutable(), requireTime: $filedOfThePeriod !== []);
             $sibling = $this->repo->findFiledSibling($row);
             if ($sibling !== null) {
                 throw $this->duplicate($sibling);
@@ -157,6 +160,11 @@ final class TaxSubmissionFilingService
             $row ?? throw TaxFilingException::notFound();
             if ($row['filing_status'] === 'generated') {
                 throw new TaxFilingException('Podání není označené jako podané.', 'not_filed', 409);
+            }
+            // A supplementary return reports the difference against the return filed before it: that one stays.
+            $chain = new FiledReturnChain($this->repo->filedForPeriod($row['supplier_id'], $row['form_code'], $row['period_year'], $row['period_month'], $row['period_quarter']));
+            if ($chain->hasSupplementAfter($row)) {
+                throw new TaxFilingException('Nejdřív zruš označení podání pozdějších dodatečných přiznání za toto období — vycházejí z tohoto podání.', 'later_supplementary', 409);
             }
             $this->repo->clearFiling($id);
             return $row;

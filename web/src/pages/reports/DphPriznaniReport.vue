@@ -2,9 +2,11 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { reportsApi, type DphPriznaniPreview, type DphSettings, type DphTrendRow, type DphDraftsPrediction } from '@/api/reports'
+import { reportsApi, type DphFormParams, type DphPriznaniPreview, type DphSettings, type DphTrendRow, type DphDraftsPrediction } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
-import { formatMoney } from '@/composables/useFormat'
+import { formatMoney, formatDate } from '@/composables/useFormat'
+import { formatDbDateTime } from '@/utils/taxFiling'
+import { isoToEpoDate } from '@/utils/epoDate'
 import { useYearOptions } from '@/composables/useYearOptions'
 import VatPrecheckPanels from '@/components/reports/VatPrecheckPanels.vue'
 
@@ -37,44 +39,78 @@ const isQuarterly = computed(() => effectivePeriod.value === 'quarterly')
 // Quarter 1-4 z měsíce
 const currentQuarter = computed(() => Math.ceil(month.value / 3))
 
+// Form of the return: B regular / O corrective (section 138 DR) / D supplementary (section 141 DR).
+// D lists only the differences against the last FILED return, so it needs the date of discovery and a reason.
+const form = ref<'B' | 'O' | 'D'>('B')
+const dZjist = ref('') // ISO (YYYY-MM-DD) from <input type="date">; optional for O, required for D
+const reason = ref('')
+const isSupplementary = computed(() => form.value === 'D')
+const dZjistEpo = computed(() => dZjist.value ? isoToEpoDate(dZjist.value) : '')
+const supplementaryReady = computed(() => !!dZjist.value && !!reason.value.trim())
+const formParams = computed<DphFormParams>(() => ({
+  form: form.value,
+  dZjist: dZjistEpo.value,
+  reason: reason.value.trim(),
+}))
+// Error code of the preview (no_filed_return / nothing_changed need their own explanation).
+const errorCode = ref('')
+
+// B and O preview the same figures (the previous behaviour); only D is previewed with its params.
+function fetchPreview() {
+  if (isSupplementary.value && !supplementaryReady.value) return Promise.resolve(null)
+  return reportsApi.dphPreview(year.value, month.value, periodOverride.value || undefined, isSupplementary.value ? formParams.value : {})
+}
+
+function applyPreview(p: DphPriznaniPreview | null) {
+  preview.value = p
+  epoMissing.value = p?.missing ?? null
+}
+
+function applyPreviewError(e: any) {
+  epoMissing.value = null
+  preview.value = null
+  errorCode.value = e?.response?.data?.error?.code ?? ''
+  error.value = apiErrorMessage(e)
+}
+
 async function loadAll() {
   loading.value = true
   error.value = ''
+  errorCode.value = ''
   epoMissing.value = null
   try {
     const [s, p, tr, dp] = await Promise.all([
       reportsApi.dphSettings(),
-      reportsApi.dphPreview(year.value, month.value, periodOverride.value || undefined),
+      fetchPreview(),
       reportsApi.dphTrend(12),
       reportsApi.dphDraftsPrediction(year.value, month.value, periodOverride.value || undefined).catch(() => null),
     ])
     settings.value = s
-    preview.value = p
     trend.value = tr
     draftsPrediction.value = dp
-    epoMissing.value = p.missing ?? null
-  } catch (e) {
-    epoMissing.value = null
-    error.value = apiErrorMessage(e)
+    applyPreview(p)
+  } catch (e: any) {
+    applyPreviewError(e)
   } finally {
     loading.value = false
   }
 }
 
-// Forma podání: B řádné / O opravné (§ 138 DŘ). Dodatečné (D, § 141 DŘ)
-// nenabízíme: podává se v rozdílech proti poslední známé dani a dopočet
-// rozdílů zatím není implementován — backend formu D/E odmítá (400).
-const form = ref<'B' | 'O'>('B')
-const dZjist = ref('') // ISO (YYYY-MM-DD) z <input type="date">, u O volitelné
-const dZjistEpo = computed(() => {
-  if (!dZjist.value) return ''
-  const [y, m, d] = dZjist.value.split('-')
-  return `${d}.${m}.${y}` // EPO formát DD.MM.YYYY
-})
+// Form / date of discovery / reason only change the preview itself: refetch just that, without the page-level
+// loading flag so VatPrecheckPanels stays mounted.
+async function reloadPreview() {
+  error.value = ''
+  errorCode.value = ''
+  try {
+    applyPreview(await fetchPreview())
+  } catch (e: any) {
+    applyPreviewError(e)
+  }
+}
 
 function downloadXml() {
   if (!preview.value) return
-  window.open(reportsApi.dphDownloadUrl(year.value, month.value, periodOverride.value || undefined, form.value, dZjistEpo.value), '_blank')
+  window.open(reportsApi.dphDownloadUrl(year.value, month.value, periodOverride.value || undefined, formParams.value), '_blank')
 }
 
 const monthOptions = computed(() =>
@@ -102,6 +138,15 @@ const linesSorted = computed(() => {
 
 const outputLines = computed(() => linesSorted.value.filter(l => Number(l.line) < 40))
 const inputLines = computed(() => linesSorted.value.filter(l => Number(l.line) >= 40))
+
+// Supplementary return: the figures are differences against the last filed return, shown with explicit signs.
+const isSupplementaryPreview = computed(() => preview.value?.summary.form === 'D')
+const supplementary = computed(() => preview.value?.summary.supplementary ?? null)
+const extraTax = computed(() => (preview.value?.summary.line_66_dano ?? 0) >= 0)
+function money(value: number): string {
+  if (!isSupplementaryPreview.value) return formatMoney(value, 'CZK')
+  return (value > 0 ? '+' : value < 0 ? '−' : '') + formatMoney(Math.abs(value), 'CZK')
+}
 
 // Vývoj DPH řazený sestupně dle data — nejnovější měsíc nahoře.
 const trendSorted = computed(() => [...trend.value].sort((a, b) => b.period.localeCompare(a.period)))
@@ -136,6 +181,10 @@ const daysToDeadline = computed(() => {
 })
 
 watch([year, month, periodOverride], loadAll)
+// B and O preview the same figures, so only D (once filled in) or a switch away from D needs a new preview.
+watch([form, dZjist, reason], ([f], [prevForm]) => {
+  if (f === 'D' ? supplementaryReady.value : prevForm === 'D') reloadPreview()
+})
 onMounted(loadAll)
 </script>
 
@@ -191,21 +240,21 @@ onMounted(loadAll)
         <select v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
         </select>
-        <!-- Forma přiznání (řádné/opravné) + volitelné datum zjištění důvodů u opravného.
-             Dodatečné (D) nenabízíme — § 141/2 DŘ vyžaduje rozdíly, viz komentář u `form`. -->
+        <!-- Form of the return (regular/corrective/supplementary) + date of discovery (required for D). -->
         <select v-model="form" :title="t('reports.form.label')"
           class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option value="B">{{ t('reports.form.b') }}</option>
           <option value="O">{{ t('reports.form.o') }}</option>
+          <option value="D">{{ t('reports.form.d') }}</option>
         </select>
         <label v-if="form !== 'B'" class="inline-flex items-center gap-1.5 text-sm text-neutral-600">
-          <span>{{ t('reports.form.d_zjist') }}</span>
+          <span>{{ t('reports.form.d_zjist') }}<span v-if="isSupplementary" class="text-danger-500">*</span></span>
           <input v-model="dZjist" type="date"
             class="h-9 px-2 border border-neutral-300 rounded-md bg-surface text-sm" />
         </label>
         <!-- Stažení XML blokujeme jen při chybějících POVINNÝCH polích identifikace —
              download vrací 422 a window.open by otevřel záložku se syrovým JSON. -->
-        <button type="button" @click="downloadXml" :disabled="loading || !preview || !!epoMissing?.length"
+        <button type="button" @click="downloadXml" :disabled="loading || !preview || !!epoMissing?.length || (isSupplementary && !supplementaryReady)"
           class="cursor-pointer h-9 px-4 bg-primary-600 hover:bg-primary-700 disabled:bg-neutral-300 text-white text-sm font-medium rounded-md inline-flex items-center gap-1.5">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
           {{ t('reports.dph.download_xml') }}
@@ -226,12 +275,29 @@ onMounted(loadAll)
       </RouterLink>
     </div>
 
+    <!-- Supplementary return: reason of the change (the date of discovery is in the toolbar) -->
+    <div v-if="isSupplementary" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-4 mb-4" data-testid="supplementary-inputs">
+      <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('reports.supplementary.reason_label') }}<span class="text-danger-500">*</span></label>
+      <textarea v-model.lazy="reason" rows="2" maxlength="2000" :placeholder="t('reports.supplementary.reason_placeholder')"
+        class="w-full px-3 py-2 border border-neutral-300 rounded-md text-sm bg-surface"></textarea>
+      <p class="text-xs text-neutral-500 mt-1">{{ t('reports.supplementary.hint') }}</p>
+    </div>
+
     <div v-if="loading" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-8 text-center text-neutral-400">
       {{ t('common.loading') }}…
     </div>
 
     <div v-else-if="error" class="bg-danger-50 border border-danger-500/40 text-danger-500 rounded-md p-3 text-sm">
       {{ error }}
+      <template v-if="errorCode === 'no_filed_return'">
+        <p class="mt-1">{{ t('reports.supplementary.no_filed_return') }}</p>
+        <RouterLink to="/reports/submissions" class="inline-block mt-1 font-medium text-primary-700 hover:underline">{{ t('reports.supplementary.open_archive') }} →</RouterLink>
+      </template>
+      <p v-else-if="errorCode === 'nothing_changed'" class="mt-1">{{ t('reports.supplementary.nothing_changed') }}</p>
+    </div>
+
+    <div v-else-if="isSupplementary && !supplementaryReady" class="bg-primary-50 border border-primary-200 rounded-md p-3 text-sm text-primary-700">
+      {{ t('reports.supplementary.fill_in') }}
     </div>
 
     <div v-else-if="preview" class="space-y-4">
@@ -243,6 +309,32 @@ onMounted(loadAll)
         </ul>
       </div>
 
+      <!-- Supplementary return: differences against the last filed return -->
+      <div v-if="isSupplementaryPreview && supplementary" class="bg-surface border-2 border-primary-500 rounded-lg shadow-sm p-5" data-testid="supplementary-panel">
+        <h3 class="text-sm font-semibold text-neutral-800">
+          {{ t('reports.supplementary.panel_title', { form: supplementary.based_on.submission_form, date: supplementary.based_on.filed_at ? formatDbDateTime(supplementary.based_on.filed_at) : '—' }) }}
+        </h3>
+        <dl class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3 text-sm">
+          <div>
+            <dt class="text-xs uppercase tracking-wide text-neutral-500">{{ t('reports.supplementary.known_tax') }}</dt>
+            <dd class="text-lg font-bold font-mono">{{ formatMoney(supplementary.known_tax, 'CZK') }}</dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase tracking-wide text-neutral-500">{{ t('reports.supplementary.new_tax') }}</dt>
+            <dd class="text-lg font-bold font-mono">{{ formatMoney(supplementary.new_tax, 'CZK') }}</dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase tracking-wide text-neutral-500">{{ t('reports.supplementary.difference') }}</dt>
+            <dd class="text-lg font-bold font-mono" :class="extraTax ? 'text-danger-500' : 'text-success-600'">{{ money(supplementary.difference) }}</dd>
+          </div>
+        </dl>
+        <p class="mt-3 text-sm font-medium" :class="extraTax ? 'text-danger-600' : 'text-success-600'">
+          <template v-if="extraTax">{{ t('reports.supplementary.result_payment', { amount: formatMoney(Math.abs(preview.summary.line_66_dano ?? 0), 'CZK'), date: formatDate(preview.summary.submission_deadline) }) }}</template>
+          <template v-else>{{ t('reports.supplementary.result_refund', { amount: formatMoney(Math.abs(preview.summary.line_66_dano ?? 0), 'CZK') }) }}</template>
+        </p>
+        <p class="mt-1 text-xs text-neutral-500">{{ t('reports.supplementary.discovered', { date: formatDate(dZjist) }) }}</p>
+      </div>
+
       <!-- Kontrola souladu DPH ↔ KH ↔ SH, doklady změněné po podání, Platba DPH -->
       <VatPrecheckPanels form="dphdp3" :year="year" :month="month" :period="effectivePeriod" />
 
@@ -251,18 +343,18 @@ onMounted(loadAll)
         <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-5">
           <div class="text-xs uppercase tracking-wide text-neutral-500 font-medium mb-1">{{ t('reports.dph.vat_output') }}</div>
           <div class="text-xl font-bold font-mono text-neutral-900">
-            {{ formatMoney(preview.summary.total_vat_output, 'CZK') }}
+            {{ money(preview.summary.total_vat_output) }}
           </div>
           <div class="text-xs text-neutral-500 mt-1">{{ t('reports.dph.vat_output_hint') }}</div>
         </div>
         <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-5">
           <div class="text-xs uppercase tracking-wide text-neutral-500 font-medium mb-1">{{ t('reports.dph.vat_input') }}</div>
           <div class="text-xl font-bold font-mono text-neutral-900">
-            {{ formatMoney(preview.summary.total_vat_input, 'CZK') }}
+            {{ money(preview.summary.total_vat_input) }}
           </div>
           <div class="text-xs text-neutral-500 mt-1">{{ t('reports.dph.vat_input_hint') }}</div>
         </div>
-        <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-5">
+        <div v-if="!isSupplementaryPreview" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-5">
           <div class="text-xs uppercase tracking-wide text-neutral-500 font-medium mb-1">
             {{ preview.summary.is_excess_deduction ? t('reports.dph.excess_deduction') : t('reports.dph.tax_due') }}
           </div>
@@ -390,8 +482,8 @@ onMounted(loadAll)
             <tr v-for="l in outputLines" :key="l.line" class="hover:bg-neutral-50">
               <td class="px-5 py-2.5 font-mono text-neutral-700 font-medium">{{ l.line }}</td>
               <td class="px-3 py-2.5 text-neutral-700">{{ l.label }}</td>
-              <td class="px-3 py-2.5 text-right font-mono">{{ formatMoney(l.base, 'CZK') }}</td>
-              <td class="px-5 py-2.5 text-right font-mono">{{ formatMoney(l.vat, 'CZK') }}</td>
+              <td class="px-3 py-2.5 text-right font-mono">{{ money(l.base) }}</td>
+              <td class="px-5 py-2.5 text-right font-mono">{{ money(l.vat) }}</td>
             </tr>
           </tbody>
         </table>
@@ -418,8 +510,8 @@ onMounted(loadAll)
             <tr v-for="l in inputLines" :key="l.line" class="hover:bg-neutral-50">
               <td class="px-5 py-2.5 font-mono text-neutral-700 font-medium">{{ l.line }}</td>
               <td class="px-3 py-2.5 text-neutral-700">{{ l.label }}</td>
-              <td class="px-3 py-2.5 text-right font-mono">{{ formatMoney(l.base, 'CZK') }}</td>
-              <td class="px-5 py-2.5 text-right font-mono">{{ formatMoney(l.vat, 'CZK') }}</td>
+              <td class="px-3 py-2.5 text-right font-mono">{{ money(l.base) }}</td>
+              <td class="px-5 py-2.5 text-right font-mono">{{ money(l.vat) }}</td>
             </tr>
           </tbody>
         </table>

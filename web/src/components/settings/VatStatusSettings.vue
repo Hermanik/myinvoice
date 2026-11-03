@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { settingsApi, type VatStatusOverview, type VatStatusRow } from '@/api/settings'
 import type { VatStatus } from '@/utils/vatStatus'
@@ -15,6 +16,8 @@ const emit = defineEmits<{ (event: 'changed', overview: VatStatusOverview): void
 
 const overview = ref<VatStatusOverview | null>(null)
 const saving = ref(false)
+// Hint shown after a registration / deregistration row was added (stays until the next change).
+const addedHint = ref<'registration' | 'deregistration' | null>(null)
 
 const STATUSES: VatStatus[] = ['payer', 'non_payer', 'identified']
 const form = ref<{ valid_from: string; status: VatStatus; note: string }>({
@@ -48,11 +51,15 @@ async function add() {
   }
   saving.value = true
   try {
-    apply(await settingsApi.addVatStatus({
-      valid_from: form.value.valid_from,
+    const validFrom = form.value.valid_from
+    const next = await settingsApi.addVatStatus({
+      valid_from: validFrom,
       status: form.value.status,
       note: form.value.note.trim() || null,
-    }))
+    })
+    apply(next)
+    const added = next.history.find(r => r.valid_from === validFrom)
+    addedHint.value = added?.deduction_event ?? null
     form.value = { valid_from: '', status: form.value.status, note: '' }
     toast.success(t('settings.vat_status.added'))
   } catch (e: any) {
@@ -66,6 +73,7 @@ async function remove(row: VatStatusRow) {
   if (!window.confirm(t('settings.vat_status.delete_confirm', { status: statusLabel(row.status), date: formatDate(row.valid_from) }))) return
   try {
     apply(await settingsApi.deleteVatStatus(row.id))
+    addedHint.value = null
     toast.success(t('settings.vat_status.deleted'))
   } catch (e: any) {
     toast.error(apiErrorMessage(e, t('common.error')))
@@ -119,7 +127,13 @@ onMounted(load)
               <td class="px-3 py-2">
                 <span class="inline-block px-2 py-0.5 text-xs border rounded-full" :class="statusBadgeClass(row.status)">{{ statusLabel(row.status) }}</span>
               </td>
-              <td class="px-3 py-2 text-neutral-600">{{ row.note || '—' }}</td>
+              <td class="px-3 py-2 text-neutral-600">
+                {{ row.note || '—' }}
+                <RouterLink v-if="row.deduction_event" to="/tax/registration-deductions"
+                  class="block text-xs text-primary-700 hover:underline" data-testid="registration-deduction-link">
+                  {{ row.deduction_event === 'registration' ? t('settings.vat_status.link_registration') : t('settings.vat_status.link_deregistration') }} →
+                </RouterLink>
+              </td>
               <td class="px-3 py-2 text-right">
                 <button v-if="row.can_delete" type="button" class="cursor-pointer text-xs text-danger-600 hover:text-danger-500" @click="remove(row)">
                   {{ t('settings.vat_status.delete') }}
@@ -153,6 +167,12 @@ onMounted(load)
           {{ t('settings.vat_status.add') }}
         </button>
       </form>
+
+      <!-- Reminder after adding a registration / deregistration (sections 79 / 79a ZDPH) -->
+      <div v-if="addedHint" class="rounded-md border border-primary-200 bg-primary-50 text-primary-700 px-3 py-2 text-sm" data-testid="registration-deduction-hint">
+        {{ addedHint === 'registration' ? t('settings.vat_status.hint_registration') : t('settings.vat_status.hint_deregistration') }}
+        <RouterLink to="/tax/registration-deductions" class="font-medium underline">{{ t('settings.vat_status.hint_open') }} →</RouterLink>
+      </div>
     </div>
     <div v-else class="mt-4 text-sm text-neutral-500">{{ t('common.loading') }}</div>
   </section>

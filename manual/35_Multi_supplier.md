@@ -245,6 +245,11 @@ zadat ho lze předem — stav se přepne sám v den platnosti (denní úloha
 výpočty podle data na ní nezávisí). Datum záznamu nejde upravit; chybný záznam
 smaž a zadej znovu. Nejstarší záznam (základ historie) smazat nelze.
 
+> 💡 **Registrace k DPH a zrušení registrace.** Záznam, který stav přepíná na *Plátce DPH*, aplikace
+> bere jako registraci a po jeho přidání ukáže odkaz na agendu **Daně → Odpočet při registraci**
+> (odpočet DPH z majetku pořízeného před registrací, § 79 ZDPH; u zrušení registrace snížení
+> odpočtu, § 79a). Viz [kapitola 29](29_Vykazy_DPH.md#odpočet-při-registraci-a-snížení-při-zrušení-registrace).
+
 **Co se posuzuje podle data.** O plátcovství se rozhoduje vždy k **DUZP**
 dokladu (nemá-li ho, k datu vystavení), ne podle dnešního stavu:
 

@@ -23,7 +23,7 @@ final class TaxSubmissionArchiver
     /**
      * Archives the XML and runs the XSD validation (when a schema exists).
      *
-     * The filing form (B/O/N/E for DPH + KH, R for SH, B otherwise) is the `form` of the summary.
+     * The filing form (B/O/D for DPH, B/O/N/E/V for KH, R for SH, B otherwise) is the `archive_form` of the summary, else its `form`.
      *
      * @param array<string,mixed> $summary
      */
@@ -51,7 +51,7 @@ final class TaxSubmissionArchiver
             $validation['status'],
             $validation['errors'],
             $generatedBy,
-            strtoupper((string) ($summary['form'] ?? 'B')),
+            strtoupper((string) ($summary['archive_form'] ?? $summary['form'] ?? 'B')),
         );
 
         return [
