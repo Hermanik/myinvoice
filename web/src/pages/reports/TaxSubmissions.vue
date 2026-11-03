@@ -5,6 +5,9 @@ import { api } from '@/api/client'
 import { apiErrorMessage } from '@/api/errors'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
+import { databoxApi, type PreviousSend } from '@/api/databox'
+import { formatDate } from '@/composables/useFormat'
+import SubmissionSendModal from '@/components/databox/SubmissionSendModal.vue'
 
 interface TaxSubmission {
   id: number
@@ -25,6 +28,7 @@ const { t } = useI18n()
 const toast = useToast()
 const auth = useAuthStore()
 
+const isAdmin = computed(() => auth.user?.role === 'admin')
 const items = ref<TaxSubmission[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -40,6 +44,32 @@ async function load() {
   } finally {
     loading.value = false
   }
+  void loadDataboxLinks()
+}
+
+// Data box send status per archived submission (admin only; the endpoints are admin-only too).
+const sendLinks = ref<Record<string, PreviousSend[]>>({})
+const sendingId = ref<number | null>(null)
+
+async function loadDataboxLinks() {
+  if (!isAdmin.value || items.value.length === 0) return
+  try {
+    sendLinks.value = await databoxApi.submissionLinks(items.value.map(x => x.id))
+  } catch {
+    sendLinks.value = {}
+  }
+}
+
+function lastLink(id: number): PreviousSend | null {
+  const links = sendLinks.value[String(id)]
+  return links && links.length ? links[0] : null
+}
+
+function linkLabel(l: PreviousSend): string {
+  const dm = `DS #${l.dm_id ?? l.message_id}`
+  return l.acceptance_time
+    ? t('reports.submissions.databox_delivered', { dm, date: formatDate(l.acceptance_time) })
+    : t('reports.submissions.databox_sent', { dm })
 }
 
 function formCodeLabel(c: string): string {
@@ -85,7 +115,6 @@ async function deleteItem(id: number) {
 }
 
 const totalSize = computed(() => items.value.reduce((s, x) => s + x.xml_size_bytes, 0))
-const isAdmin = computed(() => auth.user?.role === 'admin')
 
 onMounted(load)
 </script>
@@ -136,6 +165,8 @@ onMounted(load)
                 {{ t('reports.submissions.status_' + s.validation_status) }}
               </span>
               <span v-if="s.validation_errors.length > 0" class="ml-1 text-xs text-danger-500">({{ s.validation_errors.length }})</span>
+              <router-link v-if="isAdmin && lastLink(s.id)" :to="{ path: '/databox', query: { box: String(lastLink(s.id)!.databox_id), message: String(lastLink(s.id)!.message_id) } }"
+                class="mt-1 block text-xs text-success-600 hover:underline" data-test="databox-chip">{{ linkLabel(lastLink(s.id)!) }}</router-link>
             </td>
             <td class="px-4 py-2.5 text-right">
               <div class="inline-flex items-center justify-end gap-2">
@@ -143,6 +174,10 @@ onMounted(load)
                   class="cursor-pointer px-3 h-8 text-xs bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-md inline-flex items-center gap-1.5">
                   <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                   {{ t('reports.submissions.download_xml') }}
+                </button>
+                <button v-if="isAdmin" type="button" @click="sendingId = s.id" data-test="databox-send"
+                  class="cursor-pointer px-3 h-8 text-xs border border-neutral-300 hover:bg-neutral-50 font-medium rounded-md">
+                  {{ t('reports.submissions.send_databox') }}
                 </button>
                 <button v-if="isAdmin" type="button" @click="deleteItem(s.id)" :title="t('common.delete')"
                   class="cursor-pointer px-2 h-8 text-neutral-400 hover:text-danger-600 rounded-md inline-flex items-center">
@@ -163,5 +198,6 @@ onMounted(load)
         </tfoot>
       </table>
     </div>
+    <SubmissionSendModal v-if="isAdmin && sendingId !== null" :submission-id="sendingId" @close="sendingId = null" @sent="loadDataboxLinks" />
   </div>
 </template>

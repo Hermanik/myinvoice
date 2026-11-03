@@ -10,6 +10,7 @@ import { renderVarsymbolTemplate, hasCounterPlaceholder } from '@/utils/varsymbo
 import { formatDate } from '@/composables/useFormat'
 import BrandingProfilesSettings from '@/components/settings/BrandingProfilesSettings.vue'
 import VatStatusSettings from '@/components/settings/VatStatusSettings.vue'
+import DataboxSettings from '@/components/settings/DataboxSettings.vue'
 import SearchableSelect from '@/components/ui/SearchableSelect.vue'
 
 const { t } = useI18n()
@@ -679,6 +680,9 @@ async function removeLogo() {
 
       <!-- VAT status ("Plátcovství DPH"): dated history; replaces the former is_vat_payer / is_identified checkboxes -->
       <VatStatusSettings @changed="onVatChanged" />
+
+      <!-- Czech data boxes (ISDS): connected boxes, logins and permission indicators -->
+      <DataboxSettings />
 
       <BrandingProfilesSettings v-model:enabled="supplier.branding_profiles_enabled" @changed="load" />
 

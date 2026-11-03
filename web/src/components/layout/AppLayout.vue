@@ -207,6 +207,7 @@ const navSections = computed<NavSection[]>(() => {
       accent: 'neutral',
       items: [
         { to: '/documents', label: t('nav.documents'), icon: ICONS.documents },
+        ...(isAdmin ? [{ to: '/databox', label: t('nav.databox'), icon: ICONS.email }] : []),
         { to: '/logbook', label: t('nav.logbook'), icon: ICONS.logbook, newTo: '/logbook?tab=trips&new=trip' },
       ],
     },
