@@ -459,6 +459,11 @@ Vhodné použití:
 - **readonly** — auditor, kontrolor nebo klient, který si má jen prohlížet a
   stahovat data (vč. DPH podkladů) bez rizika nechtěné změny.
 
+> [!NOTE]
+> **Datové schránky** (kapitola [42](42_Datove_schranky.md)) jsou dostupné jen
+> administrátorovi z webového rozhraní. API tokeny a MCP k nim nemají přístup a odeslání
+> zprávy vždy vyžaduje výslovné potvrzení v rozhraní.
+
 ### Jak je to vynucené
 
 1. **Backend (`RoleMiddleware`)** — `readonly` smí výhradně `GET` requesty; jakýkoli

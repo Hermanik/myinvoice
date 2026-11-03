@@ -124,7 +124,8 @@ $runDump = static function (bool $withRoutines) use ($tool, $cnf, $dbName, $errF
     @unlink($errFile);
     $routinesFlag = $withRoutines ? '--routines --triggers' : '--skip-routines --triggers';
     $cmd = sprintf(
-        '%s --defaults-extra-file=%s --single-transaction --quick %s %s 2>%s',
+        // 512M: a data box ZFO is stored as one LONGBLOB row of up to ~26 MB, larger than the default dump packet.
+        '%s --defaults-extra-file=%s --single-transaction --quick --max-allowed-packet=512M %s %s 2>%s',
         escapeshellcmd($tool),
         escapeshellarg($cnf),
         $routinesFlag,

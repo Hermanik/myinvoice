@@ -106,6 +106,8 @@ tags:
     description: Kniha jízd — vozidla, jízdy, tankování a daňové souhrny
   - name: MCP
     description: Model Context Protocol server pro AI asistenty (Claude Code, Claude Desktop) nad stejným API tokenem
+  - name: Databox
+    description: Datové schránky (ISDS) — zprávy, odesílání, podání finančnímu úřadu. **Jen ze session administrátora**, API token sem nemá přístup (403).
 
 paths:
   /api/v1/branding-profiles:
@@ -4716,6 +4718,8 @@ paths:
         `held_drafts` („Faktura čeká na kontrolu sazby DPH") ukazuje schválené koncepty, které
         schvalovací tok nevystavil ani neodeslal (kontrola sazby DPH); odkaz vede na koncept
         a položka zmizí po jeho vystavení.
+        Upozornění z datových schránek (`databox_*`) se vrací **jen přihlášenému administrátorovi
+        v prohlížeči (relace)**, nikdy API tokenu ani MCP.
       parameters: [{ $ref: '#/components/parameters/SupplierIdHeader' }]
       responses: { '200': { description: 'items + total + dismissed_count' } }
 
@@ -5840,6 +5844,476 @@ paths:
               schema: { $ref: '#/components/schemas/LogbookSummary' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  # ── Datové schránky (ISDS) — jen ze session administrátora, API token sem NEMÁ přístup ──
+  /api/v1/databox/boxes:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+    get:
+      tags: [Databox]
+      summary: Připojené datové schránky
+      description: Seznam schránek dodavatele včetně přihlášení (uživatelské jméno, zjištěná práva, indikátor synchronizace). **Hesla se nikdy nevrací.**
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/DataboxBox' } }
+        '403': { description: "Jen admin ze session" }
+    post:
+      tags: [Databox]
+      summary: Připojit datovou schránku
+      description: |
+        ID, typ a název schránky se zjistí z přihlášení (`GetOwnerInfoFromLogin2`), nezadávají se.
+        Přihlášení pro synchronizaci by mělo mít v ISDS **jen** právo „Zobrazovat seznamy, historii
+        a doručenky“ — se čtecím přihlášením synchronizace odmítne běžet (jeho vypsání seznamu by
+        zprávy doručilo), dokud se výslovně nepovolí `allow_delivering_sync`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sync]
+              properties:
+                label: { type: string, maxLength: 100 }
+                environment: { type: string, enum: [production, test], default: production }
+                sync: { $ref: '#/components/schemas/DataboxLoginInput' }
+                action: { $ref: '#/components/schemas/DataboxLoginInput' }
+                allow_delivering_sync: { type: boolean, default: false }
+      responses:
+        '201':
+          description: Připojeno
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxBox' }
+        '409': { description: "Schránka je už připojená (`duplicate`)" }
+        '422': { description: "Přihlášení se nezdařilo (`databox_login_failed`) nebo patří do jiné schránky (`box_mismatch`)" }
+
+  /api/v1/databox/boxes/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: integer } }
+      - $ref: '#/components/parameters/SupplierIdHeader'
+    get:
+      tags: [Databox]
+      summary: Detail schránky
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxBox' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Databox]
+      summary: Změnit název, zapnutí a povolení doručování synchronizací
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: string, maxLength: 100 }
+                is_active: { type: boolean }
+                allow_delivering_sync: { type: boolean, description: "Výslovný souhlas, že synchronizace s přihlášením, které čte, zprávy doručí." }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxBox' }
+    delete:
+      tags: [Databox]
+      summary: Odebrat schránku (smaže i uložené zprávy)
+      parameters:
+        - { in: query, name: confirm_delete_messages, schema: { type: string, enum: ['1'] }, description: "Povinné, pokud schránka má uložené zprávy (jinak `409 confirm_required`)." }
+      responses:
+        '200': { description: "Smazáno" }
+        '409': { description: "Vyžaduje potvrzení smazání zpráv (`confirm_required`, `message_count`)" }
+
+  /api/v1/databox/boxes/{id}/verify:
+    post:
+      tags: [Databox]
+      summary: Ověřit připojení
+      description: |
+        Přihlásí se každým uloženým přihlášením (jen čtecí volání), obnoví zjištěná práva a datum vypršení hesla;
+        úspěšný test synchronizačního přihlášení zruší pozastavení synchronizace.
+        Přihlášení, které ISDS odmítl, se zkusí znovu až po čekací době (5 min, po každém dalším neúspěchu dvojnásobně,
+        nejvýše 24 h; u zamčeného účtu nejméně do konce zámku). Do té doby vrací `check.<purpose>.reason = cooldown`
+        a ISDS nevolá, aby opakované chybné pokusy účet nezamkly.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Schránka + výsledek `check` pro každé přihlášení
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxBox' }
+
+  /api/v1/databox/boxes/{id}/credentials/{purpose}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: integer } }
+      - { in: path, name: purpose, required: true, schema: { type: string, enum: [sync, action] } }
+    put:
+      tags: [Databox]
+      summary: Nahradit / doplnit přihlášení
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DataboxLoginInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxBox' }
+        '429': { description: "Předchozí přihlášení bylo odmítnuto a čekací doba ještě neuplynula (`cooldown`)" }
+    delete:
+      tags: [Databox]
+      summary: Odebrat přihlášení
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxBox' }
+
+  /api/v1/databox/boxes/{id}/sync:
+    post:
+      tags: [Databox]
+      summary: Synchronizovat obálky teď
+      description: Stejná logika jako cron `cron-databox-sync`; s přihlášením, které čte zprávy, odmítne běžet (`status=refused`) bez výslovného souhlasu.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Report běhu a aktualizovaná schránka
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report:
+                    type: object
+                    properties:
+                      status: { type: string, enum: [ok, refused, paused, error, skipped] }
+                      message: { type: string, nullable: true }
+                      received_new: { type: integer }
+                      received_new_tax_office: { type: integer }
+                      sent_new: { type: integer }
+                      updated: { type: integer }
+                      receipts: { type: integer }
+                  box: { $ref: '#/components/schemas/DataboxBox' }
+
+  /api/v1/databox/boxes/{id}/acknowledge-all:
+    post:
+      tags: [Databox]
+      summary: Označit všechny přijaté zprávy schránky jako vyřízené
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { acknowledged: { type: integer } } }
+
+  /api/v1/databox/boxes/{id}/lookup:
+    get:
+      tags: [Databox]
+      summary: Vyhledat schránku příjemce
+      description: Podle ID (7 znaků), IČO nebo názvu přes `FindDataBox2`. Vyžaduje přihlášení s právem „Vyhledávat schránky“. Ze schránky, která není OVM, najde systém jen úřady a schránky s povoleným příjmem poštovních zpráv.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: query, name: q, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status_code: { type: string, example: '0000' }
+                  boxes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        db_id: { type: string }
+                        db_type: { type: string, nullable: true }
+                        ic: { type: string, nullable: true }
+                        name: { type: string, nullable: true }
+                        state: { type: integer, nullable: true }
+                        is_tax_office: { type: boolean }
+        '422': { description: "Chybí právo (`missing_right`) nebo ISDS chyba" }
+
+  /api/v1/databox/boxes/{id}/messages:
+    get:
+      tags: [Databox]
+      summary: Uložené obálky zpráv schránky
+      description: Data ze synchronizace, bez volání ISDS.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: query, name: direction, schema: { type: string, enum: [received, sent] } }
+        - { in: query, name: unread, schema: { type: string, enum: ['1'] } }
+        - { in: query, name: tax_office, schema: { type: string, enum: ['1'] } }
+        - { in: query, name: q, schema: { type: string } }
+        - { in: query, name: page, schema: { type: integer, default: 1 } }
+        - { in: query, name: per_page, schema: { type: integer, default: 50, maximum: 200 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/DataboxMessage' } }
+                  total: { type: integer }
+
+  /api/v1/databox/messages/{id}:
+    get:
+      tags: [Databox]
+      summary: Detail zprávy
+      description: Obálka, stav doručení, orientační lhůty u zpráv od finančního úřadu, doručenka odeslané zprávy a přílohy (po otevření). Co by otevření zprávy způsobilo, říká `open`.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxMessageDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/databox/messages/{id}/open:
+    post:
+      tags: [Databox]
+      summary: Otevřít a stáhnout zprávu (výslovná akce)
+      description: |
+        Stáhne podepsanou zprávu (ZFO) a uloží ji. **Může zprávu doručit** (spustit lhůty):
+        systém datových schránek vydá obsah jen doručené zprávy a doručit ji může jen přihlášení
+        uživatele, který ji smí číst. U nedoručené zprávy (stav 4 nebo 5) je proto nutné
+        `acknowledge_delivery: true`, jinak `409 delivery_ack_required`. Doručená zpráva (stav 6/7)
+        se stahuje bez vedlejších účinků.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                acknowledge_delivery: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Detail s přílohami
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxMessageDetail' }
+        '409': { description: "Chybí potvrzení (`delivery_ack_required`), doručení nebylo potvrzeno (`delivery_not_confirmed`) nebo zpráva nemá čas dodání (`delivery_time_unknown`) a nelze ji otevřít, aniž by se doručily další zprávy" }
+        '422': { description: "Žádné použitelné přihlášení nemá právo číst (`missing_right`), přihlášení ISDS odmítl (`login_failed`) nebo ISDS chyba" }
+
+  /api/v1/databox/messages/{id}/attachments/{index}:
+    get:
+      tags: [Databox]
+      summary: Stáhnout přílohu otevřené zprávy
+      description: "Vždy jako příloha ke stažení (`Content-Disposition: attachment`, `nosniff`)."
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: path, name: index, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Soubor
+          content:
+            application/octet-stream: {}
+
+  /api/v1/databox/messages/{id}/zfo:
+    get:
+      tags: [Databox]
+      summary: Stáhnout uložené ZFO (zpráva nebo doručenka)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: query, name: kind, schema: { type: string, enum: [zfo, delivery_zfo], default: zfo } }
+      responses:
+        '200':
+          description: ZFO
+          content:
+            application/octet-stream: {}
+
+  /api/v1/databox/messages/{id}/acknowledge:
+    post:
+      tags: [Databox]
+      summary: Označit zprávu jako vyřízenou (zmizí z dashboardu)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: "OK" }
+
+  /api/v1/databox/messages/{id}/receipt:
+    post:
+      tags: [Databox]
+      summary: Znovu načíst doručenku odeslané zprávy
+      description: Potřebuje jen právo „Zobrazovat seznamy, historii a doručenky“, nic nedoručuje.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxMessageDetail' }
+
+  /api/v1/databox/messages/prepare:
+    post:
+      tags: [Databox]
+      summary: Připravit zprávu k odeslání (nic se neodešle)
+      description: |
+        Krok 1 ze 2. Zkontroluje zprávu a uloží přesný obsah do fronty; vrátí jednorázový `token` (platí 30 minut)
+        a souhrn pro potvrzení. Odeslání je až `POST /databox/messages/send`.
+        Limity: příloh celkem nejvýše 20 MB, nejvýše 100 souborů, věc nejvýše 255 znaků.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [box_id, recipient_box_id, annotation, files]
+              properties:
+                box_id: { type: integer }
+                recipient_box_id: { type: string, minLength: 7, maxLength: 7 }
+                annotation: { type: string, maxLength: 255 }
+                to_hands: { type: string, maxLength: 30 }
+                sender_ref_number: { type: string, maxLength: 50 }
+                recipient_ref_number: { type: string, maxLength: 50 }
+                personal_delivery: { type: boolean }
+                files: { type: array, items: { type: string, format: binary } }
+      responses:
+        '200':
+          description: Souhrn k potvrzení
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxPrepared' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '422': { description: "Přihlášení nemá právo posílat (`missing_right`)" }
+
+  /api/v1/databox/messages/send:
+    post:
+      tags: [Databox]
+      summary: Odeslat připravenou zprávu (výslovné potvrzení)
+      description: |
+        Krok 2 ze 2: odešle uloženou zprávu **právě jednou**. Bez `confirmed: true` se nic neodešle
+        (`400 confirmation_required`). Token se spotřebuje před voláním ISDS, aby se zpráva nemohla
+        odeslat dvakrát; po nejednoznačné chybě (timeout) je potřeba zkontrolovat Odeslané a připravit zprávu znovu.
+        Zpráva k podání, které už bylo odesláno nebo je označené jako podané, vyžaduje navíc `resend_confirmed: true`; podání, jehož XML nebylo
+        ověřeno proti schématu EPO (`requires_unvalidated_confirmation`), vyžaduje samostatné `unvalidated_confirmed: true`.
+        Před odesláním se zkontroluje, že uložená příloha odpovídá kontrolnímu součtu ze souhrnu (`integrity_failed`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, confirmed]
+              properties:
+                token: { type: string, pattern: '^[a-f0-9]{32}$' }
+                confirmed: { type: boolean, enum: [true] }
+                resend_confirmed: { type: boolean }
+                unvalidated_confirmed: { type: boolean }
+      responses:
+        '201':
+          description: Odesláno; uložená zpráva a doručenka
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message_id: { type: integer }
+                  dm_id: { type: string }
+                  submission_id: { type: integer, nullable: true }
+                  receipt: { type: boolean, description: "Doručenka se podařilo načíst hned." }
+                  zfo: { type: boolean, description: "Podepsaná kopie odeslané zprávy je uložená." }
+                  filing:
+                    type: object
+                    nullable: true
+                    description: |
+                      Jen u odeslání archivovaného podání: co se stalo se stavem podání. `recorded` = označeno jako podané (způsob
+                      `data_box`, číslo podání = číslo zprávy; čas se po příchodu doručenky upřesní na okamžik dodání do schránky
+                      úřadu a doručenka se uloží k podání jako potvrzení), `kept` = podání už bylo označené dříve a zůstává,
+                      `not_recorded` = zpráva odešla, ale podání se nepodařilo označit (důvod v `message`).
+                    properties:
+                      status: { type: string, enum: [recorded, kept, not_recorded] }
+                      message: { type: string, nullable: true }
+                  message: { $ref: '#/components/schemas/DataboxMessageDetail' }
+        '400': { description: "Chybí potvrzení (`confirmation_required`)" }
+        '409': { description: "Vyžaduje potvrzení opětovného odeslání (`resend_confirmation_required`), potvrzení neověřeného XML (`unvalidated_confirmation_required`) nebo příloha neodpovídá souhrnu (`integrity_failed`)" }
+        '410': { description: "Token je neplatný, vypršel nebo už byl použit (`token_invalid`)" }
+
+  /api/v1/databox/submissions/{id}/prefill:
+    get:
+      tags: [Databox]
+      summary: Předvyplnění odeslání archivovaného podání datovou schránkou
+      description: |
+        Příjemce (datová schránka finančního úřadu) podle `c_ufo` v XML podání, věc zprávy, název souboru,
+        použitelné schránky a varování. XML, které neprošlo kontrolou proti schématu EPO, je zablokované
+        (`blocked_reason: xsd_failed`) — takové podání je neúčinné (§ 101a odst. 4 zákona o DPH). Zablokované je i
+        archivované XML, jehož SHA-256 nesedí s uloženým (`blocked_reason: integrity_failed`). Neověřené XML
+        (`warnings: xsd_skipped`) jde připravit, ale odeslat až se samostatným potvrzením (`requires_unvalidated_confirmation` v souhrnu).
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxSubmissionPrefill' }
+
+  /api/v1/databox/submissions/{id}/prepare:
+    post:
+      tags: [Databox]
+      summary: Připravit odeslání archivovaného podání (nic se neodešle)
+      description: Stejný dvoukrokový postup jako u `messages/prepare`; příloha je archivované XML beze změny. Dokončí se `POST /databox/messages/send`.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [box_id]
+              properties:
+                box_id: { type: integer }
+                recipient_box_id: { type: string, description: "Přepsání příjemce z číselníku." }
+                annotation: { type: string, maxLength: 255 }
+      responses:
+        '200':
+          description: Souhrn k potvrzení
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxPrepared' }
+        '409': { description: "XML neprošlo validací (`xsd_failed`), neodpovídá uloženému kontrolnímu součtu (`integrity_failed`) nebo je za stejné období a formu už podané jiné podání (`duplicate_filing`)" }
+        '422': { description: "Bez příjemce (`no_recipient`) nebo chybí právo (`missing_right`)" }
+
+  /api/v1/databox/submissions/links:
+    get:
+      tags: [Databox]
+      summary: Zprávy, které nesly archivovaná podání
+      parameters:
+        - { in: query, name: ids, required: true, schema: { type: string, example: '12,15' }, description: "Čárkou oddělená ID archivovaných podání (nejvýše 200)." }
+      responses:
+        '200':
+          description: Objekt klíčovaný ID podání
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items: { $ref: '#/components/schemas/DataboxSubmissionLink' }
+
 components:
   securitySchemes:
     BearerAuth:
@@ -5891,6 +6365,190 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    DataboxLoginInput:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, maxLength: 64 }
+        password: { type: string, format: password, maxLength: 128, description: "Přijímá se jen při zápisu, ukládá se šifrovaně a API ho nikdy nevrací." }
+
+    DataboxCredential:
+      type: object
+      description: Přihlášení k datové schránce (bez hesla).
+      properties:
+        purpose: { type: string, enum: [sync, action] }
+        username: { type: string }
+        user_type: { type: string, nullable: true, example: ENTRUSTED_USER }
+        privileges: { type: integer, nullable: true, description: "Bitová maska práv ISDS: 1 číst, 2 číst do vlastních rukou, 4 posílat, 8 seznamy, 16 vyhledávat, 128 mazat z trezoru." }
+        privilege_labels: { type: array, items: { type: string } }
+        can_list: { type: boolean, nullable: true }
+        can_read: { type: boolean, nullable: true, description: "Smí číst přijaté zprávy — výpis seznamu s tímto přihlášením zprávy DORUČUJE." }
+        can_read_personal: { type: boolean, nullable: true }
+        can_send: { type: boolean, nullable: true }
+        can_search: { type: boolean, nullable: true }
+        password_expires_at: { type: string, nullable: true }
+        last_check_at: { type: string, nullable: true }
+        last_check_status: { type: string, nullable: true, enum: [ok, bad_credentials, locked, error] }
+        last_check_message: { type: string, nullable: true }
+
+    DataboxBox:
+      type: object
+      properties:
+        id: { type: integer }
+        label: { type: string }
+        environment: { type: string, enum: [production, test] }
+        db_id: { type: string, example: tpbxbx7 }
+        db_type: { type: string, example: PFO }
+        owner_name: { type: string, nullable: true }
+        is_active: { type: boolean }
+        allow_delivering_sync: { type: boolean }
+        last_sync_at: { type: string, nullable: true }
+        last_sync_status: { type: string, nullable: true, enum: [ok, error, paused] }
+        last_sync_message: { type: string, nullable: true }
+        sync_paused_until: { type: string, nullable: true }
+        sync:
+          type: object
+          properties:
+            state:
+              type: string
+              enum: [ok, opt_in, blocked_delivers, blocked_no_list, unverified, no_credential, login_failed]
+              description: "ok = seznamy bez čtení (nic nedoručí); opt_in = čte a doručuje, majitel souhlasil; blocked_* = synchronizace neběží."
+            delivers: { type: boolean }
+        credentials:
+          type: object
+          properties:
+            sync: { $ref: '#/components/schemas/DataboxCredential' }
+            action: { $ref: '#/components/schemas/DataboxCredential' }
+
+    DataboxMessage:
+      type: object
+      description: Obálka zprávy (bez obsahu).
+      properties:
+        id: { type: integer }
+        databox_id: { type: integer }
+        direction: { type: string, enum: [received, sent] }
+        dm_id: { type: string, description: "Číslo zprávy v ISDS." }
+        sender_box_id: { type: string, nullable: true }
+        sender_name: { type: string, nullable: true }
+        recipient_box_id: { type: string, nullable: true }
+        recipient_name: { type: string, nullable: true }
+        annotation: { type: string, nullable: true }
+        personal_delivery: { type: boolean }
+        allow_subst_delivery: { type: boolean, nullable: true }
+        status: { type: integer, nullable: true, description: "4 dodáno do schránky, 5 doručeno fikcí, 6 doručeno přihlášením, 7 přečteno, 8 nedoručitelná." }
+        state: { type: string, enum: [in_box, fiction, delivered, undeliverable, erased, rejected, other, unknown] }
+        delivery_time: { type: string, nullable: true, description: "Dodání do schránky." }
+        acceptance_time: { type: string, nullable: true, description: "Právní doručení (přihlášením nebo fikcí)." }
+        is_tax_office: { type: boolean }
+        tax_office_kind: { type: string, nullable: true, enum: [kh_call, call, other] }
+        tax_office_hints:
+          type: array
+          description: Orientační lhůty (§ 101g zákona o DPH); závazná je lhůta ve výzvě.
+          items:
+            type: object
+            properties:
+              code: { type: string, enum: [kh_change_17d, kh_file_5d] }
+              law: { type: string }
+              due: { type: string, format: date, nullable: true }
+        acknowledged_at: { type: string, nullable: true }
+        has_zfo: { type: boolean }
+        has_delivery_zfo: { type: boolean }
+        has_delivery_info: { type: boolean }
+
+    DataboxMessageDetail:
+      allOf:
+        - { $ref: '#/components/schemas/DataboxMessage' }
+        - type: object
+          properties:
+            attachments:
+              type: array
+              nullable: true
+              items:
+                type: object
+                properties:
+                  index: { type: integer }
+                  name: { type: string }
+                  mime: { type: string }
+                  meta_type: { type: string }
+                  size: { type: integer }
+            receipt:
+              type: object
+              nullable: true
+              properties:
+                events:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      time: { type: string, nullable: true }
+                      text: { type: string }
+            open:
+              type: object
+              description: Co by otevření zprávy způsobilo.
+              properties:
+                stored: { type: boolean }
+                needs_acknowledgement: { type: boolean, description: "Zpráva je ve stavu 4/5: stažení vyžaduje přihlášení, a tedy výslovné potvrzení." }
+                blocked_reason: { type: string, nullable: true, enum: [delivery_time_unknown], description: "Zprávu nelze otevřít: chybí čas dodání, takže by přihlášení doručilo i další zprávy (`409` při pokusu)." }
+                undelivered: { type: boolean, description: "Stav 4: otevření zprávu právně doručí." }
+                fiction_date: { type: string, format: date, nullable: true }
+                has_capable_login: { type: boolean, nullable: true }
+            file:
+              type: object
+              nullable: true
+              properties:
+                size_bytes: { type: integer }
+                sha256: { type: string }
+                stored_at: { type: string }
+
+    DataboxPrepared:
+      type: object
+      properties:
+        token: { type: string, description: "Jednorázové potvrzení odeslání (30 minut)." }
+        expires_at: { type: string }
+        summary:
+          type: object
+          properties:
+            box: { type: object, properties: { id: { type: integer }, label: { type: string }, db_id: { type: string }, db_type: { type: string }, owner_name: { type: string, nullable: true } } }
+            recipient: { type: object, properties: { box_id: { type: string }, name: { type: string, nullable: true }, verified: { type: boolean }, is_tax_office: { type: boolean } } }
+            annotation: { type: string }
+            files: { type: array, items: { type: object, properties: { name: { type: string }, mime: { type: string }, size: { type: integer }, sha256: { type: string } } } }
+            total_bytes: { type: integer }
+            warnings: { type: array, items: { type: string } }
+            previous_sends: { type: array, items: { $ref: '#/components/schemas/DataboxSubmissionLink' } }
+            requires_resend_confirmation: { type: boolean }
+            requires_unvalidated_confirmation: { type: boolean, description: "Podání nebylo ověřeno proti schématu EPO; odeslání vyžaduje `unvalidated_confirmed`." }
+            form: { type: object, nullable: true, additionalProperties: true }
+
+    DataboxSubmissionLink:
+      type: object
+      properties:
+        submission_id: { type: integer }
+        message_id: { type: integer }
+        databox_id: { type: integer }
+        dm_id: { type: string }
+        recipient_box_id: { type: string, nullable: true }
+        recipient_name: { type: string, nullable: true }
+        status: { type: integer, nullable: true }
+        delivery_time: { type: string, nullable: true }
+        acceptance_time: { type: string, nullable: true }
+        created_at: { type: string }
+        has_delivery_zfo: { type: boolean }
+        has_delivery_info: { type: boolean }
+
+    DataboxSubmissionPrefill:
+      type: object
+      properties:
+        submission: { type: object, properties: { id: { type: integer }, form_code: { type: string }, form_name: { type: string }, period_label: { type: string }, validation_status: { type: string, enum: [passed, failed, skipped] } } }
+        recipient: { type: object, properties: { c_ufo: { type: string, nullable: true }, name: { type: string, nullable: true }, box_id: { type: string, nullable: true }, source: { type: string, enum: [xml, supplier, none] } } }
+        annotation: { type: string }
+        file_name: { type: string }
+        file_size: { type: integer }
+        boxes: { type: array, items: { type: object, properties: { id: { type: integer }, label: { type: string }, db_id: { type: string }, db_type: { type: string }, environment: { type: string }, is_active: { type: boolean }, can_send: { type: boolean } } } }
+        recommended_box_id: { type: integer, nullable: true }
+        blocked_reason: { type: string, nullable: true, enum: [xsd_failed, integrity_failed, duplicate_filing] }
+        warnings: { type: array, items: { type: string, enum: [xsd_skipped, already_filed, no_office, recipient_differs_from_office, personal_box, test_environment] } }
+        previous_sends: { type: array, items: { $ref: '#/components/schemas/DataboxSubmissionLink' } }
+
     OssPreview:
       type: object
       required: [period, settings, state, summary, countries, corrections, warnings]

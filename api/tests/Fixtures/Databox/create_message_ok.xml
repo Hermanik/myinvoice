@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Body>
+<q:CreateMessageResponse xmlns:q="http://isds.czechpoint.cz/v20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <q:dmID>4102002</q:dmID>
+  <q:dmStatus><q:dmStatusCode>0000</q:dmStatusCode><q:dmStatusMessage>Provedeno úspěšně.</q:dmStatusMessage></q:dmStatus>
+</q:CreateMessageResponse>
+</SOAP-ENV:Body></SOAP-ENV:Envelope>

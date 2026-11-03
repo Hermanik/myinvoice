@@ -397,6 +397,9 @@ s rolí admin nebo účetní. Částky jsou v měně dokladu, datumy ve formátu
   pro interní administraci, integrace na nich stavět nemá smysl. Platí to
   i pro interní podpisové endpointy, například per-dokladový výběr podpisu
   (`/api/documents/.../signature-selection`).
+- **Datové schránky** (`/api/v1/databox/*`) jsou popsané v `openapi.yaml`, ale jsou dostupné
+  **jen z webové session administrátora** — API token dostane `403` (zprávy a odesílání
+  datovou schránkou se z integrací ani přes MCP ovládat nedá).
 - **Webhooks** zatím nejsou — pokud potřebuješ notifikaci o platbě, použij polling
   `/api/v1/invoices?status=paid&from=<last_check>`.
 - **OAuth2** nepodporujeme — PAT je vědomé zjednodušení pro tenhle typ produktu.

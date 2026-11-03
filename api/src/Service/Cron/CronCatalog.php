@@ -137,6 +137,16 @@ final class CronCatalog
                 'critical' => true,
             ],
             [
+                // Envelope-only sync of the connected data boxes; never delivers messages (see DataboxSyncService).
+                'script' => 'cron-databox-sync',
+                'recommended' => 'hourly_17',
+                'linux_cron' => '17 * * * *',
+                'windows_schtasks' => '/sc hourly /mo 1',
+                'max_age_hours' => 4,
+                'weekdays_only' => false,
+                'critical' => false,
+            ],
+            [
                 'script' => 'cron-version-check',
                 'recommended' => 'daily_0600',
                 'linux_cron' => '0 6 * * *',

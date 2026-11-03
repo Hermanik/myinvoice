@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Body>
+<q:FindDataBox2Response xmlns:q="http://isds.czechpoint.cz/v20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <q:dbResults>
+    <q:dbOwnerInfo>
+      <q:dbID>7nyn2d9</q:dbID>
+      <q:aifoIsds xsi:nil="true"/>
+      <q:dbType>OVM</q:dbType>
+      <q:ic>72080043</q:ic>
+      <q:pnGivenNames xsi:nil="true"/>
+      <q:pnLastName xsi:nil="true"/>
+      <q:firmName>Finanční úřad pro hlavní město Prahu</q:firmName>
+      <q:biDate xsi:nil="true"/><q:biCity xsi:nil="true"/><q:biCounty xsi:nil="true"/><q:biState xsi:nil="true"/>
+      <q:adCode xsi:nil="true"/><q:adCity>Praha</q:adCity><q:adDistrict xsi:nil="true"/><q:adStreet>Štěpánská</q:adStreet>
+      <q:adNumberInStreet xsi:nil="true"/><q:adNumberInMunicipality xsi:nil="true"/><q:adZipCode xsi:nil="true"/><q:adState>CZ</q:adState>
+      <q:nationality xsi:nil="true"/>
+      <q:dbIdOVM xsi:nil="true"/>
+      <q:dbState>1</q:dbState>
+      <q:dbOpenAddressing xsi:nil="true"/>
+      <q:dbUpperID xsi:nil="true"/>
+    </q:dbOwnerInfo>
+  </q:dbResults>
+  <q:dbStatus><q:dbStatusCode>0000</q:dbStatusCode><q:dbStatusMessage>Provedeno úspěšně.</q:dbStatusMessage></q:dbStatus>
+</q:FindDataBox2Response>
+</SOAP-ENV:Body></SOAP-ENV:Envelope>

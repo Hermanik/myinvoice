@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Body>
+<q:GetOwnerInfoFromLogin2Response xmlns:q="http://isds.czechpoint.cz/v20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <q:dbOwnerInfo>
+    <q:dbID>vqt3fkw</q:dbID>
+    <q:aifoIsds>true</q:aifoIsds>
+    <q:dbType>FO</q:dbType>
+    <q:ic xsi:nil="true"/>
+    <q:pnGivenNames>Jan</q:pnGivenNames>
+    <q:pnLastName>Testovací</q:pnLastName>
+    <q:firmName xsi:nil="true"/>
+    <q:biDate xsi:nil="true"/><q:biCity xsi:nil="true"/><q:biCounty xsi:nil="true"/><q:biState xsi:nil="true"/>
+    <q:adCode xsi:nil="true"/><q:adCity>Praha</q:adCity><q:adDistrict xsi:nil="true"/><q:adStreet>Testovací</q:adStreet>
+    <q:adNumberInStreet>1</q:adNumberInStreet><q:adNumberInMunicipality>2</q:adNumberInMunicipality>
+    <q:adZipCode>11000</q:adZipCode><q:adState>CZ</q:adState>
+    <q:nationality>CZ</q:nationality>
+    <q:dbIdOVM xsi:nil="true"/>
+    <q:dbState>1</q:dbState>
+    <q:dbOpenAddressing>false</q:dbOpenAddressing>
+    <q:dbUpperID xsi:nil="true"/>
+  </q:dbOwnerInfo>
+  <q:dbStatus><q:dbStatusCode>0000</q:dbStatusCode><q:dbStatusMessage>Provedeno úspěšně.</q:dbStatusMessage></q:dbStatus>
+</q:GetOwnerInfoFromLogin2Response>
+</SOAP-ENV:Body></SOAP-ENV:Envelope>

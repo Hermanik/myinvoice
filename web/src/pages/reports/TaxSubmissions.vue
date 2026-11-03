@@ -11,6 +11,9 @@ import { nowForDatetimeLocal, submissionPeriodLabel, formatDbDateTime, VAT_FORMS
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import Modal from '@/components/ui/Modal.vue'
+import { databoxApi, type PreviousSend } from '@/api/databox'
+import { formatDate } from '@/composables/useFormat'
+import SubmissionSendModal from '@/components/databox/SubmissionSendModal.vue'
 import VatPaymentCard from '@/components/reports/VatPaymentCard.vue'
 import ChangedAfterFilingList from '@/components/reports/ChangedAfterFilingList.vue'
 
@@ -18,6 +21,7 @@ const { t } = useI18n()
 const toast = useToast()
 const auth = useAuthStore()
 
+const isAdmin = computed(() => auth.user?.role === 'admin')
 const items = ref<TaxSubmission[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -33,6 +37,48 @@ async function load() {
   } finally {
     loading.value = false
   }
+  void loadDataboxLinks()
+}
+
+// ── Data box: send status per archived submission (admin only; the endpoints are admin-only too) ──
+
+const sendLinks = ref<Record<string, PreviousSend[]>>({})
+const sendingId = ref<number | null>(null)
+
+async function loadDataboxLinks() {
+  if (!isAdmin.value || items.value.length === 0) return
+  try {
+    sendLinks.value = await databoxApi.submissionLinks(items.value.map(x => x.id))
+  } catch {
+    sendLinks.value = {}
+  }
+}
+
+function lastLink(id: number): PreviousSend | null {
+  const links = sendLinks.value[String(id)]
+  return links && links.length ? links[0] : null
+}
+
+function linkLabel(l: PreviousSend): string {
+  const dm = `DS #${l.dm_id ?? l.message_id}`
+  return l.acceptance_time
+    ? t('reports.submissions.databox_delivered', { dm, date: formatDate(l.acceptance_time) })
+    : t('reports.submissions.databox_sent', { dm })
+}
+
+/** The filing line already names the data box message when a delivery chip shows it. */
+function showReference(s: TaxSubmission): boolean {
+  return !!s.filing_reference && !(s.filing_channel === 'data_box' && lastLink(s.id))
+}
+
+/** Sent after the submission was already filed (EPO, or an earlier data box send): the dialog asks to confirm the re-send. */
+function sendLabelKey(s: TaxSubmission): string {
+  return s.filing_status === 'generated' ? 'reports.submissions.send_databox' : 'reports.submissions.send_databox_again'
+}
+
+async function onDataboxSent() {
+  sendingId.value = null
+  await load() // the send marked the submission filed: refresh the badge and the chip
 }
 
 function formCodeLabel(c: string): string {
@@ -82,7 +128,6 @@ async function deleteItem(id: number) {
 }
 
 const totalSize = computed(() => items.value.reduce((s, x) => s + x.xml_size_bytes, 0))
-const isAdmin = computed(() => auth.user?.role === 'admin')
 
 // ── Filing ───────────────────────────────────────────────────────────────
 
@@ -283,8 +328,10 @@ onMounted(load)
                 <div v-if="s.filed_at" class="text-xs text-neutral-500 mt-0.5">
                   {{ formatDbDateTime(s.filed_at) }}
                   <template v-if="s.filing_channel"> · {{ t('reports.filing.channel_' + s.filing_channel) }}</template>
-                  <template v-if="s.filing_reference"> · {{ t('reports.filing.reference_short', { ref: s.filing_reference }) }}</template>
+                  <template v-if="showReference(s)"> · {{ t('reports.filing.reference_short', { ref: s.filing_reference }) }}</template>
                 </div>
+                <router-link v-if="isAdmin && lastLink(s.id)" :to="{ path: '/databox', query: { box: String(lastLink(s.id)!.databox_id), message: String(lastLink(s.id)!.message_id) } }"
+                  class="mt-0.5 block text-xs text-success-600 hover:underline" data-test="databox-chip">{{ linkLabel(lastLink(s.id)!) }}</router-link>
                 <div v-if="s.payment && s.payment.kind === 'payment' && s.filing_status !== 'generated' && s.payment.state !== 'superseded'"
                   class="text-xs mt-0.5" :class="s.payment.state === 'unpaid' ? 'text-warning-700' : 'text-success-600'">
                   {{ t('reports.vat_payment.state_' + s.payment.state) }}
@@ -304,6 +351,10 @@ onMounted(load)
                     <button v-if="s.filing_status === 'generated'" type="button" @click="openFile(s)" data-testid="mark-filed"
                       class="cursor-pointer px-3 h-8 text-xs border border-primary-600 text-primary-700 hover:bg-primary-50 font-medium rounded-md">
                       {{ t('reports.filing.mark_filed') }}
+                    </button>
+                    <button type="button" @click="sendingId = s.id" data-test="databox-send"
+                      class="cursor-pointer px-3 h-8 text-xs border border-neutral-300 hover:bg-neutral-50 font-medium rounded-md">
+                      {{ t(sendLabelKey(s)) }}
                     </button>
                     <button v-if="s.filing_status === 'filed'" type="button" @click="pickReceipt(s)" :disabled="uploading" data-testid="upload-receipt"
                       class="cursor-pointer px-3 h-8 text-xs border border-primary-600 text-primary-700 hover:bg-primary-50 disabled:opacity-50 font-medium rounded-md">
@@ -366,6 +417,8 @@ onMounted(load)
         </tfoot>
       </table>
     </div>
+
+    <SubmissionSendModal v-if="isAdmin && sendingId !== null" :submission-id="sendingId" @close="sendingId = null" @sent="onDataboxSent" />
 
     <!-- Mark as filed -->
     <Modal v-if="fileTarget" :title="t('reports.filing.mark_filed_title')" width-class="max-w-lg" @close="fileTarget = null">

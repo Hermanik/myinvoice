@@ -22,7 +22,7 @@ final class SecretEncryption
 
     public function __construct(private readonly Config $config) {}
 
-    public function encrypt(string $plaintext): string
+    public function encrypt(#[\SensitiveParameter] string $plaintext): string
     {
         $nonce = random_bytes(self::NONCE_LEN);
         $tag = '';
@@ -40,7 +40,7 @@ final class SecretEncryption
         return self::PREFIX . base64_encode($nonce . $ct . $tag);
     }
 
-    public function decrypt(string $stored): string
+    public function decrypt(#[\SensitiveParameter] string $stored): string
     {
         // Legacy plaintext — bez prefixu se vrátí jak je
         if (!str_starts_with($stored, self::PREFIX)) {

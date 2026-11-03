@@ -108,10 +108,7 @@ final class TaxSubmissionFilingService
             }
             $otherFiledOfThePeriod = $this->repo->filedForPeriod($row['supplier_id'], $row['form_code'], $row['period_year'], $row['period_month'], $row['period_quarter']) !== [];
             $filedAt = self::parseFiledAt($filedAt, new \DateTimeImmutable(), requireTime: $otherFiledOfThePeriod);
-            $sibling = $this->repo->findFiledSibling($row);
-            if ($sibling !== null) {
-                throw $this->duplicate($sibling);
-            }
+            $this->assertNoFiledSibling($row);
             try {
                 $this->repo->markFiled($id, $filedAt, $channel, $reference, $userId);
             } catch (\PDOException $e) {
@@ -143,6 +140,54 @@ final class TaxSubmissionFilingService
         }
 
         return $this->repo->findMeta($id, $supplierId) ?? $row;
+    }
+
+    /**
+     * Throws the duplicate-filing error when another submission of the same (supplier, type, period, form) is already
+     * filed/confirmed: this one could not be marked filed. For callers that must know before an irreversible step.
+     *
+     * @param array<string,mixed> $row a row from {@see TaxSubmissionRepository::findMeta()}
+     * @throws TaxFilingException
+     */
+    public function assertNoFiledSibling(array $row): void
+    {
+        $sibling = $this->repo->findFiledSibling($row);
+        if ($sibling !== null) {
+            throw $this->duplicate($sibling);
+        }
+    }
+
+    /**
+     * Corrects `filed_at` of a recorded filing, e.g. to the time ISDS says the data message was delivered to the tax
+     * office. The order of filing decides which return of a period is in force, so the new time must not move this
+     * filing across another filed return of the same period.
+     *
+     * @throws TaxFilingException
+     */
+    public function adjustFiledAt(int $supplierId, int $id, string $filedAt, ?int $userId): void
+    {
+        $new = self::parseFiledAt($filedAt, new \DateTimeImmutable());
+        $previous = $this->repo->withLockedRow($id, $supplierId, function (?array $row) use ($id, $new): ?string {
+            $row ?? throw TaxFilingException::notFound();
+            if ($row['filing_status'] === 'generated') {
+                throw new TaxFilingException('Podání není označené jako podané.', 'not_filed', 409);
+            }
+            $old = (string) $row['filed_at'];
+            if ($old === $new) {
+                return null;
+            }
+            [$from, $to] = $old < $new ? [$old, $new] : [$new, $old];
+            foreach ($this->repo->filedForPeriod($row['supplier_id'], $row['form_code'], $row['period_year'], $row['period_month'], $row['period_quarter']) as $other) {
+                if ($other['id'] !== $id && $other['filed_at'] >= $from && $other['filed_at'] <= $to) {
+                    throw new TaxFilingException('Úprava času podání by změnila pořadí podání za stejné období.', 'order_would_change', 409);
+                }
+            }
+            $this->repo->setFiledAt($id, $new);
+            return $old;
+        });
+        if ($previous !== null) {
+            $this->logger->log('tax_submission.filed_at_adjusted', $userId, 'tax_submission', $id, ['from' => $previous, 'to' => $new], null, null, $supplierId);
+        }
     }
 
     /**

@@ -297,7 +297,7 @@
     "settings": "Nastavení", "supplier_current": "Dodavatel", "suppliers": "Dodavatelé", "codebooks": "Číselníky", "users": "Uživatelé", "emails": "E-maily",
     "log": "Log", "cron_jobs": "Plánované úlohy", "exports": "Export vystavených", "imports": "Importy", "imports_issued": "Import vystavených", "imports_purchase": "Import přijatých", "ai_import": "AI import", "integrations": "Externí integrace", "crm": "CRM", "reports_dph": "DPH přiznání", "reports_kh": "Kontrolní hlášení", "reports_dph_book": "Kniha DPH", "reports_shv": "Souhrnné hlášení", "reports_oss": "OSS přiznání", "reports_income_tax": "Daň z příjmů", "reports_submissions": "Archiv podání", "reports_monthly_export": "Hromadný export", "tax_optimizer": "Daňový optimalizátor", "email_templates": "E-mail šablony", "email_profiles": "Odesílací profily", "sent_emails": "Odeslané e-maily", "smtp_logs": "SMTP log analýza", "approvals": "Schvalování", "updates": "Aktualizace", "myucto_upgrade": "Přechod na MyÚčto", "api_tokens": "API tokeny", "electronic_signatures": "Elektronické podpisy", "signing_profiles": "Podpisové profily", "bank_accounts": "Bankovní účty", "bank_email_notices": "Bankovní avíza", "recurring": "Pravidelné fakturace", "price_list": "Ceník", "help": "Nápověda", "logout": "Odhlásit",
     "section_sales": "Prodej", "section_purchase": "Nákup", "section_finance": "Finance", "section_clients": "Klienti",
-    "section_documents": "Dokumenty", "documents": "Dokumenty", "logbook": "Kniha jízd",
+    "section_documents": "Dokumenty", "documents": "Dokumenty", "databox": "Datové schránky", "logbook": "Kniha jízd",
     "purchase_invoices": "Přijaté faktury", "purchase_export": "Export přijatých", "payment_orders": "Platební příkazy", "vendors": "Dodavatelé",
     "support_dev": "Podpořte rozvoj",
     "section_favorites": "Oblíbené", "favorite_add": "Přidat do oblíbených", "favorite_remove": "Odebrat z oblíbených", "favorite_save_failed": "Oblíbené se nepodařilo uložit.",
@@ -4043,7 +4043,11 @@
       "status_skipped": "Bez schématu",
       "download_xml": "Stáhnout XML",
       "delete_confirm": "Smazat archivovaný záznam? Tato akce nelze vrátit.",
-      "records": "záznamů"
+      "records": "záznamů",
+      "send_databox": "Odeslat datovou schránkou",
+      "send_databox_again": "Odeslat znovu datovou schránkou",
+      "databox_delivered": "Odesláno {dm} – doručeno {date}",
+      "databox_sent": "Odesláno {dm}"
     },
     "income_tax": {
       "title": "Daň z příjmů",
@@ -4782,6 +4786,297 @@
       "unit_price": "Cena/MJ",
       "total_open": "Celkem otevřeno",
       "footer_note": "Náhled ukazuje rozpracované výkazy, které dosud nebyly vyfakturovány. Údaje se průběžně aktualizují."
+    }
+  },
+  "databox": {
+    "page": {
+      "title": "Datové schránky",
+      "subtitle": "Zprávy z datových schránek, odesílání a stav doručení",
+      "no_boxes": "Zatím není připojená žádná datová schránka.",
+      "go_settings": "Připojit v Nastavení",
+      "box": "Datová schránka",
+      "box_inactive": "Schránka je vypnutá – synchronizace i odesílání jsou zastavené, uložené zprávy zůstávají.",
+      "empty": "Žádné zprávy."
+    },
+    "tab": {
+      "received": "Přijaté",
+      "sent": "Odeslané"
+    },
+    "filter": {
+      "unread": "Nepřečtené",
+      "tax_office": "Od finančního úřadu",
+      "search": "Hledat věc, odesílatele, číslo zprávy"
+    },
+    "state": {
+      "in_box": "V schránce, nedoručeno",
+      "fiction": "Doručeno fikcí",
+      "delivered": "Doručeno",
+      "undeliverable": "Nedoručitelná",
+      "erased": "Smazáno",
+      "rejected": "Odmítnuto",
+      "other": "Jiný stav",
+      "unknown": "Neznámý stav"
+    },
+    "state_help": {
+      "in_box": "Zpráva dorazila do schránky, ale právně ještě není doručená. Doručí se přihlášením oprávněného uživatele nebo automaticky fikcí po 10 dnech.",
+      "fiction": "Uplynulo 10 dní od dodání – zpráva je právně doručená fikcí.",
+      "delivered": "Zpráva je právně doručená (přihlásil se oprávněný uživatel).",
+      "undeliverable": "Schránka adresáta byla znepřístupněna, zpráva se nedoručila.",
+      "erased": "Zpráva byla v ISDS smazána.",
+      "rejected": "Zpráva byla odmítnuta (například kvůli viru).",
+      "other": "Stav zprávy není mezi běžnými stavy.",
+      "unknown": "Stav zprávy se nepodařilo určit."
+    },
+    "tax_office": "Finanční úřad",
+    "personal_delivery": "Do vlastních rukou",
+    "unread": "Nepřečtená",
+    "unknown": "Neznámé (zatím neověřeno)",
+    "ack_all": "Označit vše jako vyřízené",
+    "ack_all_confirm": "Označit všechny přijaté zprávy této schránky jako vyřízené? Zprávy se tím neotevírají ani nedoručují.",
+    "ack_all_done": "Označeno jako vyřízené: {count}",
+    "detail": {
+      "no_subject": "(bez věci)",
+      "sender": "Odesílatel",
+      "recipient": "Příjemce",
+      "dm_id": "Číslo zprávy",
+      "delivery_time": "Dodáno do schránky",
+      "acceptance_time": "Doručeno",
+      "attachment_size": "Velikost příloh",
+      "attachments": "Přílohy",
+      "download_zfo": "Stáhnout ZFO",
+      "download_receipt": "Stáhnout doručenku (ZFO)",
+      "load_receipt": "Načíst doručenku",
+      "acknowledge": "Označit jako vyřízené",
+      "receipt_events": "Průběh doručení"
+    },
+    "hints": {
+      "kh_change_17d": "Výzva ke změně/doplnění údajů: 17 dnů ode dne dodání do datové schránky (§ 101g odst. 3 ZDPH)",
+      "kh_file_5d": "Výzva k podání kontrolního hlášení: 5 dnů od oznámení výzvy (§ 101g odst. 1 ZDPH)",
+      "due": "orientační lhůta do {date}",
+      "after_delivery": "orientační lhůta po doručení",
+      "binding": "Závazná je lhůta uvedená ve výzvě."
+    },
+    "open": {
+      "button": "Otevřít a stáhnout",
+      "title": "Otevření zprávy",
+      "warning_undelivered": "Tato zpráva zatím není doručená. Otevřením se doručí ve smyslu zákona – začnou běžet lhůty vázané na doručení – a mohou se doručit i další dosud nedoručené zprávy ve schránce. Bez otevření se doručí sama fikcí dne {date}.",
+      "warning_undelivered_nodate": "Tato zpráva zatím není doručená. Otevřením se doručí ve smyslu zákona – začnou běžet lhůty vázané na doručení – a mohou se doručit i další dosud nedoručené zprávy ve schránce.",
+      "notice_fiction": "Zpráva je už právně doručená fikcí. Pro stažení je nutné přihlášení, právní okamžik doručení se tím nemění.",
+      "understand": "Rozumím, chci zprávu otevřít",
+      "confirm": "Otevřít zprávu",
+      "fiction_date": "Bez otevření se zpráva doručí fikcí dne {date}.",
+      "no_capable_login": "Žádné uložené přihlášení nemá právo číst přijaté zprávy – doplňte v Nastavení nebo otevřete v portálu.",
+      "delivery_time_unknown": "U zprávy chybí čas dodání, takže ji nelze otevřít bez doručení dalších zpráv. Otevřete ji na portálu datových schránek.",
+      "go_settings": "Otevřít Nastavení"
+    },
+    "field": {
+      "username": "Uživatelské jméno",
+      "password": "Heslo",
+      "label": "Název (štítek)",
+      "environment": "Prostředí",
+      "annotation": "Věc",
+      "to_hands": "K rukám",
+      "sender_ref_number": "Naše číslo jednací",
+      "recipient_ref_number": "Vaše číslo jednací",
+      "personal_delivery": "Do vlastních rukou"
+    },
+    "compose": {
+      "button": "Nová zpráva",
+      "title": "Nová datová zpráva",
+      "from_box": "Odesílající schránka",
+      "recipient_id": "ID datové schránky příjemce (7 znaků)",
+      "lookup_placeholder": "ID, IČO nebo název",
+      "lookup": "Vyhledat",
+      "no_results": "Nic nenalezeno.",
+      "files": "Přílohy",
+      "files_hint": "Celkem nejvýše 20 MB. Vybráno: {size}",
+      "prepare": "Připravit k odeslání"
+    },
+    "send": {
+      "title": "Potvrzení odeslání",
+      "done_title": "Zpráva odeslána",
+      "legal_warning": "Odesláním vznikne právně závazný úkon. Zkontrolujte příjemce a přílohy. Odeslání nelze vzít zpět.",
+      "from": "Odesílatel",
+      "to": "Příjemce",
+      "unverified": "neověřeno",
+      "form": "Výkaz",
+      "file": "Soubor",
+      "size": "Velikost",
+      "total": "Celkem",
+      "previous": "Předchozí odeslání",
+      "resend_checkbox": "Tento výkaz už byl odeslán nebo je označený jako podaný, chci ho odeslat znovu",
+      "filing_recorded": "Podání je označené jako podané (datová schránka). Čas podání se upřesní podle doručenky a doručenka se uloží k podání.",
+      "filing_kept": "Stav podání zůstal beze změny – výkaz už byl označený jako podaný dříve.",
+      "filing_not_recorded": "Zpráva je odeslaná, ale podání se nepodařilo označit jako podané:",
+      "unvalidated_checkbox": "Chápu, že XML nebylo ověřeno proti schématu EPO a podání může být neúčinné. Přesto ho chci odeslat.",
+      "expires": "Potvrzení platí do {date}. Po vypršení je nutné zprávu připravit znovu.",
+      "submit": "Odeslat",
+      "sending": "Odesílám…",
+      "done": "Zpráva byla odeslána.",
+      "dm_id": "Číslo zprávy",
+      "state": "Stav",
+      "receipt": "Doručenka",
+      "receipt_pending": "Zatím není k dispozici, načtěte ji později v detailu zprávy.",
+      "open_message": "Zobrazit zprávu"
+    },
+    "warnings": {
+      "xsd_skipped": "XML nebylo ověřeno proti schématu EPO.",
+      "already_filed": "Výkaz je už označený jako podaný. Odeslání datovou schránkou jeho stav nezmění.",
+      "no_office": "Pro podání nebyl určen finanční úřad – zadejte ID schránky příjemce ručně.",
+      "recipient_differs_from_office": "Příjemce se liší od finančního úřadu uvedeného v podání.",
+      "personal_box": "Daňové podání podnikatele patří odeslat ze schránky podnikatele (PFO/PO), ne z osobní schránky FO.",
+      "test_environment": "Schránka je v testovacím prostředí – zpráva se reálnému úřadu nedoručí.",
+      "recipient_unverified": "Příjemce se nepodařilo ověřit v adresáři schránek."
+    },
+    "submission": {
+      "title": "Odeslat podání datovou schránkou",
+      "xsd_failed": "XML neprošlo kontrolou proti schématu EPO, a proto se nesmí odeslat. Podání bez předepsaného formátu je neúčinné.",
+      "integrity_failed": "Archivované XML neodpovídá uloženému kontrolnímu součtu (SHA-256), a proto se nesmí odeslat. Výkaz vygenerujte znovu.",
+      "duplicate_filing": "Za toto období a formu už je jiné podání označené jako podané. Nejdřív u něj zrušte označení podání, jinak by odeslání nešlo zaznamenat.",
+      "recipient": "Příjemce",
+      "source_xml": "podle XML podání",
+      "source_supplier": "podle nastavení firmy",
+      "source_none": "neurčen",
+      "override": "změnit",
+      "no_box": "Žádná aktivní schránka nemá právo odesílat zprávy.",
+      "file": "Příloha",
+      "continue": "Pokračovat"
+    },
+    "errors": {
+      "missing_right": "Přihlášení nemá potřebné právo v ISDS.",
+      "delivery_not_confirmed": "Doručení nebylo potvrzeno – zpráva se neotevřela.",
+      "delivery_ack_required": "Zpráva není doručená, je nutné výslovné potvrzení.",
+      "databox_login_failed": "Přihlášení do datové schránky se nezdařilo. Zkontrolujte jméno a heslo a nezkoušejte je opakovaně.",
+      "token_invalid": "Potvrzení vypršelo nebo už bylo použito. Připravte zprávu k odeslání znovu.",
+      "confirmation_required": "Odeslání vyžaduje potvrzení.",
+      "resend_confirmation_required": "Podání už bylo odesláno, je nutné potvrdit opětovné odeslání.",
+      "unvalidated_confirmation_required": "XML nebylo ověřeno proti schématu EPO, odeslání vyžaduje samostatné potvrzení.",
+      "integrity_failed": "Odesílaný soubor neodpovídá kontrolnímu součtu. Nic se neodeslalo, připravte odeslání znovu.",
+      "delivery_time_unknown": "U zprávy chybí čas dodání, takže ji nelze otevřít bez doručení dalších zpráv. Otevřete ji na portálu datových schránek."
+    },
+    "indicator": {
+      "ok_title": "Bezpečné pro synchronizaci",
+      "ok": "Bezpečné pro synchronizaci – uživatel smí vypisovat seznamy a nesmí číst zprávy, synchronizace nic nedoručí.",
+      "opt_in_title": "Doručuje (schváleno)",
+      "opt_in": "Smí číst a synchronizace zprávy DORUČUJE (schválil vlastník). Lhůty začnou běžet po jejich příchodu.",
+      "blocked_delivers_title": "Doručuje – synchronizace vypnuta",
+      "blocked_delivers": "Smí číst zprávy – synchronizace je vypnutá, aby zprávy nedoručovala.",
+      "blocked_no_list_title": "Nelze vypsat seznam",
+      "blocked_no_list": "Chybí právo Zobrazovat seznamy, historii a doručenky.",
+      "unverified_title": "Neověřeno",
+      "unverified": "Oprávnění zatím nebyla zjištěna. Spusťte Ověřit připojení.",
+      "no_credential_title": "Bez přihlášení",
+      "no_credential": "Pro synchronizaci není uloženo žádné přihlášení.",
+      "login_failed_title": "Přihlášení selhalo",
+      "login_failed": "Přihlášení se nezdařilo. Opravte heslo a spusťte Ověřit připojení."
+    },
+    "purpose": {
+      "sync": "Pro synchronizaci",
+      "action": "Pro akce"
+    },
+    "chip": {
+      "can_send": "Odesílat",
+      "can_search": "Hledat",
+      "can_read": "Číst"
+    },
+    "check_status": {
+      "ok": "V pořádku",
+      "bad_credentials": "Neplatné jméno nebo heslo",
+      "locked": "Přihlášení je dočasně zablokované",
+      "error": "Chyba při ověření"
+    },
+    "checked_at": "ověřeno {date}",
+    "password_expires": "Heslo vyprší {date}",
+    "password_expired": "– heslo už vypršelo!",
+    "password_expiring": "– zbývá {days} dní, změňte heslo v portálu ISDS",
+    "env": {
+      "production": "Ostrý provoz",
+      "test": "Testovací"
+    },
+    "last_sync": "Poslední synchronizace {date}",
+    "never_synced": "Zatím nebylo synchronizováno.",
+    "sync_status": {
+      "ok": "v pořádku",
+      "error": "chyba",
+      "paused": "pozastaveno"
+    },
+    "paused_until": "pozastaveno do {date}",
+    "replace_login": "Změnit přihlášení",
+    "no_action_login": "Přihlášení pro akce není nastaveno – bez něj nejde odesílat ani otevírat zprávy.",
+    "add_action_login": "Přidat přihlášení pro akce",
+    "remove_action_login": "Odebrat přihlášení pro akce",
+    "remove_action_confirm": "Odebrat přihlášení pro akce? Odesílání a otevírání zpráv z aplikace pak nebude možné.",
+    "credential_saved": "Přihlášení uloženo.",
+    "delivering": {
+      "label": "Povolit doručování synchronizací",
+      "warning": "Synchronizace pak zprávy doručí hned po jejich příchodu a lhůty začnou běžet bez vašeho vědomí. Zapněte jen pokud to opravdu chcete.",
+      "confirm": "Opravdu povolit doručování synchronizací? Každá zpráva se doručí hned po příchodu a začnou běžet právní lhůty bez vašeho vědomí."
+    },
+    "remove_confirm": "Opravdu odebrat tuto datovou schránku z aplikace?",
+    "remove_messages_confirm": "Schránka má uložené zprávy ({count}). Odebráním se smažou i uložené zprávy a doručenky. Pokračovat?",
+    "check_ok": "přihlášení je v pořádku",
+    "report_status": {
+      "ok": "Synchronizace proběhla",
+      "refused": "Synchronizace odmítnuta",
+      "paused": "Synchronizace pozastavena",
+      "error": "Chyba synchronizace",
+      "skipped": "Synchronizace přeskočena"
+    },
+    "report_counts": "Nové přijaté: {received} (z toho od finančního úřadu {tax}), nové odeslané: {sent}, aktualizováno: {updated}, doručenky: {receipts}",
+    "verify": "Ověřit připojení",
+    "sync_now": "Synchronizovat teď",
+    "deactivate": "Vypnout",
+    "activate": "Zapnout",
+    "remove_box": "Odebrat schránku",
+    "box_added": "Datová schránka byla připojena.",
+    "box_resolved": "Schránka rozpoznána podle přihlášení:",
+    "add_sync_hint": "Uživatel jen se seznamy – bez práva číst přijaté zprávy.",
+    "add_action_hint": "Volitelné – pro odesílání, vyhledávání a otevírání zpráv.",
+    "connecting": "Připojuji…",
+    "add_box": "Přidat schránku",
+    "add_box_submit": "Připojit schránku",
+    "settings": {
+      "title": "Datové schránky",
+      "hint": "Přístupy do datových schránek (ISDS). Hesla se ukládají šifrovaně a nikdy se nevracejí. Zprávy aplikace nikdy sama nedoručí ani neodešle.",
+      "empty": "Žádná schránka není připojena."
+    },
+    "help": {
+      "title": "Návod: jak založit přístup v ISDS",
+      "how_title": "Jak to funguje (a proč dva typy přihlášení)",
+      "how_intro": "U externí aplikace platí podle Provozního řádu ISDS zvláštní pravidlo: stažení seznamu došlých zpráv se počítá jako přihlášení do schránky. Uživatel, který smí zprávy číst, by je tím při každé synchronizaci doručil. Uživatel, který smí jen „Zobrazovat seznamy, historii a doručenky“, je naopak vidí (odesílatel, věc, datum, stav), ale nedoručí je.",
+      "th_login": "Přihlášení",
+      "th_use": "K čemu",
+      "th_rights": "Doporučená práva v ISDS",
+      "row_sync_login": "Pro synchronizaci (povinné)",
+      "row_sync_use": "Hodinová kontrola nových zpráv na pozadí.",
+      "row_sync_rights": "Jen „Zobrazovat seznamy, historii a doručenky“.",
+      "row_action_login": "Pro akce (volitelné)",
+      "row_action_use": "Odeslání zprávy, vyhledání příjemce, otevření zprávy po vašem kliknutí.",
+      "row_action_rights": "„Posílat zprávy a číst odeslané“ + „Vyhledávat schránky“ + „Zobrazovat seznamy…“; pro čtení v aplikaci navíc „Číst přijaté zprávy“.",
+      "levels_intro": "Podle toho, jaká práva uživatelům v ISDS dáte, máte tři úrovně:",
+      "levels": [
+        "Jen hlídání – pouze přihlášení pro synchronizaci. Aplikace ukazuje, co přišlo a odešlo, a upozorní vás na dashboardu. Zprávy čtete v oficiálním portálu. Nikdy nic nedoručí.",
+        "Hlídání + odesílání – druhé přihlášení bez práva číst. Můžete z aplikace odesílat zprávy a daňová podání. Stále nic nedoručí.",
+        "Hlídání + odesílání + čtení – druhé přihlášení smí i číst přijaté zprávy. Zprávu otevřete v aplikaci, ale jen po výslovném potvrzení, že ji tím můžete doručit."
+      ],
+      "refuse_note": "Pokud k synchronizaci zadáte přihlášení, které zprávy číst smí (například přístup vlastníka schránky), aplikace s ním synchronizovat odmítne – dokud to ve schránce výslovně nepovolíte (volba „Povolit doručování synchronizací“).",
+      "steps_title": "Založení přístupu v portálu ISDS (krok za krokem)",
+      "steps_intro": "Postup udělejte pro každou schránku zvlášť (osobní i podnikatelskou). Do webových služeb se nejde přihlásit bankovní identitou (NIA) ani mobilním klíčem, proto pro aplikaci založíte vlastního uživatele se jménem a heslem. Založit ho smí vlastník schránky nebo její administrátor.",
+      "steps": [
+        "Přihlaste se do portálu datových schránek na https://www.datovka.gov.cz (jako obvykle bankovní identitou) a vstupte do schránky, kterou chcete připojit.",
+        "Otevřete Nastavení → Uživatelé a vlevo klikněte na Nový uživatel.",
+        "Ve formuláři Přidání uživatele vyplňte údaje osoby, která účet používá (jste to vy), a zvolte Typ oprávnění: Pověřená osoba (ne Administrátor).",
+        "V části Adresa pro doručení přístupových údajů zvolte, kam mají přístupové údaje dorazit. Má-li osoba vlastní schránku fyzické osoby a je ztotožněná v registru obyvatel, přijdou údaje přímo do této schránky jako zpráva do vlastních rukou, jinak poštou jako dopis do vlastních rukou.",
+        "Zaškrtněte jen potřebná práva. Uživatel pro synchronizaci: pouze „Zobrazovat seznamy, historii a doručenky“ – nezaškrtávejte „Číst přijaté zprávy“ ani „Číst přijaté zprávy do vlastních rukou“. Uživatel pro akce (volitelný): „Posílat zprávy a číst odeslané“ + „Vyhledávat schránky“ + „Zobrazovat seznamy, historii a doručenky“; chcete-li zprávy číst i v aplikaci, přidejte „Číst přijaté zprávy“ (a „…do vlastních rukou“ jen pokud potřebujete číst i takto označené zprávy – u schránky FO portál při tomto právu varuje, protože do vlastních rukou chodí i zprávy s přístupovými údaji).",
+        "Klikněte na Přidat uživatele, zkontrolujte souhrn a potvrďte tlačítkem Vytvořit. Do schránky přijde informační zpráva o provedené akci.",
+        "Až dorazí přístupové údaje, přihlaste se tímto novým účtem jednou v portálu (jménem a heslem) a změňte si heslo – první heslo je platné jen pro první přihlášení a bez změny hesla nefunguje ani webová služba. Heslo musí mít 8 až 64 znaků, aspoň jedno velké písmeno, jedno malé písmeno a jednu číslici.",
+        "U nového uživatele nezapínejte přihlašování SMS kódem, Mobilním klíčem ani certifikátem – aplikace se přihlašuje jen jménem a heslem.",
+        "Platnost hesla: ve výchozím nastavení heslo po 90 dnech vyprší a webové služby se pak nepřihlásí. Buď si hlídejte termín (aplikace ho u přihlášení ukazuje a upozorní týden před koncem), nebo u tohoto omezeného uživatele nastavte Nastavení → Možnosti přihlášení → Platnost hesla → Neomezená (u uživatele, který smí jen číst seznamy, je to přijatelné riziko).",
+        "Zapamatujte si uživatelské jméno a heslo – v aplikaci je zadáte v dalším kroku."
+      ],
+      "note_portal": "Pokud vám portál nedovolí založit uživatele s vašimi vlastními údaji do vlastní schránky, použijte jiný postup vydání přístupu (poštou, Czech POINT) nebo zavolejte na infolinku datových schránek 954 200 200.",
+      "warning_owner": "Nikdy nezadávejte do aplikace přístupové údaje vlastníka schránky a aplikaci provozujte jen na serveru, který máte plně pod kontrolou. Provozní řád ISDS říká, že předání přístupových údajů aplikaci, která běží mimo zařízení pod vaší plnou kontrolou (cizí cloud, sdílená instalace), porušuje zákon č. 300/2008 Sb., § 9 odst. 2, a správce ISDS může takové údaje zneplatnit. Samostatný uživatel s omezenými právy toto riziko výrazně snižuje.",
+      "manual_link": "Celá kapitola v manuálu: Datové schránky"
     }
   }
 }

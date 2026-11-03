@@ -206,6 +206,12 @@ final class TaxSubmissionRepository
         )->execute([$filedAt, $channel, $reference, $userId, $id]);
     }
 
+    /** Corrects the time of a filing that is already recorded (state and channel stay). */
+    public function setFiledAt(int $id, string $filedAt): void
+    {
+        $this->db->pdo()->prepare('UPDATE tax_submissions SET filed_at = ? WHERE id = ?')->execute([$filedAt, $id]);
+    }
+
     /** Back to `generated`: forgets the filing data and the receipt (the payment record is a separate fact and stays). */
     public function clearFiling(int $id): void
     {

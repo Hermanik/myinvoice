@@ -297,7 +297,7 @@
     "settings": "Settings", "supplier_current": "Supplier", "suppliers": "Suppliers", "codebooks": "Codebooks", "users": "Users", "emails": "Emails",
     "log": "Activity log", "cron_jobs": "Scheduled jobs", "exports": "Issued exports", "imports": "Imports", "imports_issued": "Imports (issued)", "imports_purchase": "Imports (purchase)", "ai_import": "AI import", "integrations": "External integrations", "crm": "CRM", "reports_dph": "VAT return", "reports_kh": "Control statement", "reports_dph_book": "VAT ledger", "reports_shv": "Recapitulative statement", "reports_oss": "OSS return", "reports_income_tax": "Income tax", "reports_submissions": "Submission archive", "reports_monthly_export": "Bulk export", "tax_optimizer": "Tax optimizer", "email_templates": "Email templates", "email_profiles": "Sending profiles", "sent_emails": "Sent emails", "smtp_logs": "SMTP log analysis", "approvals": "Approvals", "updates": "Updates", "myucto_upgrade": "Upgrade to MyÚčto", "api_tokens": "API tokens", "electronic_signatures": "Electronic signatures", "signing_profiles": "Signing profiles", "bank_accounts": "Bank accounts", "bank_email_notices": "Bank notices", "recurring": "Recurring invoices", "price_list": "Price list", "help": "Help", "logout": "Sign out",
     "section_sales": "Sales", "section_purchase": "Purchases", "section_finance": "Finance", "section_clients": "Clients",
-    "section_documents": "Documents", "documents": "Documents", "logbook": "Trip logbook",
+    "section_documents": "Documents", "documents": "Documents", "databox": "Data boxes", "logbook": "Trip logbook",
     "purchase_invoices": "Received invoices", "purchase_export": "Received exports", "payment_orders": "Payment orders", "vendors": "Vendors",
     "support_dev": "Support development",
     "section_favorites": "Favorites", "favorite_add": "Add to favorites", "favorite_remove": "Remove from favorites", "favorite_save_failed": "Could not save favorites.",
@@ -4043,7 +4043,11 @@
       "status_skipped": "No schema",
       "download_xml": "Download XML",
       "delete_confirm": "Delete archived record? This cannot be undone.",
-      "records": "records"
+      "records": "records",
+      "send_databox": "Send via data box",
+      "send_databox_again": "Send again via data box",
+      "databox_delivered": "Sent {dm} - delivered {date}",
+      "databox_sent": "Sent {dm}"
     },
     "income_tax": {
       "title": "Income tax",
@@ -4773,6 +4777,297 @@
       "unit_price": "Unit price",
       "total_open": "Total open",
       "footer_note": "The preview shows work in progress that has not been invoiced yet. The data updates continuously."
+    }
+  },
+  "databox": {
+    "page": {
+      "title": "Data boxes",
+      "subtitle": "Data box messages, sending and delivery status",
+      "no_boxes": "No data box is connected yet.",
+      "go_settings": "Connect in Settings",
+      "box": "Data box",
+      "box_inactive": "This box is deactivated - sync and sending are stopped, stored messages are kept.",
+      "empty": "No messages."
+    },
+    "tab": {
+      "received": "Received",
+      "sent": "Sent"
+    },
+    "filter": {
+      "unread": "Unread",
+      "tax_office": "From the tax office",
+      "search": "Search subject, sender, message number"
+    },
+    "state": {
+      "in_box": "In the box, not delivered",
+      "fiction": "Delivered by fiction",
+      "delivered": "Delivered",
+      "undeliverable": "Undeliverable",
+      "erased": "Erased",
+      "rejected": "Rejected",
+      "other": "Other",
+      "unknown": "Unknown state"
+    },
+    "state_help": {
+      "in_box": "The message reached the box but is not legally delivered yet. It is delivered when an authorized user logs in, or automatically by fiction after 10 days.",
+      "fiction": "10 days have passed since arrival - the message is legally delivered by fiction.",
+      "delivered": "The message is legally delivered (an authorized user logged in).",
+      "undeliverable": "The recipient box was made inaccessible; the message was not delivered.",
+      "erased": "The message was erased in ISDS.",
+      "rejected": "The message was rejected (for example because of a virus).",
+      "other": "The message state is not one of the common states.",
+      "unknown": "The message state could not be determined."
+    },
+    "tax_office": "Tax office",
+    "personal_delivery": "Personal delivery",
+    "unread": "Unread",
+    "unknown": "Unknown (not verified yet)",
+    "ack_all": "Mark all as handled",
+    "ack_all_confirm": "Mark all received messages of this box as handled? This does not open or deliver them.",
+    "ack_all_done": "Marked as handled: {count}",
+    "detail": {
+      "no_subject": "(no subject)",
+      "sender": "Sender",
+      "recipient": "Recipient",
+      "dm_id": "Message ID",
+      "delivery_time": "Arrived in the box",
+      "acceptance_time": "Delivered at",
+      "attachment_size": "Attachment size",
+      "attachments": "Attachments",
+      "download_zfo": "Download ZFO",
+      "download_receipt": "Download receipt (ZFO)",
+      "load_receipt": "Fetch receipt",
+      "acknowledge": "Mark as handled",
+      "receipt_events": "Delivery events"
+    },
+    "hints": {
+      "kh_change_17d": "Call to change/supplement data: 17 days from delivery to the data box (§ 101g (3) VAT Act)",
+      "kh_file_5d": "Call to file the control statement: 5 days from the notice of the call (§ 101g (1) VAT Act)",
+      "due": "indicative deadline {date}",
+      "after_delivery": "indicative deadline after delivery",
+      "binding": "The deadline stated in the call is the binding one."
+    },
+    "open": {
+      "button": "Open and download",
+      "title": "Opening the message",
+      "warning_undelivered": "This message is not delivered yet. Opening it delivers it in the legal sense - deadlines tied to delivery start running - and other not yet delivered messages in the box may be delivered too. Without opening, it is delivered by fiction on {date}.",
+      "warning_undelivered_nodate": "This message is not delivered yet. Opening it delivers it in the legal sense - deadlines tied to delivery start running - and other not yet delivered messages in the box may be delivered too.",
+      "notice_fiction": "The message is already legally delivered by fiction. Downloading requires a login; the legal moment of delivery does not change.",
+      "understand": "I understand, I want to open the message",
+      "confirm": "Open message",
+      "fiction_date": "Without opening, the message is delivered by fiction on {date}.",
+      "no_capable_login": "No stored login may read received messages - add one in Settings or open the message in the portal.",
+      "delivery_time_unknown": "The message has no delivery time, so it cannot be opened without delivering other messages. Open it in the data box portal.",
+      "go_settings": "Open Settings"
+    },
+    "field": {
+      "username": "Username",
+      "password": "Password",
+      "label": "Label",
+      "environment": "Environment",
+      "annotation": "Subject",
+      "to_hands": "To the attention of",
+      "sender_ref_number": "Our reference number",
+      "recipient_ref_number": "Your reference number",
+      "personal_delivery": "Personal delivery"
+    },
+    "compose": {
+      "button": "New message",
+      "title": "New data message",
+      "from_box": "Sending box",
+      "recipient_id": "Recipient data box ID (7 characters)",
+      "lookup_placeholder": "ID, company number or name",
+      "lookup": "Search",
+      "no_results": "Nothing found.",
+      "files": "Attachments",
+      "files_hint": "At most 20 MB in total. Selected: {size}",
+      "prepare": "Prepare for sending"
+    },
+    "send": {
+      "title": "Confirm sending",
+      "done_title": "Message sent",
+      "legal_warning": "Sending creates a legally binding act. Check the recipient and attachments. Sending cannot be undone.",
+      "from": "From",
+      "to": "To",
+      "unverified": "unverified",
+      "form": "Form",
+      "file": "File",
+      "size": "Size",
+      "total": "Total",
+      "previous": "Previous sends",
+      "resend_checkbox": "This form was already sent or marked as filed, I want to send it again",
+      "filing_recorded": "The filing is marked as filed (data box). Its time is refined from the delivery receipt and the receipt is stored with the filing.",
+      "filing_kept": "The filing state is unchanged - the form was already marked as filed earlier.",
+      "filing_not_recorded": "The message was sent, but the filing could not be marked as filed:",
+      "unvalidated_checkbox": "I understand the XML was not validated against the EPO schema and the filing may be ineffective. I still want to send it.",
+      "expires": "The confirmation is valid until {date}. After that the message has to be prepared again.",
+      "submit": "Send",
+      "sending": "Sending…",
+      "done": "The message was sent.",
+      "dm_id": "Message ID",
+      "state": "State",
+      "receipt": "Receipt",
+      "receipt_pending": "Not available yet, fetch it later in the message detail.",
+      "open_message": "Show message"
+    },
+    "warnings": {
+      "xsd_skipped": "The XML was not validated against the EPO schema.",
+      "already_filed": "The form is already marked as filed. Sending it through the data box does not change its state.",
+      "no_office": "No tax office was determined for the filing - enter the recipient box ID manually.",
+      "recipient_differs_from_office": "The recipient differs from the tax office stated in the filing.",
+      "personal_box": "A business tax filing should be sent from the business box (PFO/PO), not from the personal FO box.",
+      "test_environment": "The box is in the test environment - the message will not reach a real authority.",
+      "recipient_unverified": "The recipient could not be verified in the box directory."
+    },
+    "submission": {
+      "title": "Send the filing via data box",
+      "xsd_failed": "The XML failed the EPO schema validation and must not be sent. A filing without the prescribed format is ineffective.",
+      "integrity_failed": "The archived XML does not match its stored checksum (SHA-256) and must not be sent. Generate the form again.",
+      "duplicate_filing": "Another filing of this period and form is already marked as filed. Remove its filed mark first, otherwise the send could not be recorded.",
+      "recipient": "Recipient",
+      "source_xml": "from the filing XML",
+      "source_supplier": "from company settings",
+      "source_none": "not determined",
+      "override": "change",
+      "no_box": "No active box may send messages.",
+      "file": "Attachment",
+      "continue": "Continue"
+    },
+    "errors": {
+      "missing_right": "The login lacks the required right in ISDS.",
+      "delivery_not_confirmed": "Delivery was not confirmed - the message was not opened.",
+      "delivery_ack_required": "The message is not delivered; explicit confirmation is required.",
+      "databox_login_failed": "Login to the data box failed. Check the username and password and do not retry repeatedly.",
+      "token_invalid": "The confirmation expired or was already used. Prepare the message again.",
+      "confirmation_required": "Sending requires confirmation.",
+      "resend_confirmation_required": "The filing was already sent; confirm the re-send.",
+      "unvalidated_confirmation_required": "The XML was not validated against the EPO schema; sending needs its own confirmation.",
+      "integrity_failed": "The file to send does not match its checksum. Nothing was sent, prepare the sending again.",
+      "delivery_time_unknown": "The message has no delivery time, so it cannot be opened without delivering other messages. Open it in the data box portal."
+    },
+    "indicator": {
+      "ok_title": "Safe for sync",
+      "ok": "Safe for sync - the user may list messages and may not read them, so sync never delivers anything.",
+      "opt_in_title": "Delivers (approved)",
+      "opt_in": "May read and sync DELIVERS messages (approved by the owner). Deadlines start running on arrival.",
+      "blocked_delivers_title": "Would deliver - sync off",
+      "blocked_delivers": "May read messages - sync is off so that it does not deliver them.",
+      "blocked_no_list_title": "Cannot list",
+      "blocked_no_list": "The right to view lists, history and receipts is missing.",
+      "unverified_title": "Not verified",
+      "unverified": "Permissions have not been detected yet. Run Verify connection.",
+      "no_credential_title": "No login",
+      "no_credential": "No login is stored for sync.",
+      "login_failed_title": "Login failed",
+      "login_failed": "The login failed. Fix the password and run Verify connection."
+    },
+    "purpose": {
+      "sync": "For sync",
+      "action": "For actions"
+    },
+    "chip": {
+      "can_send": "Send",
+      "can_search": "Search",
+      "can_read": "Read"
+    },
+    "check_status": {
+      "ok": "OK",
+      "bad_credentials": "Invalid username or password",
+      "locked": "Login is temporarily locked",
+      "error": "Verification error"
+    },
+    "checked_at": "checked {date}",
+    "password_expires": "Password expires {date}",
+    "password_expired": "- the password has expired!",
+    "password_expiring": "- {days} days left, change the password in the ISDS portal",
+    "env": {
+      "production": "Production",
+      "test": "Test"
+    },
+    "last_sync": "Last sync {date}",
+    "never_synced": "Not synced yet.",
+    "sync_status": {
+      "ok": "OK",
+      "error": "error",
+      "paused": "paused"
+    },
+    "paused_until": "paused until {date}",
+    "replace_login": "Change login",
+    "no_action_login": "No action login is set - without it you cannot send or open messages.",
+    "add_action_login": "Add action login",
+    "remove_action_login": "Remove action login",
+    "remove_action_confirm": "Remove the action login? Sending and opening messages from the app will no longer be possible.",
+    "credential_saved": "Login saved.",
+    "delivering": {
+      "label": "Allow sync to deliver messages",
+      "warning": "Sync will then deliver messages as soon as they arrive and deadlines will start running without your knowledge. Turn this on only if you really want it.",
+      "confirm": "Really allow sync to deliver messages? Every message will be delivered on arrival and legal deadlines will start running without your knowledge."
+    },
+    "remove_confirm": "Really remove this data box from the app?",
+    "remove_messages_confirm": "The box has stored messages ({count}). Removing it also deletes the stored messages and receipts. Continue?",
+    "check_ok": "login OK",
+    "report_status": {
+      "ok": "Sync finished",
+      "refused": "Sync refused",
+      "paused": "Sync paused",
+      "error": "Sync error",
+      "skipped": "Sync skipped"
+    },
+    "report_counts": "New received: {received} (from the tax office {tax}), new sent: {sent}, updated: {updated}, receipts: {receipts}",
+    "verify": "Verify connection",
+    "sync_now": "Sync now",
+    "deactivate": "Deactivate",
+    "activate": "Activate",
+    "remove_box": "Remove box",
+    "box_added": "Data box connected.",
+    "box_resolved": "Box detected from the login:",
+    "add_sync_hint": "A user with list rights only - without the right to read received messages.",
+    "add_action_hint": "Optional - for sending, searching and opening messages.",
+    "connecting": "Connecting…",
+    "add_box": "Add box",
+    "add_box_submit": "Connect box",
+    "settings": {
+      "title": "Data boxes",
+      "hint": "Data box (ISDS) logins. Passwords are stored encrypted and never returned. The app never delivers or sends a message on its own.",
+      "empty": "No box is connected."
+    },
+    "help": {
+      "title": "Guide: how to set up access in ISDS",
+      "how_title": "How it works (and why two kinds of login)",
+      "how_intro": "For an external application the ISDS Operating Rules set a special rule: downloading the list of received messages counts as a login to the box. A user who may read messages would deliver them on every sync. A user who may only \"View lists, history and receipts\" sees them (sender, subject, date, state) but does not deliver them.",
+      "th_login": "Login",
+      "th_use": "Purpose",
+      "th_rights": "Recommended ISDS rights",
+      "row_sync_login": "For sync (required)",
+      "row_sync_use": "Hourly background check for new messages.",
+      "row_sync_rights": "Only \"View lists, history and receipts\".",
+      "row_action_login": "For actions (optional)",
+      "row_action_use": "Sending a message, searching for a recipient, opening a message after your click.",
+      "row_action_rights": "\"Send messages and read sent\" + \"Search boxes\" + \"View lists…\"; for reading in the app additionally \"Read received messages\".",
+      "levels_intro": "Depending on the rights you give the users in ISDS there are three levels:",
+      "levels": [
+        "Monitoring only - just the sync login. The app shows what arrived and was sent and alerts you on the dashboard. You read messages in the official portal. It never delivers anything.",
+        "Monitoring + sending - a second login without the right to read. You can send messages and tax filings from the app. It still never delivers anything.",
+        "Monitoring + sending + reading - the second login may also read received messages. You open a message in the app, but only after explicitly confirming that this may deliver it."
+      ],
+      "refuse_note": "If you enter a login for sync that may read messages (for example the box owner access), the app refuses to sync with it - until you explicitly allow it for the box (the \"Allow sync to deliver messages\" option).",
+      "steps_title": "Setting up access in the ISDS portal (step by step)",
+      "steps_intro": "Do this for each box separately (personal and business). The web services cannot be accessed with bank identity (NIA) or the mobile key, so you create a dedicated user with a username and password for the app. The box owner or its administrator may create it.",
+      "steps": [
+        "Sign in to the data box portal at https://www.datovka.gov.cz (with bank identity as usual) and enter the box you want to connect.",
+        "Open Settings → Users and click New user on the left.",
+        "In the Add user form fill in the details of the person who will use the account (that is you) and choose Authorization type: Authorized person (not Administrator).",
+        "In the section Address for delivery of access data choose where the access data should be delivered. If the person has their own natural-person box and is identified in the population register, the data arrives in that box as a message to own hands; otherwise it comes by post as a letter to own hands.",
+        "Tick only the necessary rights. Sync user: only \"View lists, history and receipts\" - do not tick \"Read received messages\" or \"Read received messages to own hands\". Action user (optional): \"Send messages and read sent\" + \"Search boxes\" + \"View lists, history and receipts\"; if you also want to read messages in the app, add \"Read received messages\" (and \"…to own hands\" only if you need to read messages marked that way - for an FO box the portal warns about this right, because messages with access data are also sent to own hands).",
+        "Click Add user, check the summary and confirm with Create. An informational message about the action arrives in the box.",
+        "When the access data arrives, sign in once in the portal with this new account (username and password) and change the password - the first password is valid only for the first login and the web service does not work without changing it. The password must have 8 to 64 characters, at least one uppercase letter, one lowercase letter and one digit.",
+        "For the new user do not enable login by SMS code, Mobile key or certificate - the app signs in with username and password only.",
+        "Password validity: by default the password expires after 90 days and the web services can no longer sign in. Either watch the deadline (the app shows it next to the login and warns a week before the end), or set Settings → Login options → Password validity → Unlimited for this restricted user (for a user who may only read lists this is an acceptable risk).",
+        "Remember the username and password - you enter them in the app in the next step."
+      ],
+      "note_portal": "If the portal does not let you create a user with your own details in your own box, use another way of issuing access (by post, Czech POINT) or call the data box hotline 954 200 200.",
+      "warning_owner": "Never enter the access data of the box owner into the app and run the app only on a server you fully control. The ISDS Operating Rules say that handing access data to an application running outside a device under your full control (foreign cloud, shared installation) violates Act No. 300/2008 Coll., § 9 (2), and the ISDS administrator may invalidate such data. A separate user with restricted rights reduces this risk significantly.",
+      "manual_link": "Full manual chapter: Data boxes"
     }
   }
 }

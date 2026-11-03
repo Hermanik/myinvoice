@@ -149,6 +149,9 @@ final class Bootstrap
                 $c->get(\MyInvoice\Service\Tax\VatPaymentRecognizer::class),
             ),
 
+            // ISDS (data boxes) web service transport; tests replace it with recorded responses.
+            \MyInvoice\Service\Databox\IsdsTransport::class => fn () => new \MyInvoice\Service\Databox\GuzzleIsdsTransport(),
+
             // MCP tools call the app's own routes; the App itself is registered below, after it is built.
             \MyInvoice\Service\Mcp\InternalApiClient::class => fn (ContainerInterface $c) => new \MyInvoice\Service\Mcp\InternalApiClient(
                 $c->get(App::class),

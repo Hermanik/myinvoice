@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Body>
+<q:GetListOfReceivedMessagesResponse xmlns:q="http://isds.czechpoint.cz/v20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <q:dmStatus><q:dmStatusCode>9999</q:dmStatusCode><q:dmStatusMessage>Neznámá chyba serveru.</q:dmStatusMessage></q:dmStatus>
+</q:GetListOfReceivedMessagesResponse>
+</SOAP-ENV:Body></SOAP-ENV:Envelope>
