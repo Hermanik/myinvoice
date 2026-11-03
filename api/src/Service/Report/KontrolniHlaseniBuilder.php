@@ -195,6 +195,7 @@ final class KontrolniHlaseniBuilder
         // Identifikaci doplňuje {@see resolveA2Identification()} / {@see a2Identification()}.
         $rowNum = 0;
         $celkA2 = 0.0;
+        $celkA2Vat = 0.0;
         foreach ($a2 as $r) {
             $rowNum++;
             $v = $dom->createElement('VetaA2');
@@ -203,6 +204,7 @@ final class KontrolniHlaseniBuilder
             $v->setAttribute('k_stat', (string) ($r['k_stat'] ?? ''));
             $v->setAttribute('vatid_dod', (string) ($r['vatid_dod'] ?? ''));
             $celkA2 += (float) $r['base21'] + (float) $r['base12'];
+            $celkA2Vat += (float) $r['vat21'] + (float) $r['vat12'];
             $v->setAttribute('c_evid_dd', (string) $r['vendor_invoice_number']);
             $v->setAttribute('dppd', $this->formatDate($r['tax_date']));
             $v->setAttribute('zakl_dane1', $this->formatAmount($r['base21']));
@@ -218,10 +220,12 @@ final class KontrolniHlaseniBuilder
         // sčítá se obrat23/obrat5 z REÁLNĚ emitovaných vět, ne z kandidátů.
         $rowNum = 0;
         $obrat23 = 0.0; $obrat5 = 0.0;
+        $obratDan23 = 0.0; $obratDan5 = 0.0;
         foreach ($a4 as $r) {
             $cleanDic = self::cleanDic($r['counterparty_dic'] ?? '');
             if ($cleanDic === '') continue;
             $obrat23 += (float) $r['base21']; $obrat5 += (float) $r['base12'];
+            $obratDan23 += (float) $r['vat21']; $obratDan5 += (float) $r['vat12'];
             $rowNum++;
             $taxDate = $this->formatDate($r['tax_date']);
             $v = $dom->createElement('VetaA4');
@@ -276,10 +280,12 @@ final class KontrolniHlaseniBuilder
         // pln23/pln5 se proto (jako u A.4) sčítá z reálně emitovaných vět.
         $rowNum = 0;
         $pln23 = 0.0; $pln5 = 0.0;
+        $plnDan23 = 0.0; $plnDan5 = 0.0;
         foreach ($b2 as $r) {
             $cleanDic = self::cleanDic($r['counterparty_dic'] ?? '');
             if ($cleanDic === '') continue;
             $pln23 += (float) $r['base21']; $pln5 += (float) $r['base12'];
+            $plnDan23 += (float) $r['vat21']; $plnDan5 += (float) $r['vat12'];
             $rowNum++;
             $v = $dom->createElement('VetaB2');
             $v->setAttribute('c_radku', (string) $rowNum);
@@ -315,12 +321,17 @@ final class KontrolniHlaseniBuilder
         // vatid_dod) proto sčítají v emisních blocích výše; sumační A.5/B.3 nemají co
         // vyřadit a přičítají se tady.
         $obrat23 += (float) ($a5['base21'] ?? 0); $obrat5 += (float) ($a5['base12'] ?? 0);
+        $obratDan23 += (float) ($a5['vat21'] ?? 0); $obratDan5 += (float) ($a5['vat12'] ?? 0);
         $pln23 += (float) ($b3['base21'] ?? 0); $pln5 += (float) ($b3['base12'] ?? 0);
+        $plnDan23 += (float) ($b3['vat21'] ?? 0); $plnDan5 += (float) ($b3['vat12'] ?? 0);
         $plnRezPren = 0.0; foreach ($a1 as $r) { $plnRezPren += (float) $r['base']; }
         $rezPren23 = 0.0; $rezPren5 = 0.0;
+        $rezPrenDan23 = 0.0; $rezPrenDan5 = 0.0;
         foreach ($b1 as $r) {
             $rezPren23 += (float) $r['base21'];
             $rezPren5 += (float) $r['base12'];
+            $rezPrenDan23 += (float) $r['vat21'];
+            $rezPrenDan5 += (float) $r['vat12'];
         }
         $vetaC = $dom->createElement('VetaC');
         $vetaC->setAttribute('obrat23',      $this->formatAmount($obrat23));
@@ -337,17 +348,10 @@ final class KontrolniHlaseniBuilder
         $vetaC->setAttribute('celk_zd_a2',   $this->formatAmount($celkA2));
         $dphkh->appendChild($vetaC);
 
-        // Termín podání = 25. dne měsíce následujícího po konci období.
-        // For a quarterly filing the end of the quarter ($end) decides, NOT the passed
-        // $month (jinak build(..., 4, 'quarterly') = Q2 vrátí termín 25.05. místo 25.07.).
-        $deadlineMonth = (int) substr($end, 5, 2) + 1;
-        $deadlineYear = $year;
-        if ($deadlineMonth > 12) { $deadlineMonth -= 12; $deadlineYear++; }
-        // § 33/4 daňového řádu: sobota/neděle/svátek → nejbližší následující pracovní den
-        // (25.07.2026 = sobota → 27.07.2026; bez posunu UI chybně hlásilo „po termínu").
-        $deadline = CzechWorkingDays::shiftToWorkingDay(
-            new \DateTimeImmutable(sprintf('%04d-%02d-25', $deadlineYear, $deadlineMonth))
-        )->format('Y-m-d');
+        // Filing deadline: the 25th of the month after the period, moved to a working day (§ 33/4 DŘ).
+        // For a quarterly filing the end of the quarter decides, NOT the passed $month
+        // (build(..., 4, 'quarterly') = Q2 gives 25. 7., not 25. 5.).
+        $deadline = ReportPeriod::filingDeadline($year, $month, $period);
 
         return [
             'xml'      => $dom->saveXML() ?: '',
@@ -364,10 +368,41 @@ final class KontrolniHlaseniBuilder
                 'b3_count_aggregated' => $b3['count'],
                 'form'                => $form,
                 'submission_deadline' => $deadline,
+                // What the VetaC recapitulation reports, plus the tax — compared with the DPH
+                // return by the cross-check (A.4+A.5 <-> rows 1/2, B.2+B.3 <-> 40/41, A.1 <-> 25,
+                // B.1 <-> 10/11, A.2 <-> 3-6, 12, 13).
+                'totals'              => [
+                    'a4_a5' => ['base21' => round($obrat23, 2), 'vat21' => round($obratDan23, 2), 'base12' => round($obrat5, 2), 'vat12' => round($obratDan5, 2)],
+                    'b2_b3' => ['base21' => round($pln23, 2), 'vat21' => round($plnDan23, 2), 'base12' => round($pln5, 2), 'vat12' => round($plnDan5, 2)],
+                    'a1'    => ['base' => round($plnRezPren, 2)],
+                    'b1'    => ['base21' => round($rezPren23, 2), 'vat21' => round($rezPrenDan23, 2), 'base12' => round($rezPren5, 2), 'vat12' => round($rezPrenDan5, 2)],
+                    'a2'    => ['base' => round($celkA2, 2), 'vat' => round($celkA2Vat, 2)],
+                ],
             ],
             'warnings' => $warnings,
             'missing_rates' => $missingRates,
         ];
+    }
+
+    /**
+     * KH section a ledger row is projected to: 'A.1' / 'A.2' / 'B.1' (the explicit classification),
+     * 'DOM' for the domestic taxable supplies (A.4/A.5 sales, B.2/B.3 purchases) and null for a row
+     * that is not in the KH at all.
+     *
+     * A sale is always a candidate, a purchase only with the right to deduct (dphdp3_line != NULL):
+     * a purchase without it (code 42) is in no KH and the DPHDP3 skips it too. Reverse-charge rows
+     * without a KH section (import from a 3rd country, supplies to the EU) never go to DOM.
+     *
+     * @param array<string,mixed> $row a {@see VatLedgerService::rows()} row
+     */
+    public static function routeRow(array $row): ?string
+    {
+        $section = $row['kh_section'] ?? null;
+        if (in_array($section, ['A.1', 'A.2', 'B.1'], true)) {
+            return $section;
+        }
+        $eligible = ($row['source'] ?? '') === 'sale' || ($row['dphdp3_line'] ?? null) !== null;
+        return $eligible && empty($row['is_reverse_charge']) ? 'DOM' : null;
     }
 
     /**
@@ -455,34 +490,30 @@ final class KontrolniHlaseniBuilder
             // přispěje jen do JEDNÉ sekce. Tím se mixed faktura (např. §92 RC řádek +
             // běžný 21% řádek) rozdělí správně (RC část do A.1/B.1, zdanitelná do A.4/B.2),
             // místo aby celý součet spadl do jedné sekce (issue — audit KH/DPH 2026-07).
-            // khEligible: vystavené vždy, přijaté jen s nárokem na odpočet (dphdp3_line != NULL);
-            // přijaté bez nároku (kód 42, dphdp3_line=NULL) do KH nepatří, DPHDP3 je taky vynechává.
-            $khEligible = $r['source'] === 'sale' || $r['dphdp3_line'] !== null;
-            switch ($r['kh_section']) {
-                case 'A.1': // tuzemský §92 dodavatel — jen základ (VetaA1 nemá sazbové sloupce)
+            switch (self::routeRow($r)) {
+                case 'A.1': // domestic § 92 supplier — base only (VetaA1 has no rate columns)
                     $g['a1_by_code'][$rowKodPredPl] = ($g['a1_by_code'][$rowKodPredPl] ?? 0.0) + $base;
                     break;
-                case 'A.2': // přeshraniční samovyměřené (§ 24 služby, § 25 pořízení zboží z JČS)
+                case 'A.2': // cross-border self-assessed (§ 24 services, § 25 acquisition of goods from another member state)
                     if ($is21) { $g['a2_base21'] += $base; $g['a2_vat21'] += $vat; }
                     elseif ($r['vat_rate'] > 0) { $g['a2_base12'] += $base; $g['a2_vat12'] += $vat; }
                     break;
-                case 'B.1': // tuzemský §92 příjemce — samovyměřená daň (vat z rcSelfAssess)
+                case 'B.1': // domestic § 92 recipient — self-assessed tax (vat from rcSelfAssess)
                     $b1sums = $g['b1_by_code'][$rowKodPredPl]
                         ?? ['base21' => 0.0, 'vat21' => 0.0, 'base12' => 0.0, 'vat12' => 0.0];
                     if ($is21) { $b1sums['base21'] += $base; $b1sums['vat21'] += $vat; }
                     elseif ($r['vat_rate'] > 0) { $b1sums['base12'] += $base; $b1sums['vat12'] += $vat; }
                     $g['b1_by_code'][$rowKodPredPl] = $b1sums;
                     break;
-                default:
-                    // Tuzemská zdanitelná plnění (A.4/A.5, B.2/B.3). RC bez KH sekce — dovoz
-                    // zboží ze 3. země (kód 25), dodání/služba do EU (kód 20/22) — se sem
-                    // NESMÍ dostat (do KH nepatří, jen DPHDP3/SHV) → guard !is_reverse_charge.
-                    if ($khEligible && !$r['is_reverse_charge']) {
-                        $g['kh_regime_codes'][(string) ($r['kh_regime_code'] ?? '0')] = true;
-                        $g['kh_bad_debt_codes'][(string) ($r['kh_bad_debt'] ?? 'N')] = true;
-                        if ($is21) { $g['dom_base21'] += $base; $g['dom_vat21'] += $vat; }
-                        elseif ($r['vat_rate'] > 0) { $g['dom_base12'] += $base; $g['dom_vat12'] += $vat; }
-                    }
+                case 'DOM':
+                    // Domestic taxable supplies (A.4/A.5, B.2/B.3). Reverse-charge rows without a KH
+                    // section (import from a 3rd country, code 25; supplies to the EU, codes 20/22)
+                    // must NOT get here — they belong to DPHDP3/SHV only (see routeRow()).
+                    $g['kh_regime_codes'][(string) ($r['kh_regime_code'] ?? '0')] = true;
+                    $g['kh_bad_debt_codes'][(string) ($r['kh_bad_debt'] ?? 'N')] = true;
+                    if ($is21) { $g['dom_base21'] += $base; $g['dom_vat21'] += $vat; }
+                    elseif ($r['vat_rate'] > 0) { $g['dom_base12'] += $base; $g['dom_vat12'] += $vat; }
+                    break;
             }
             unset($g);
         }

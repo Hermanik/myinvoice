@@ -79,6 +79,11 @@ final class DeletePurchaseInvoiceAction
         $this->logger->log('purchase_invoice.deleted', $user['id'] ?? null, 'purchase_invoice', $id,
             [
                 'varsymbol'   => $existing['varsymbol'] ?? null,
+                // Needed to place a deleted document into a VAT period afterwards ("changed after filing").
+                'status_before' => $existing['status'] ?? null,
+                'tax_date'    => $existing['tax_date'] ?? null,
+                'issue_date'  => $existing['issue_date'] ?? null,
+                'document_kind' => $existing['document_kind'] ?? null,
                 'pdf_deleted' => $pdfDeleted,
                 'pdf_hash'    => $pdfHash !== '' ? substr($pdfHash, 0, 12) . '…' : null,
             ],

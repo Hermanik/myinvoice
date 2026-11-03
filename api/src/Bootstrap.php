@@ -145,6 +145,8 @@ final class Bootstrap
                 // Aktivita dokladu — „payment_matched" záznam u auto-spárování platby
                 // (vidět v aktivitě vystavené i přijaté faktury).
                 $c->get(\MyInvoice\Service\ActivityLogger::class),
+                // Payment of a filed DPH return recognised on an outgoing bank transaction.
+                $c->get(\MyInvoice\Service\Tax\VatPaymentRecognizer::class),
             ),
 
             // MCP tools call the app's own routes; the App itself is registered below, after it is built.

@@ -314,7 +314,10 @@ export const reportsApi = {
         exempt_revenue_orientacni?: number
         costs_orientacni: number
         profit_orientacni: number
+        /** Electronic filing (§ 136 odst. 2 písm. a) DŘ). */
         submission_deadline: string
+        /** Paper filing (§ 136 odst. 1 DŘ). */
+        paper_deadline: string
         currency: string
         is_vat_payer: boolean
       }

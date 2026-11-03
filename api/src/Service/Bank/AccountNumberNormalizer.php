@@ -105,6 +105,30 @@ final class AccountNumberNormalizer
     }
 
     /**
+     * Whether a statement (its account number and, when the statement carries it, the bank code)
+     * belongs to a stored bank account of a supplier (a `currencies` row).
+     *
+     * @param array{account_number?:?string, iban?:?string, bank_code?:?string} $account
+     */
+    public static function statementBelongsTo(array $account, string $statementAccount, ?string $statementBank): bool
+    {
+        $iban = isset($account['iban']) && is_string($account['iban']) ? $account['iban'] : null;
+        // Bank code filter (only when the statement carries one): the candidate's bank_code column or the
+        // code inside its IBAN. An unknown code does not rule it out — better to compare the account number
+        // than to lose an IBAN-only row.
+        if (!empty($statementBank)) {
+            $candidateBank = (string) ($account['bank_code'] ?? '');
+            if ($candidateBank === '' && $iban !== null) {
+                $candidateBank = (string) self::czechIbanBankCode($iban);
+            }
+            if ($candidateBank !== '' && $candidateBank !== $statementBank) {
+                return false;
+            }
+        }
+        return self::matchesAny($statementAccount, $account['account_number'] ?? null, $iban);
+    }
+
+    /**
      * True pokud účet z výpisu odpovídá uloženému účtu — buď přes `account_number`,
      * nebo přes domácí část `iban` (issue #109: EUR účty bývají evidované jen IBANem,
      * GPC ale nese domácí číslo účtu → bez tohohle se EUR výpis nikdy nespároval).

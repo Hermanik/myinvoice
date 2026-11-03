@@ -110,6 +110,10 @@ final class BankIgnoreNoteTest extends TestCase
         $payments = $paymentsReflection->newInstanceWithoutConstructor();
         $paymentsReflection->getProperty('db')->setValue($payments, $db);
         $reflection->getProperty('payments')->setValue($action, $payments);
+        // The transaction is not the payment of a VAT return: releasing it is a no-op.
+        $vatPayments = $this->createMock(\MyInvoice\Service\Tax\VatPaymentService::class);
+        $vatPayments->expects(self::once())->method('releaseTransaction')->with(1);
+        $reflection->getProperty('vatPayments')->setValue($action, $vatPayments);
         $request = (new ServerRequestFactory())->createServerRequest('POST', '/bank-transactions/1/unmatch')
             ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, 7);
         $response = $action->unmatch($request, new Response(), ['id' => 1]);

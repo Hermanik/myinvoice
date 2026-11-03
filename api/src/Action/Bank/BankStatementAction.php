@@ -74,6 +74,7 @@ final class BankStatementAction
         private readonly \MyInvoice\Service\Invoice\InvoicePaymentService $payments,
         private readonly \MyInvoice\Service\Invoice\PaymentTaxDocumentCreator $taxDocCreator,
         private readonly \MyInvoice\Service\Bank\Pdf\BankStatementPdfParserRegistry $pdfParsers,
+        private readonly \MyInvoice\Service\Tax\VatPaymentService $vatPayments,
     ) {}
 
     public function scan(Request $request, Response $response): Response
@@ -2741,6 +2742,9 @@ final class BankStatementAction
             $pdo->rollBack();
             return Json::error($response, 'unmatch_failed', 'Zrušení spárování selhalo: ' . $e->getMessage(), 500);
         }
+
+        // A transaction consumed as the payment of a filed DPH return: the liability is open again.
+        $this->vatPayments->releaseTransaction($txId, $userId ?: null);
 
         $ip = $this->ipMatcher->clientIpFromRequest($request->getServerParams());
         $this->logger->log('bank.tx_unmatch', $userId ?: null, 'bank_transaction', $txId, [

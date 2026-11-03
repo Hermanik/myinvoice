@@ -12,6 +12,7 @@ import SparklineChart from '@/components/charts/SparklineChart.vue'
 import TopClientsPieChart from '@/components/charts/TopClientsPieChart.vue'
 import TaxNetWidget from '@/components/dashboard/TaxNetWidget.vue'
 import ActionItemsWidget from '@/components/dashboard/ActionItemsWidget.vue'
+import TaxCalendarWidget from '@/components/dashboard/TaxCalendarWidget.vue'
 import WorkReportModal from '@/components/modals/WorkReportModal.vue'
 
 const router = useRouter()
@@ -161,6 +162,9 @@ const hasCostsData = computed(() => (summary.value?.purchase_costs_by_month ?? [
     <div v-else-if="summary && summary.kpi" class="space-y-6">
       <!-- ═══ Akce pro tebe (přesunuto z CRM) — první část Přehledu (skryto pro readonly) ═══ -->
       <ActionItemsWidget v-if="auth.canWrite" />
+
+      <!-- ═══ Daňový kalendář — nejbližší daňové termíny dodavatele (samo se skryje, když žádné nejsou) ═══ -->
+      <TaxCalendarWidget />
 
       <!-- ═══ Výkazy práce — rozpracované (draft) vystavené faktury k doplnění (skryto pro readonly) ═══ -->
       <section v-if="auth.canWrite && summary.draft_invoices && summary.draft_invoices.length" class="space-y-3">
