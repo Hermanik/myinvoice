@@ -178,15 +178,15 @@ final class VatPaymentService
         $card['variable_symbol'] = $vs;
 
         if ($withQr && $account !== null && $vs !== null && $card['amount_due'] > 0 && $card['state'] !== 'superseded') {
-            $due = new \DateTimeImmutable($card['due_date']);
-            $today = new \DateTimeImmutable('today');
+            // No due date is passed (the generator then dates the payment today): a tax is paid when it is
+            // CREDITED to the office's account, so a payment dated for the due date would arrive late.
             $card['qr'] = $this->qr->generate(
                 'CZK',
                 (float) $card['amount_due'],
                 $vs,
                 ['account_number' => $account['prefix'] . '-' . $account['number'], 'bank_code' => $account['bank_code'], 'iban' => $account['iban']],
                 (string) ($supplier['company_name'] ?? ''),
-                $due < $today ? $today : $due,
+                null,
                 $period['quarter'] !== null ? sprintf('DPH Q%d %d', $period['quarter'], $period['year']) : sprintf('DPH %02d/%d', $period['month'], $period['year']),
             );
         }

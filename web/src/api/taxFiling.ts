@@ -74,7 +74,7 @@ export interface ChangedDocument {
   total_with_vat: number | null
   currency: string | null
   deleted: boolean
-  changes: Array<{ type: 'created' | 'issued' | 'edited' | 'cancelled' | 'deleted' | 'booked'; at: string; user_id: number | null }>
+  changes: Array<{ type: 'created' | 'issued' | 'edited' | 'cancelled' | 'deleted'; at: string; user_id: number | null }>
 }
 
 export interface ChangesAfterFiling {
@@ -138,6 +138,8 @@ export interface TaxCalendarItem {
   days_left: number
   link: string
   filing: { status: 'unfiled' | FilingStatus; submission_id: number | null; filed_at: string | null } | null
+  /** Income tax return only: the paper deadline; `due_date` is the electronic one (§ 136 odst. 2 písm. a) DŘ). */
+  paper_due_date?: string
   /** Flat-tax advance only. */
   band?: string
   amount?: number

@@ -258,6 +258,8 @@ dokladu (nemá-li ho, k datu vystavení), ne podle dnešního stavu:
   uložená v době neplátcovství drží sazbu 0 % — po registraci ji generátor
   nepřepisuje, a proto fakturu plátce s DUZP v době plátcovství a všemi položkami
   na 0 % nevystaví ani neodešle, nechá ji jako koncept (viz [§ 12](12_Pravidelne_fakturace.md));
+  stejně se zachová **schválení výkazu práce**: koncept zůstane, nic se neodešle a na
+  Přehledu přibude položka **Faktura čeká na kontrolu sazby DPH** (viz [§ 8.10](08_Prehled.md));
   ruční fakturu stejného tvaru editor jen označí upozorněním;
 - **daňový doklad k přijaté platbě** se vystaví jen tehdy, byl-li dodavatel
   plátcem v den přijetí platby;

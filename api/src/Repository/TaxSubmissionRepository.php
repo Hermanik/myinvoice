@@ -152,7 +152,9 @@ final class TaxSubmissionRepository
     }
 
     /**
-     * Filed/confirmed submissions of one type + period (all forms), oldest filing first.
+     * Filed/confirmed submissions of one type + period (all forms), in the order of filing: by `filed_at`,
+     * ties by id. The LAST row is the return in force (the earlier ones are superseded); that is why a
+     * second return of a period must be filed with a full date and time.
      *
      * @return list<array<string,mixed>>
      */
@@ -171,7 +173,8 @@ final class TaxSubmissionRepository
     }
 
     /**
-     * Every filed/confirmed submission of the given types for a supplier (calendar badges, payment feed).
+     * Every filed/confirmed submission of the given types for a supplier (calendar badges, payment feed),
+     * per period in the order of filing — `filed_at`, ties by id — so the last of a period is the one in force.
      *
      * @param list<string> $formCodes
      * @param bool $withSummary false skips the (large) summary JSON when the caller only needs the filing facts

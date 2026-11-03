@@ -119,8 +119,10 @@ final class IncomeTaxBuilder
                 'exempt_revenue_orientacni' => round($totals['exempt_revenue'] ?? 0, 2),
                 'costs_orientacni'   => round($totals['costs'], 2),
                 'profit_orientacni'  => round($totals['revenue'] - $totals['costs'], 2),
-                // 1 April of the following year (§ 136/1 DŘ, basic deadline), moved to a working day (§ 33/4 DŘ).
-                'submission_deadline' => ReportPeriod::incomeTaxDeadline($year),
+                // Electronic filing (§ 136/2 a) DŘ: 1 May of the following year) is the main date, paper
+                // filing (§ 136/1 DŘ: 1 April) the secondary one; both moved to a working day (§ 33/4 DŘ).
+                'submission_deadline' => ReportPeriod::incomeTaxElectronicDeadline($year),
+                'paper_deadline'      => ReportPeriod::incomeTaxPaperDeadline($year),
                 'currency'          => 'CZK',
                 'is_vat_payer'      => $isVatPayer,  // payer for any part of the year; amounts are per document (excl. VAT for a payer, incl. VAT for a non-payer)
             ],

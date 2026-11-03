@@ -117,17 +117,29 @@ final class TaxCalendarTest extends TestCase
 
     public function testIncomeTaxReturnForTheNaturalPersonOrTheLegalEntity(): void
     {
-        $items = $this->items('2099-03-20', 30, ['income_tax']);
+        $items = $this->items('2099-03-20', 60, ['income_tax']);
         self::assertSame(['income_tax:2098'], array_keys($items));
-        self::assertSame('2099-04-01', $items['income_tax:2098']['due_date']);
+        // The electronic filing (1 May moved past the holiday) is the main date, the paper one (1 April) the secondary.
+        self::assertSame('2099-05-04', $items['income_tax:2098']['due_date']);
+        self::assertSame('2099-04-01', $items['income_tax:2098']['paper_due_date']);
+        self::assertSame(45, $items['income_tax:2098']['days_left']);
         self::assertSame('dpfdp5', $items['income_tax:2098']['form_code']);
         self::assertSame('/reports/income-tax', $items['income_tax:2098']['link']);
 
         $this->fx->configureSupplier(['taxpayer_type' => 'po']);
-        self::assertSame('dppdp9', $this->items('2099-03-20', 30, ['income_tax'])['income_tax:2098']['form_code']);
+        self::assertSame('dppdp9', $this->items('2099-03-20', 60, ['income_tax'])['income_tax:2098']['form_code']);
 
         $this->fx->configureSupplier(['taxpayer_type' => null]);
-        self::assertSame([], $this->items('2099-03-20', 30, ['income_tax']), 'unknown taxpayer type');
+        self::assertSame([], $this->items('2099-03-20', 60, ['income_tax']), 'unknown taxpayer type');
+    }
+
+    public function testIncomeTaxStaysOnTheCalendarAfterThePaperDeadlineUntilTheElectronicOne(): void
+    {
+        $items = $this->items('2099-04-10', 30, ['income_tax']);
+
+        self::assertSame(['income_tax:2098'], array_keys($items));
+        self::assertSame(24, $items['income_tax:2098']['days_left'], 'counted to the electronic deadline');
+        self::assertSame(-6, $this->items('2099-05-10', 30, ['income_tax'])['income_tax:2098']['days_left'], 'still listed when missed');
     }
 
     public function testFlatTaxAdvanceOnlyInAYearWithABandAndWithoutVatDuties(): void
@@ -205,6 +217,32 @@ final class TaxCalendarTest extends TestCase
         $july = $this->items('2099-07-10', 30, ['sh']);
         self::assertSame(['sh:2099-Q2'], array_keys($july));
         self::assertSame('quarterly', $july['sh:2099-Q2']['period']);
+    }
+
+    public function testQuarterWithGoodsAndAServicesOnlyMonthFilesMonthlyForBoth(): void
+    {
+        // § 102 ZDPH: goods in April make April a monthly SH; May has services only, but the quarter
+        // contains goods, so May is reported in its own monthly SH too; there is no quarterly SH.
+        $this->fx->configureSupplier(['vat_period' => 'quarterly']);
+        $client = $this->fx->client('EU odběratel', $this->fx->skId, 'SK2020123456');
+        $this->fx->sale('2099040001', $client, '2099-04-12', 1000, 0, 0, '20');
+        $this->fx->sale('2099050001', $client, '2099-05-12', 1000, 0, 0, '22');
+
+        $items = $this->items('2099-05-10', 80, ['sh']);
+
+        self::assertSame(['sh:2099-04', 'sh:2099-05'], array_keys($items), 'no quarterly SH for a quarter with goods, no SH for the empty June');
+        self::assertSame('monthly', $items['sh:2099-05']['period']);
+        self::assertSame('2099-06-25', $items['sh:2099-05']['due_date']);
+    }
+
+    public function testQuarterOfServicesOnlyStillFilesOneQuarterlySouhrnneHlaseniEvenWithTwoServiceMonths(): void
+    {
+        $this->fx->configureSupplier(['vat_period' => 'quarterly']);
+        $client = $this->fx->client('EU odběratel', $this->fx->skId, 'SK2020123456');
+        $this->fx->sale('2099040002', $client, '2099-04-12', 1000, 0, 0, '22');
+        $this->fx->sale('2099050002', $client, '2099-05-12', 1000, 0, 0, '22');
+
+        self::assertSame(['sh:2099-Q2'], array_keys($this->items('2099-05-10', 80, ['sh'])));
     }
 
     public function testDashboardFeedUsesTheCalendarAndStopsOnceFiled(): void

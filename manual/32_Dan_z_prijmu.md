@@ -66,9 +66,12 @@ Při čtení nezaměňuj dvě různé veličiny:
 
 ## Termíny podání
 
-- **Daň z příjmů FO (OSVČ bez účetní):** **1.4. následujícího roku** (např. za rok 2026 → do 1.4.2027)
-- **S účetní:** prodloužený termín **1.7.**
-- **Daň z příjmů PO:** podle účetního období (typicky 1.4. nebo 1.7.)
+- **Daň z příjmů FO — elektronické podání:** **1.5. následujícího roku** (§ 136 odst. 2 písm. a) daňového řádu), posunuté na nejbližší pracovní den — za rok 2026 tedy do **3.5.2027** (1.5. je státní svátek, v roce 2027 navíc sobota). Platí, ať je elektronické podání povinné (datová schránka), nebo dobrovolné. Je to hlavní datum, které MyInvoice ukazuje v Daňovém kalendáři, v Přehledu výkazu a v exportu; **daň je splatná ve stejný den** (§ 135 odst. 3 daňového řádu).
+- **Daň z příjmů FO — papírové podání:** **1.4. následujícího roku** (§ 136 odst. 1 daňového řádu), posunuté na pracovní den (za rok 2026 → 1.4.2027). MyInvoice ho ukazuje jako druhé, informativní datum.
+- **Se zastoupením daňovým poradcem nebo advokátem** (plná moc doložená nejpozději s podáním): prodloužený termín **1.7.** (§ 136 odst. 2 písm. b) daňového řádu). Stejně tak pro povinně auditované subjekty. Tyto případy MyInvoice nerozlišuje.
+- **Daň z příjmů PO:** podle účetního období (typicky 1.4., elektronicky 1.5., nebo 1.7.); kalendář počítá s kalendářním rokem.
+
+> Zdroj: Generální finanční ředitelství, metodický pokyn k aplikaci lhůty pro podání daňového přiznání, č. j. 22387/21/7700-10123-500852 (financnisprava.gov.cz).
 
 ## Doporučený workflow
 

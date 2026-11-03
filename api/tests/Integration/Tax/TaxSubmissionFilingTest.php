@@ -129,6 +129,44 @@ final class TaxSubmissionFilingTest extends TestCase
         self::assertSame('filed', $this->filing->markFiled($this->sid(), $again, null, 'epo', null, null)['filing_status']);
     }
 
+    public function testASecondReturnOfThePeriodNeedsAFullFilingTime(): void
+    {
+        $first = $this->fx->submission('dphdp3', 2099, 7, null, 'B');
+        $corrective = $this->fx->submission('dphdp3', 2099, 7, null, 'O');
+
+        // Nothing filed yet for the period: a bare date is the start of that day.
+        $row = $this->filing->markFiled($this->sid(), $first, '2020-08-10', 'epo', null, null);
+        self::assertSame('2020-08-10 00:00:00', $row['filed_at']);
+
+        // Another return is in the books now, so the order of the two decides which one is in force.
+        $this->assertFilingError('time_required', fn () => $this->filing->markFiled($this->sid(), $corrective, '2020-08-12', 'epo', null, null));
+        self::assertSame('generated', $this->repo->findMeta($corrective, $this->sid())['filing_status'], 'a refused filing changes nothing');
+
+        $this->filing->markFiled($this->sid(), $corrective, '2020-08-12 09:15', 'epo', null, null);
+        self::assertSame([$first, $corrective], array_column($this->repo->filedForPeriod($this->sid(), 'dphdp3', 2099, 7, null), 'id'));
+    }
+
+    public function testTheReturnInForceIsTheLastOneByFilingTimeThenById(): void
+    {
+        $early = $this->fx->submission('dphdp3', 2099, 8, null, 'B');   // lower id, filed LATER
+        $late = $this->fx->submission('dphdp3', 2099, 8, null, 'O');
+        $this->filing->markFiled($this->sid(), $early, '2020-09-05 12:00', 'epo', null, null);
+        $this->filing->markFiled($this->sid(), $late, '2020-09-05 08:00', 'epo', null, null);
+
+        $order = static fn (array $rows): array => array_column($rows, 'id');
+        self::assertSame([$late, $early], $order($this->repo->filedForPeriod($this->sid(), 'dphdp3', 2099, 8, null)), 'filing time wins over the id');
+        // The same minute: the later-created row is the one in force.
+        $a = $this->fx->submission('dphdp3', 2099, 9, null, 'B');
+        $b = $this->fx->submission('dphdp3', 2099, 9, null, 'O');
+        $this->filing->markFiled($this->sid(), $b, '2020-10-05 10:00', 'epo', null, null);
+        $this->filing->markFiled($this->sid(), $a, '2020-10-05 10:00', 'epo', null, null);
+        self::assertSame([$a, $b], $order($this->repo->filedForPeriod($this->sid(), 'dphdp3', 2099, 9, null)));
+
+        // The per-supplier feed (calendar, payment card) keeps the same order within each period.
+        $byTypes = array_values(array_filter($this->repo->filedByTypes($this->sid(), ['dphdp3'], false), fn ($r) => $r['period_year'] === 2099 && in_array($r['period_month'], [8, 9], true)));
+        self::assertSame([$late, $early, $a, $b], $order($byTypes));
+    }
+
     public function testDatabaseGuardRejectsADuplicateEvenWithoutTheServiceCheck(): void
     {
         $a = $this->fx->submission('dphshv', 2099, null, 2, 'R');

@@ -131,8 +131,8 @@ Termíny se odvozují z nastavení dodavatele:
 |---|---|
 | **Přiznání k DPH** | měsíčně, nebo čtvrtletně podle periody plátce (identifikovaná osoba vždy měsíčně); 25. dne po skončení období |
 | **Kontrolní hlášení** | jen plátce; právnická osoba vždy měsíčně, fyzická osoba ve lhůtě přiznání (tedy podle periody DPH) |
-| **Souhrnné hlášení** | jen za období s EU plněními; dodání zboží měsíčně, kvartální plátce jen se službami čtvrtletně |
-| **Přiznání k dani z příjmů** | 1. dubna následujícího roku (DPFO / DPPO podle typu poplatníka) |
+| **Souhrnné hlášení** | jen za období s EU plněními (§ 102 ZDPH): v měsíci s **dodáním zboží** do EU se podává **měsíčně**; kvartální plátce, který v celém čtvrtletí dodával jen **služby**, podává **jedno čtvrtletní**. Měsíc jen se službami uvnitř čtvrtletí, ve kterém bylo zboží, jde do **měsíčního** hlášení za ten měsíc |
+| **Přiznání k dani z příjmů** | hlavní datum je **elektronické podání** — 1. května následujícího roku (§ 136 odst. 2 písm. a) daňového řádu), posunuté na pracovní den (za rok 2025 tedy 4. 5. 2026); pod ním je **papírový termín** 1. dubna (§ 136 odst. 1). Přiznání s daňovým poradcem má termín až 1. července — ten kalendář neukazuje (DPFO / DPPO podle typu poplatníka) |
 | **Záloha na paušální daň** | 20. dne každého měsíce, **jen v roce, kdy máš pásmo paušální daně** (rok bez dnů plátce DPH) |
 
 Položky DPH se zobrazují **jen za období, kdy jsi měl povinnosti k DPH** (byl jsi plátce
@@ -142,3 +142,9 @@ od 1. 1. 2027 tedy první termín uvidí na přiznání za leden 2027.
 Stejné termíny (v okně −3 až +7 dní) se objevují i v **Akcích pro tebe** — až do chvíle,
 kdy je výkaz podaný. Podané přiznání k DPH s daňovou povinností tam navíc drží položku
 **Zaplaťte DPH**, dokud není zaplacené.
+
+Další položka **Faktura čeká na kontrolu sazby DPH** upozorní na schválený koncept, který
+se po schválení výkazu práce **nevystavil ani neodeslal**, protože ho aplikace zadržela
+(plátce DPH, doklad s DUZP v době plátcovství a všechny položky na 0 %). Položka odkazuje
+rovnou na koncept (u více konceptů na jejich seznam): oprav sazbu DPH a fakturu vystav —
+po vystavení položka zmizí.

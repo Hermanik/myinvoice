@@ -67,7 +67,15 @@ final class VatPaymentLiabilityTest extends TestCase
     {
         self::assertSame('2027-02-25', ReportPeriod::filingDeadline(2027, 1, 'monthly'));
         self::assertSame('2027-04-26', ReportPeriod::filingDeadline(2027, 2, 'quarterly'), 'any month of the quarter gives the quarter deadline');
-        self::assertSame('2027-04-01', ReportPeriod::incomeTaxDeadline(2026));
-        self::assertSame('2026-04-01', ReportPeriod::incomeTaxDeadline(2025));
+        self::assertSame('2027-04-01', ReportPeriod::incomeTaxPaperDeadline(2026));
+        self::assertSame('2026-04-01', ReportPeriod::incomeTaxPaperDeadline(2025));
+    }
+
+    public function testElectronicIncomeTaxDeadlineIsOneMonthLaterAndMovedPastTheMayDayHoliday(): void
+    {
+        // § 136 odst. 2 písm. a) DŘ: 1 May, a public holiday, so the next working day.
+        self::assertSame('2026-05-04', ReportPeriod::incomeTaxElectronicDeadline(2025), '1 May 2026 is a Friday holiday');
+        self::assertSame('2027-05-03', ReportPeriod::incomeTaxElectronicDeadline(2026), '1 May 2027 is a Saturday');
+        self::assertSame('2028-05-02', ReportPeriod::incomeTaxElectronicDeadline(2027), '1 May 2028 is a Monday holiday');
     }
 }

@@ -35,6 +35,8 @@ final class OverdueActionItemsTest extends TestCase
         $sqlite->createFunction('CURDATE', static fn () => date('Y-m-d'));
         $sqlite->exec('CREATE TABLE invoices (id INTEGER, supplier_id INTEGER, status TEXT, due_date TEXT,
             invoice_type TEXT, parent_invoice_id INTEGER, amount_to_pay REAL, paid_total REAL)');
+        // The held-draft item of the same feed looks the approval hold up in the activity log (none here).
+        $sqlite->exec('CREATE TABLE activity_log (entity_type TEXT, entity_id INTEGER, action TEXT)');
         $insert = $sqlite->prepare("INSERT INTO invoices VALUES (?, ?, ?, ?, 'invoice', NULL, 100, ?)");
         foreach ([-1, 0, 1] as $offset) {
             $insert->execute([$offset + 2, 7, 'issued', date('Y-m-d', strtotime("$offset days")), 0]);

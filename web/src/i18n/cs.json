@@ -2630,6 +2630,8 @@
       "in_days": "za {n} dní",
       "today": "dnes",
       "overdue_days": "{n} dní po termínu",
+      "electronic": "elektronicky",
+      "paper_until": "papírově do {date}",
       "type_dph": "Přiznání k DPH",
       "type_kh": "Kontrolní hlášení",
       "type_sh": "Souhrnné hlášení",
@@ -4020,8 +4022,7 @@
       "change_issued": "vystaven",
       "change_edited": "upraven",
       "change_cancelled": "stornován",
-      "change_deleted": "smazán",
-      "change_booked": "zaúčtován"
+      "change_deleted": "smazán"
     },
     "submissions": {
       "title": "Archiv podání EPO XML",
@@ -4064,7 +4065,8 @@
       "vat_base_incl": "vč. DPH (neplátce)",
       "profit_orientacni": "Hospodářský výsledek (orientačně)",
       "profit_hint": "Tržby − náklady (NE účetní)",
-      "deadline_hint": "do 1.4. roku +1 (pro FO bez účetní)",
+      "deadline_hint": "elektronické podání (§ 136 odst. 2 písm. a) DŘ); papírově do {paper}",
+      "csv_paper_deadline": "Termín (papírové podání)",
       "missing_data_title": "Co XML neobsahuje (musíte doplnit):",
       "missing_odpisy": "Daňové odpisy hmotného majetku",
       "missing_mzdy": "Mzdové náklady + odvody",

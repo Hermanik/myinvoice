@@ -196,20 +196,7 @@ final class StatementMatcher
                   WHERE account_number IS NOT NULL OR iban IS NOT NULL'
             );
             foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $candidate) {
-                $iban = isset($candidate['iban']) && is_string($candidate['iban']) ? $candidate['iban'] : null;
-                // Bank code filter (jen když výpis kód banky nese): kandidátův kód
-                // z bank_code sloupce, případně z IBANu. Neznámý kód nevyřazuje —
-                // radši porovnat číslo účtu než ztratit IBAN-only řádek.
-                if (!empty($row['recipient_bank'])) {
-                    $candidateBank = (string) ($candidate['bank_code'] ?? '');
-                    if ($candidateBank === '' && $iban !== null) {
-                        $candidateBank = (string) AccountNumberNormalizer::czechIbanBankCode($iban);
-                    }
-                    if ($candidateBank !== '' && $candidateBank !== (string) $row['recipient_bank']) {
-                        continue;
-                    }
-                }
-                if (AccountNumberNormalizer::matchesAny((string) $row['recipient_account'], $candidate['account_number'] ?? null, $iban)) {
+                if (AccountNumberNormalizer::statementBelongsTo($candidate, (string) $row['recipient_account'], isset($row['recipient_bank']) ? (string) $row['recipient_bank'] : null)) {
                     $supplierId = (int) $candidate['supplier_id'];
                     break;
                 }

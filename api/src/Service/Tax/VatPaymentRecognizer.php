@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Tax;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\TaxSubmissionRepository;
 use MyInvoice\Service\ActivityLogger;
+use MyInvoice\Service\Bank\AccountNumberNormalizer;
 use MyInvoice\Service\Bank\VariableSymbolNormalizer;
 
 /**
@@ -27,12 +28,17 @@ use MyInvoice\Service\Bank\VariableSymbolNormalizer;
  *
  * The same payment can arrive twice (e-mail notice first, the official statement later); the
  * second transaction is recognised as the twin of the first and consumed as well.
+ *
+ * The usual order is "pay first, record the filing later", and a return that is not marked as filed
+ * has no liability to match — {@see reconsider()} catches up when the filing is recorded.
  */
 final class VatPaymentRecognizer
 {
     /** A notice and its statement line may carry different posting dates. */
     private const TWIN_WINDOW_DAYS = 5;
     private const AMOUNT_TOLERANCE = 0.005;
+    /** How far around the due date of a return a payment made before the filing was recorded is looked for. */
+    private const RECONSIDER_WINDOW_DAYS = 60;
 
     public function __construct(
         private readonly VatPaymentService $payments,
@@ -89,6 +95,83 @@ final class VatPaymentRecognizer
             return ['status' => 'vat_payment', 'submission_id' => (int) $twin['id'], 'twin' => true];
         }
         return null;
+    }
+
+    /**
+     * Looks for the payment of a return that has just been marked as filed: re-runs {@see recognize()} — the
+     * very same exact-match rules — over the supplier's unmatched outgoing transactions of the amount still
+     * due, posted within ±60 days of the due date of the period. Idempotent: a recognised transaction is
+     * consumed, so a repeated call finds nothing more.
+     *
+     * @return int number of bank transactions recognised
+     */
+    public function reconsider(int $supplierId, int $submissionId): int
+    {
+        $submission = $this->repo->findMeta($submissionId, $supplierId);
+        $card = $submission !== null ? $this->payments->card($submission) : null;
+        if ($card === null || !$card['payable']) {
+            return 0;
+        }
+
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT bt.*, bs.account_number AS recipient_account, bs.bank_code AS recipient_bank,
+                    bs.currency AS statement_currency
+               FROM bank_transactions bt
+               JOIN bank_statements   bs ON bs.id = bt.statement_id
+              WHERE bt.match_status = 'unmatched' AND bt.amount < 0
+                AND ABS(ABS(bt.amount) - ?) <= ?
+                AND bt.posted_at BETWEEN DATE_SUB(?, INTERVAL ? DAY) AND DATE_ADD(?, INTERVAL ? DAY)
+           ORDER BY bt.posted_at, bt.id"
+        );
+        $stmt->execute([
+            number_format((float) $card['amount_due'], 2, '.', ''), self::AMOUNT_TOLERANCE,
+            $card['due_date'], self::RECONSIDER_WINDOW_DAYS, $card['due_date'], self::RECONSIDER_WINDOW_DAYS,
+        ]);
+        $candidates = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        if ($candidates === []) {
+            return 0;
+        }
+        $accounts = $this->bankAccounts($supplierId);
+        $recognised = 0;
+        foreach ($candidates as $tx) {
+            if (!$this->belongsToSupplier($accounts, $tx)) {
+                continue;
+            }
+            if ($this->recognize($supplierId, $tx) !== null) {
+                $recognised++;
+            }
+        }
+        return $recognised;
+    }
+
+    /**
+     * @param list<array<string,mixed>> $accounts the supplier's bank accounts
+     * @param array<string,mixed> $tx a transaction joined with its statement
+     */
+    private function belongsToSupplier(array $accounts, array $tx): bool
+    {
+        $statementAccount = (string) ($tx['recipient_account'] ?? '');
+        if ($statementAccount === '') {
+            return false;
+        }
+        $bank = isset($tx['recipient_bank']) ? (string) $tx['recipient_bank'] : null;
+        foreach ($accounts as $account) {
+            if (AccountNumberNormalizer::statementBelongsTo($account, $statementAccount, $bank)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function bankAccounts(int $supplierId): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT account_number, iban, bank_code FROM currencies
+              WHERE supplier_id = ? AND (account_number IS NOT NULL OR iban IS NOT NULL)'
+        );
+        $stmt->execute([$supplierId]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
     private function looksLikeVatAccount(string $account, mixed $bank): bool

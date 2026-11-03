@@ -32,31 +32,43 @@ final class TaxSubmissionFilingService
     public function __construct(
         private readonly TaxSubmissionRepository $repo,
         private readonly ActivityLogger $logger,
+        private readonly VatPaymentRecognizer $payments,
     ) {}
 
     /**
      * Normalises the user-supplied filing time to `Y-m-d H:i:s`. Empty = now. Date-only means
-     * the start of that day. Anything later than a few minutes from now is refused.
+     * the start of that day — unless `$requireTime`: when another return of the same period is
+     * already filed, the order of the two decides which one is in force (the latest `filed_at`,
+     * ties by id), so a bare date is not enough. Anything later than a few minutes from now is refused.
      *
      * @throws TaxFilingException
      */
-    public static function parseFiledAt(?string $value, \DateTimeImmutable $now): string
+    public static function parseFiledAt(?string $value, \DateTimeImmutable $now, bool $requireTime = false): string
     {
         $value = trim((string) $value);
         if ($value === '') {
             return $now->format('Y-m-d H:i:s');
         }
         $parsed = null;
+        $dateOnly = false;
         foreach (['!Y-m-d\TH:i:s', '!Y-m-d\TH:i', '!Y-m-d H:i:s', '!Y-m-d H:i', '!Y-m-d'] as $format) {
             $candidate = \DateTimeImmutable::createFromFormat($format, $value);
             $errors = \DateTimeImmutable::getLastErrors();
             if ($candidate !== false && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))) {
+                $dateOnly = $format === '!Y-m-d';
                 $parsed = $candidate;
                 break;
             }
         }
         if ($parsed === null) {
             throw new TaxFilingException('Datum a čas podání musí být ve formátu RRRR-MM-DD HH:MM.', 'validation_failed', 400);
+        }
+        if ($dateOnly && $requireTime) {
+            throw new TaxFilingException(
+                'Za toto období už je podané jiné přiznání — zadej i čas podání (RRRR-MM-DD HH:MM), podle něj se pozná, které je platné.',
+                'time_required',
+                400,
+            );
         }
         if ($parsed > $now->modify('+5 minutes')) {
             throw new TaxFilingException('Datum podání nemůže být v budoucnu.', 'validation_failed', 400);
@@ -83,18 +95,19 @@ final class TaxSubmissionFilingService
         if (!in_array($channel, self::CHANNELS, true)) {
             throw new TaxFilingException('Neplatný způsob podání (povoleno: ' . implode(', ', self::CHANNELS) . ').', 'validation_failed', 400);
         }
-        $filedAt = self::parseFiledAt($filedAt, new \DateTimeImmutable());
         $reference = $reference !== null ? trim($reference) : null;
         if ($reference !== null && mb_strlen($reference) > 100) {
             throw new TaxFilingException('Číslo podání může mít nejvýše 100 znaků.', 'validation_failed', 400);
         }
         $reference = $reference === '' ? null : $reference;
 
-        $row = $this->repo->withLockedRow($id, $supplierId, function (?array $row) use ($id, $filedAt, $channel, $reference, $userId): array {
+        [$row, $filedAt] = $this->repo->withLockedRow($id, $supplierId, function (?array $row) use ($id, $filedAt, $channel, $reference, $userId): array {
             $row ?? throw TaxFilingException::notFound();
             if ($row['filing_status'] !== 'generated') {
                 throw new TaxFilingException('Toto podání už je označené jako podané.', 'already_filed', 409);
             }
+            $otherFiledOfThePeriod = $this->repo->filedForPeriod($row['supplier_id'], $row['form_code'], $row['period_year'], $row['period_month'], $row['period_quarter']) !== [];
+            $filedAt = self::parseFiledAt($filedAt, new \DateTimeImmutable(), requireTime: $otherFiledOfThePeriod);
             $sibling = $this->repo->findFiledSibling($row);
             if ($sibling !== null) {
                 throw $this->duplicate($sibling);
@@ -110,7 +123,7 @@ final class TaxSubmissionFilingService
                 }
                 throw $e;
             }
-            return $row;
+            return [$row, $filedAt];
         });
 
         $this->logger->log('tax_submission.filed', $userId, 'tax_submission', $id, [
@@ -118,6 +131,16 @@ final class TaxSubmissionFilingService
             'submission_form' => $row['submission_form'], 'filed_at' => $filedAt,
             'channel' => $channel, 'reference' => $reference,
         ], $ip, $userAgent, $supplierId);
+
+        // The tax is often paid before the filing is recorded: pick that payment up from the bank now.
+        // The filing itself is done and committed, so a failure here must not turn it into an error.
+        if ($row['form_code'] === VatPaymentService::FORM_CODE) {
+            try {
+                $this->payments->reconsider($supplierId, $id);
+            } catch (\Throwable $e) {
+                $this->logger->log('tax_submission.payment_recognition_failed', $userId, 'tax_submission', $id, ['error' => $e->getMessage()], $ip, $userAgent, $supplierId);
+            }
+        }
 
         return $this->repo->findMeta($id, $supplierId) ?? $row;
     }

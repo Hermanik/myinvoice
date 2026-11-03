@@ -4707,12 +4707,15 @@ paths:
       description: |
         Vrací položky `items[]` (typ `type`: `overdue_invoices`, `bank_unmatched`,
         `recurring_due`, `overdue_payables`, `purchase_drafts`, `tax_deadline`, `kh_deadline`,
-        `shv_deadline`, `vat_payment`, `churn_risk`), každá s `severity`, `title`, `hint`, `link`
+        `shv_deadline`, `vat_payment`, `held_drafts`, `churn_risk`), každá s `severity`, `title`, `hint`, `link`
         a volitelně `count`/`days`. Plus `total` a `dismissed_count`.
 
         Daňové termíny (`tax_deadline`, `kh_deadline`, `shv_deadline`) vznikají ze stejného
         kalendáře jako `/dashboard/tax-calendar` a mizí, jakmile je výkaz podaný. `vat_payment`
         („Zaplaťte DPH") se zobrazuje, dokud není podané přiznání s daňovou povinností zaplacené.
+        `held_drafts` („Faktura čeká na kontrolu sazby DPH") ukazuje schválené koncepty, které
+        schvalovací tok nevystavil ani neodeslal (kontrola sazby DPH); odkaz vede na koncept
+        a položka zmizí po jeho vystavení.
       parameters: [{ $ref: '#/components/parameters/SupplierIdHeader' }]
       responses: { '200': { description: 'items + total + dismissed_count' } }
 
@@ -6088,7 +6091,7 @@ components:
                 items:
                   type: object
                   properties:
-                    type: { type: string, enum: [created, issued, edited, cancelled, deleted, booked] }
+                    type: { type: string, enum: [created, issued, edited, cancelled, deleted] }
                     at: { type: string }
                     user_id: { type: integer, nullable: true }
     VatChecks:
@@ -6153,8 +6156,15 @@ components:
         period: { type: string, enum: [monthly, quarterly, yearly] }
         period_label: { type: string }
         form_code: { type: string, nullable: true }
-        due_date: { type: string, format: date }
-        days_left: { type: integer, description: 'Záporné = po termínu' }
+        due_date:
+          type: string
+          format: date
+          description: 'Termín (posunutý na pracovní den). U přiznání k dani z příjmů (`income_tax`) termín elektronického podání, § 136 odst. 2 písm. a) daňového řádu (1. 5. následujícího roku).'
+        paper_due_date:
+          type: string
+          format: date
+          description: 'Jen `income_tax`: termín papírového podání, § 136 odst. 1 daňového řádu (1. 4. následujícího roku).'
+        days_left: { type: integer, description: 'Záporné = po termínu; počítá se k `due_date`' }
         link: { type: string, description: Stránka aplikace }
         filing:
           nullable: true

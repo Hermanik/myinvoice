@@ -559,7 +559,7 @@ Záznam má stav:
 | Stav | Význam |
 |---|---|
 | **Vygenerováno** | XML je stažené a uložené, o podání zatím aplikace neví. |
-| **Podáno** | Označil jsi, že jsi výkaz podal: **datum a čas** (výchozí je „teď", lze upravit — nesmí být v budoucnosti), **způsob** (EPO / datová schránka / jiný) a volitelně **číslo podání**. |
+| **Podáno** | Označil jsi, že jsi výkaz podal: **datum a čas** (výchozí je „teď", lze upravit — nesmí být v budoucnosti), **způsob** (EPO / datová schránka / jiný) a volitelně **číslo podání**. Je-li za stejné období už podané jiné přiznání (např. opravné po řádném), je potřeba zadat i **čas** — podle pořadí podání se pozná, které přiznání platí. |
 | **Potvrzeno** | K podanému výkazu jsi nahrál potvrzení: z EPO soubor `.p7s`, PDF, nebo zprávu z datové schránky `.zfo` (max 10 MiB). Aplikace uloží velikost a otisk SHA-256, potvrzení jde kdykoli stáhnout. |
 
 - **Označit jako podané**, **Nahrát potvrzení**, jeho nahrazení či odebrání a
@@ -569,7 +569,8 @@ Záznam má stav:
   následné N …) smí být podané nebo potvrzené **jen jedno** podání. Stáhneš-li XML
   víckrát, vznikne víc záznamů; označit jako podané jde jen jeden z nich, druhý
   pokus aplikace odmítne a napíše, které podání už je podané. Řádné a opravné přiznání
-  za stejné období jsou různé formy, takže obě podané být mohou — platí to pozdější.
+  za stejné období jsou různé formy, takže obě podané být mohou — platí to pozdější
+  (řazení podle data a času podání, při shodě podle pořadí vzniku záznamu).
 - Podané nebo potvrzené podání nejde z archivu smazat, dokud se označení nezruší.
 - **Detail** řádku ukáže údaje o potvrzení, kartu **Platba DPH** a **doklady změněné po podání**.
 
@@ -588,7 +589,8 @@ u období s podaným přiznáním:
   (tabulka výše), `0710` je ČNB. Zobrazí se i IBAN.
 - **Variabilní symbol** — číselná část DIČ (bez `CZ`), u fyzické osoby tedy rodné číslo
   bez lomítka. Specifický symbol se nepoužívá.
-- **QR platba** pro mobilní bankovnictví.
+- **QR platba** pro mobilní bankovnictví. Bez data splatnosti: daň je zaplacená, až když je
+  připsaná na účet úřadu, takže platba se zadanou splatností v budoucnu by přišla pozdě.
 
 Chybí-li kód finančního úřadu (nebo je neznámý) či české DIČ, karta to napíše
 a účet, symbol ani QR **nehádá**.
@@ -604,7 +606,9 @@ zaplatil u nahrazeného, se od částky odečte.
 - ručně tlačítkem **Označit jako zaplacené** (datum a částka, jen admin),
 - **automaticky z banky**: při importu výpisu (GPC, PDF), e-mailového avíza nebo iDokladu
   se odchozí platba v CZK na účet finančního úřadu se správným variabilním symbolem a
-  přesnou částkou spáruje s podaným přiznáním. Transakce se ve výpisu zobrazí jako
+  přesnou částkou spáruje s podaným přiznáním. Zaplatil jsi dřív, než jsi přiznání
+  označil jako podané? Platbu aplikace dohledá v okamžiku **Označit jako podané**
+  (nespárované odchozí platby ±60 dní kolem splatnosti, stejná pravidla). Transakce se ve výpisu zobrazí jako
   *Ignorovaná* s poznámkou „Platba DPH za …" a přiznání je zaplacené. Částečnou platbu
   aplikace nespáruje; stejnou platbu uvedenou dvakrát (avízo i výpis) rozpozná. Při více
   nezaplacených obdobích se stejnou částkou se spáruje to nejstarší. **Zrušit spárování**
@@ -640,7 +644,8 @@ nic neporovnává (nepodává kontrolní hlášení).
 Je-li výkaz za období označený jako podaný, ukáže panel **Doklady změněné po podání**
 vystavené a přijaté doklady s DUZP v tomto období, které byly **po čase podání vytvořeny,
 vystaveny, upraveny, stornovány nebo smazány**. Zdrojem jsou data dokladů a auditní log
-(odeslání faktury nebo její úhrada se za změnu nepočítá). Smazaný doklad jde zařadit do
+(odeslání faktury, její úhrada ani zaúčtování přijatého dokladu se za změnu nepočítá —
+žádná z těch věcí nemění částky ve výkazu). Smazaný doklad jde zařadit do
 období jen tehdy, když ho smazání zapsalo do logu s datem DUZP. Takový doklad může být
 důvod k **opravnému** (jen do konce lhůty) nebo **dodatečnému** podání.
 

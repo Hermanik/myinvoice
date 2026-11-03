@@ -250,6 +250,12 @@ variabilní symbol je **DIČ** (bez `CZ`) a částka přesně odpovídá nezapla
 označí jako zaplacené. Funguje při importu GPC/PDF výpisu, e-mailového avíza i iDokladu.
 **Zrušit spárování** takové transakce platbu znovu otevře.
 
+Daň se často platí dřív, než přiznání v aplikaci označíš jako podané. Taková platba se
+nespáruje hned (nebylo co párovat), ale ve chvíli, kdy přiznání **označíš jako podané**, ji
+aplikace dohledá mezi nespárovanými odchozími transakcemi: stejná pravidla (účet úřadu,
+variabilní symbol, přesná částka), jen se hledá v okolí **±60 dní kolem termínu splatnosti**
+období.
+
 ## 24.5 Reverse: zrušení spárování
 
 Pokud automatika spárovala chybně:

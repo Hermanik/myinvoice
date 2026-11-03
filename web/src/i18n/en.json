@@ -2630,6 +2630,8 @@
       "in_days": "in {n} days",
       "today": "today",
       "overdue_days": "{n} days overdue",
+      "electronic": "electronic filing",
+      "paper_until": "on paper by {date}",
       "type_dph": "VAT return",
       "type_kh": "Control statement (KH)",
       "type_sh": "Recapitulative statement (SH)",
@@ -4020,8 +4022,7 @@
       "change_issued": "issued",
       "change_edited": "edited",
       "change_cancelled": "cancelled",
-      "change_deleted": "deleted",
-      "change_booked": "booked"
+      "change_deleted": "deleted"
     },
     "submissions": {
       "title": "EPO XML submission archive",
@@ -4064,7 +4065,8 @@
       "vat_base_incl": "incl. VAT (non-payer)",
       "profit_orientacni": "Profit (orientational)",
       "profit_hint": "Revenue − costs (NOT accounting)",
-      "deadline_hint": "by 1.4. of year+1 (FO without accountant)",
+      "deadline_hint": "electronic filing (§ 136(2)(a) Tax Procedure Code); on paper by {paper}",
+      "csv_paper_deadline": "Deadline (paper filing)",
       "missing_data_title": "What XML does not contain (you must supplement):",
       "missing_odpisy": "Tax depreciation of tangible assets",
       "missing_mzdy": "Wage costs + contributions",

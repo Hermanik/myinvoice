@@ -14,7 +14,7 @@ use MyInvoice\Service\Vat\VatStatusService;
  * the return was filed. Such a document can make the filed return wrong — a corrective ("opravné",
  * only before the deadline) or a supplementary ("dodatečné") filing may be needed.
  *
- * Sources: `created_at` / `cancelled_at` / `booked_at` of the documents and the activity log
+ * Sources: `created_at` / `cancelled_at` of the documents and the activity log
  * (edits, issuing, deleting). Drafts are not part of any return and are ignored. A deleted
  * document is only placeable into a period when the log carries its DUZP — the delete actions
  * write `tax_date` / `issue_date` into the log payload.
@@ -103,7 +103,7 @@ final class ChangesAfterFilingService
         if ($sale) {
             $sql = "SELECT d.id, d.varsymbol AS doc_number, d.status, d.invoice_type AS kind,
                            COALESCE(d.tax_date, d.issue_date) AS tax_date, d.total_with_vat,
-                           d.created_at, d.cancelled_at, NULL AS booked_at,
+                           d.created_at, d.cancelled_at,
                            c.company_name AS counterparty, cur.code AS currency
                       FROM invoices d
                  LEFT JOIN clients c ON c.id = d.client_id
@@ -117,7 +117,7 @@ final class ChangesAfterFilingService
             // foreign reverse-charge ones to the DUZP — take both so none is missed.
             $sql = "SELECT d.id, COALESCE(d.vendor_invoice_number, d.varsymbol) AS doc_number, d.status, d.document_kind AS kind,
                            COALESCE(d.tax_date, d.issue_date) AS tax_date, d.total_with_vat,
-                           d.created_at, d.cancelled_at, d.booked_at,
+                           d.created_at, d.cancelled_at,
                            c.company_name AS counterparty, cur.code AS currency
                       FROM purchase_invoices d
                  LEFT JOIN clients c ON c.id = d.vendor_id
@@ -128,14 +128,13 @@ final class ChangesAfterFilingService
                             OR GREATEST(COALESCE(d.tax_date, d.issue_date), d.issue_date) BETWEEN ? AND ?)";
             $params = [$supplierId, $start, $end, $start, $end];
         }
-        $sql .= " AND (d.created_at > ? OR d.cancelled_at > ?"
-            . ($sale ? '' : ' OR d.booked_at > ?')
-            . " OR EXISTS (SELECT 1 FROM activity_log a
+        $sql .= " AND (d.created_at > ? OR d.cancelled_at > ?
+                   OR EXISTS (SELECT 1 FROM activity_log a
                             WHERE a.entity_type = '{$entity}' AND a.entity_id = d.id
                               AND a.created_at > ? AND a.action IN ({$actions})))";
         $stmt = $pdo->prepare($sql);
-        // created_at, cancelled_at, [booked_at,] and the activity-log EXISTS — all compared with the filing time.
-        $stmt->execute([...$params, $filedAt, $filedAt, ...($sale ? [] : [$filedAt]), $filedAt]);
+        // created_at, cancelled_at and the activity-log EXISTS — all compared with the filing time.
+        $stmt->execute([...$params, $filedAt, $filedAt, $filedAt]);
         $docs = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         if ($docs === []) {
             return [];
@@ -163,9 +162,6 @@ final class ChangesAfterFilingService
             }
             if ($d['cancelled_at'] !== null && (string) $d['cancelled_at'] > $filedAt && !in_array('cancelled', $logTypes, true)) {
                 $changes[] = ['type' => 'cancelled', 'at' => (string) $d['cancelled_at'], 'user_id' => null];
-            }
-            if (!$sale && $d['booked_at'] !== null && (string) $d['booked_at'] > $filedAt) {
-                $changes[] = ['type' => 'booked', 'at' => (string) $d['booked_at'], 'user_id' => null];
             }
             if ($changes === []) {
                 continue;

@@ -112,6 +112,25 @@ test('"documents changed after filing" carries the corrective-filing hint', asyn
   for (const type of ['created', 'issued', 'edited', 'cancelled', 'deleted']) {
     assert.ok(cs.reports.changes_after_filing[`change_${type}`], type)
   }
+  // Booking a received purchase changes no figure of the return, so it is not a change type any more.
+  assert.equal(cs.reports.changes_after_filing.change_booked, undefined)
+  assert.equal(en.reports.changes_after_filing.change_booked, undefined)
+})
+
+test('the income tax deadline is the electronic one with the paper one as the second date', async () => {
+  const widget = await read('components/dashboard/TaxCalendarWidget.vue')
+  const report = await read('pages/reports/IncomeTaxReport.vue')
+  const [cs, en] = await Promise.all([readJson('i18n/cs.json'), readJson('i18n/en.json')])
+
+  assert.match(widget, /formatDate\(i\.due_date\)/, 'the main date is due_date = electronic filing')
+  assert.match(widget, /i\.paper_due_date/)
+  assert.match(widget, /dashboard\.tax_calendar\.paper_until/)
+  assert.match(report, /summary\.submission_deadline/)
+  assert.match(report, /deadline_hint', \{ paper: preview\.summary\.paper_deadline \}/)
+  assert.match(cs.reports.income_tax.deadline_hint, /§ 136 odst\. 2 písm\. a\) DŘ.*\{paper\}/)
+  assert.match(en.reports.income_tax.deadline_hint, /§ 136\(2\)\(a\).*\{paper\}/)
+  assert.match(cs.dashboard.tax_calendar.paper_until, /\{date\}/)
+  assert.match(en.dashboard.tax_calendar.paper_until, /\{date\}/)
 })
 
 test('the dashboard has the tax calendar with date, days left and a filed/unfiled badge', async () => {

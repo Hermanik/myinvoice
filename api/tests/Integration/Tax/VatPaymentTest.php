@@ -98,7 +98,7 @@ final class VatPaymentTest extends TestCase
         self::assertStringStartsWith('data:image/png;base64,', (string) $card['qr']);
     }
 
-    public function testQrIsBuiltFromTheOfficeAccountTheVariableSymbolAndAFutureDueDate(): void
+    public function testQrIsBuiltFromTheOfficeAccountAndTheVariableSymbolWithoutTheDueDate(): void
     {
         $captured = [];
         $qr = $this->createStub(\MyInvoice\Service\Qr\QrPaymentGenerator::class);
@@ -107,18 +107,17 @@ final class VatPaymentTest extends TestCase
             return 'data:image/png;base64,QR';
         });
         $service = new VatPaymentService($this->repo, $this->fx->db, $qr, $this->fx->container->get(\MyInvoice\Service\ActivityLogger::class));
-        $future = $this->fx->dphSubmission(2099, 5, null, 25_000);   // due 2099-06-25
-        $overdue = $this->fx->dphSubmission(2021, 3, null, 1_234);   // long overdue: the QR must not carry a past date
+        $id = $this->fx->dphSubmission(2099, 5, null, 25_000);   // due 2099-06-25
 
-        $service->card($this->repo->findMeta($future, $this->sid()), withQr: true);
-        $service->card($this->repo->findMeta($overdue, $this->sid()), withQr: true);
+        $service->card($this->repo->findMeta($id, $this->sid()), withQr: true);
 
         [$currency, $amount, $vs, $bank, , $dueDate, $message] = $captured[0];
         self::assertSame(['CZK', 25_000.0, '12345678'], [$currency, $amount, $vs]);
         self::assertSame(['account_number' => '705-77628031', 'bank_code' => '0710', 'iban' => 'CZ7407100007050077628031'], $bank);
-        self::assertSame('2099-06-25', $dueDate->format('Y-m-d'));
         self::assertSame('DPH 05/2099', $message);
-        self::assertSame((new \DateTimeImmutable('today'))->format('Y-m-d'), $captured[1][5]->format('Y-m-d'), 'an overdue return is paid today');
+        // A tax counts as paid when it is credited, so the QR must not postpone the payment to the due date:
+        // no date is passed and the generator dates the payment today.
+        self::assertNull($dueDate);
     }
 
     public function testQuarterlyAndWeekendDueDates(): void
@@ -283,10 +282,147 @@ final class VatPaymentTest extends TestCase
     {
         $account = $this->fx->bankAccountOrSkip();
         $id = $this->fx->dphSubmission(2099, 5, null, 31_337);
-        $tx = $this->fx->outgoingTransaction($account, 31_337, '2020-06-24', '12345678', '705-77628031');
+        $tx = $this->fx->outgoingTransaction($account, 31_337, '2099-06-24', '12345678', '705-77628031');
 
         self::assertNotSame('vat_payment', $this->matcher->match($tx)['status']);
         self::assertNull($this->fx->submissionRow($id)['paid_at']);
+        self::assertSame('unmatched', $this->fx->transaction($tx)['match_status']);
+    }
+
+    public function testAPaymentMadeBeforeTheFilingWasRecordedIsPickedUpWhenItIsRecorded(): void
+    {
+        $account = $this->fx->bankAccountOrSkip();
+        $id = $this->fx->dphSubmission(2099, 5, null, 31_337);   // due 2099-06-25
+        $paid = $this->fx->outgoingTransaction($account, 31_337, '2099-06-24', '12345678', '705-77628031');
+        $otherAmount = $this->fx->outgoingTransaction($account, 31_336, '2099-06-24', '12345678', '705-77628031');
+        $otherVs = $this->fx->outgoingTransaction($account, 31_337, '2099-06-24', '87654321', '705-77628031');
+        $otherAccount = $this->fx->outgoingTransaction($account, 31_337, '2099-06-24', '12345678', '721-77628031');
+        self::assertNull($this->fx->submissionRow($id)['paid_at'], 'nothing to pay yet');
+
+        $this->filing->markFiled($this->sid(), $id, '2020-01-10 10:00', 'epo', null, null);
+
+        $row = $this->fx->submissionRow($id);
+        self::assertSame('bank', $row['paid_source']);
+        self::assertSame($paid, (int) $row['paid_bank_transaction_id']);
+        self::assertSame('2099-06-24', $row['paid_at']);
+        self::assertSame('ignored', $this->fx->transaction($paid)['match_status']);
+        self::assertSame('vat_payment', $this->fx->transaction($paid)['ignore_origin']);
+        foreach ([$otherAmount, $otherVs, $otherAccount] as $tx) {
+            self::assertSame('unmatched', $this->fx->transaction($tx)['match_status'], 'the same exact-match rules apply');
+        }
+    }
+
+    public function testReconsideringIsIdempotent(): void
+    {
+        $account = $this->fx->bankAccountOrSkip();
+        $id = $this->filedReturn(5, 2_222);
+        $recognizer = $this->fx->container->get(\MyInvoice\Service\Tax\VatPaymentRecognizer::class);
+        $first = $this->fx->outgoingTransaction($account, 2_222, '2099-06-24', '12345678', '705-77628031');
+        self::assertSame(1, $recognizer->reconsider($this->sid(), $id));
+        $paidAt = $this->fx->submissionRow($id);
+
+        // A second identical payment of the same source is no twin of the first one, so it stays for the user.
+        $second = $this->fx->outgoingTransaction($account, 2_222, '2099-06-24', '12345678', '705-77628031');
+        self::assertSame(0, $recognizer->reconsider($this->sid(), $id));
+
+        self::assertSame($paidAt, $this->fx->submissionRow($id));
+        self::assertSame($first, (int) $this->fx->submissionRow($id)['paid_bank_transaction_id']);
+        self::assertSame('unmatched', $this->fx->transaction($second)['match_status']);
+    }
+
+    /** @return array<string, array{string, bool}> posted date (return of 2099-05, due 2099-06-25), recognised */
+    public static function reconsiderWindow(): array
+    {
+        return [
+            '61 days before the due date' => ['2099-04-25', false],
+            '60 days before the due date' => ['2099-04-26', true],
+            'on the due date'             => ['2099-06-25', true],
+            '60 days after the due date'  => ['2099-08-24', true],
+            '61 days after the due date'  => ['2099-08-25', false],
+            'a year earlier'              => ['2098-06-24', false],
+        ];
+    }
+
+    #[DataProvider('reconsiderWindow')]
+    public function testOnlyPaymentsAroundTheDueDateAreReconsidered(string $postedAt, bool $recognised): void
+    {
+        $account = $this->fx->bankAccountOrSkip();
+        $id = $this->fx->dphSubmission(2099, 5, null, 5_555);
+        $tx = $this->fx->outgoingTransaction($account, 5_555, $postedAt, '12345678', '705-77628031');
+
+        $this->filing->markFiled($this->sid(), $id, '2020-01-10 10:00', 'epo', null, null);
+
+        self::assertSame($recognised, $this->fx->submissionRow($id)['paid_at'] !== null);
+        self::assertSame($recognised ? 'ignored' : 'unmatched', $this->fx->transaction($tx)['match_status']);
+    }
+
+    public function testOnlyThePaymentFromTheSuppliersOwnAccountIsReconsidered(): void
+    {
+        $account = $this->fx->bankAccountOrSkip();
+        $id = $this->fx->dphSubmission(2099, 5, null, 7_777);
+        $foreign = $this->fx->outgoingTransaction(['account_number' => '99887766', 'bank_code' => '0100'], 7_777, '2099-06-24', '12345678', '705-77628031');
+        $own = $this->fx->outgoingTransaction($account, 7_777, '2099-06-24', '12345678', '705-77628031');
+
+        $this->filing->markFiled($this->sid(), $id, '2020-01-10 10:00', 'epo', null, null);
+
+        self::assertSame($own, (int) $this->fx->submissionRow($id)['paid_bank_transaction_id']);
+        self::assertSame('unmatched', $this->fx->transaction($foreign)['match_status'], 'a statement of another account is none of this supplier\'s business');
+    }
+
+    public function testATransactionTheUserAlreadyMatchedIsNotReconsidered(): void
+    {
+        $account = $this->fx->bankAccountOrSkip();
+        $id = $this->fx->dphSubmission(2099, 5, null, 8_888);
+        $matched = $this->fx->outgoingTransaction($account, 8_888, '2099-06-24', '12345678', '705-77628031');
+        $this->fx->pdo->exec("UPDATE bank_transactions SET match_status = 'manual' WHERE id = {$matched}");
+
+        $this->filing->markFiled($this->sid(), $id, '2020-01-10 10:00', 'epo', null, null);
+
+        self::assertNull($this->fx->submissionRow($id)['paid_at']);
+        self::assertSame('manual', $this->fx->transaction($matched)['match_status']);
+    }
+
+    public function testTheNoticeAndTheStatementOfAnEarlyPaymentAreBothConsumed(): void
+    {
+        $account = $this->fx->bankAccountOrSkip();
+        $id = $this->fx->dphSubmission(2099, 5, null, 6_666);
+        $notice = $this->fx->outgoingTransaction($account, 6_666, '2099-06-23', '12345678', '705-77628031', '0710', 'email_notice');
+        $statement = $this->fx->outgoingTransaction($account, 6_666, '2099-06-24', '12345678', '705-77628031', '0710', 'statement');
+
+        $this->filing->markFiled($this->sid(), $id, '2020-01-10 10:00', 'epo', null, null);
+
+        self::assertSame('ignored', $this->fx->transaction($notice)['match_status']);
+        self::assertSame('ignored', $this->fx->transaction($statement)['match_status']);
+        $row = $this->fx->submissionRow($id);
+        self::assertSame($statement, (int) $row['paid_bank_transaction_id'], 'the statement line is the authoritative record');
+        self::assertSame('6666.00', $row['paid_amount'], 'and the amount is not counted twice');
+    }
+
+    public function testAPaymentOfTheDifferenceIsPickedUpWhenACorrectiveReturnIsRecorded(): void
+    {
+        $account = $this->fx->bankAccountOrSkip();
+        $regular = $this->filedReturn(5, 4_000);
+        $this->payments->markPaid($this->sid(), $regular, '2099-06-20', null, null);
+        $corrective = $this->fx->dphSubmission(2099, 5, null, 5_000, 'O');
+        $tx = $this->fx->outgoingTransaction($account, 1_000, '2099-06-24', '12345678', '705-77628031');
+
+        $this->filing->markFiled($this->sid(), $corrective, '2020-01-10 10:00', 'epo', null, null);
+
+        $row = $this->fx->submissionRow($corrective);
+        self::assertSame($tx, (int) $row['paid_bank_transaction_id'], 'the 1 000 CZK still due after the 4 000 already paid');
+        self::assertSame('1000.00', $row['paid_amount']);
+    }
+
+    public function testRecordingAFilingSurvivesAFailingRecognition(): void
+    {
+        $recognizer = $this->createStub(\MyInvoice\Service\Tax\VatPaymentRecognizer::class);
+        $recognizer->method('reconsider')->willThrowException(new \RuntimeException('boom'));
+        $filing = new TaxSubmissionFilingService($this->repo, $this->fx->container->get(\MyInvoice\Service\ActivityLogger::class), $recognizer);
+        $id = $this->fx->dphSubmission(2099, 5, null, 1_234);
+
+        $row = $filing->markFiled($this->sid(), $id, '2020-01-10 10:00', 'epo', null, null);
+
+        self::assertSame('filed', $row['filing_status']);
     }
 
     public function testTheOldestPeriodWinsWhenTwoLiabilitiesHaveTheSameAmount(): void

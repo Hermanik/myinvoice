@@ -108,14 +108,16 @@ final class TaxCalendarService
             }
 
             if ($want('income_tax') && in_array($supplier['taxpayer_type'] ?? '', ['fo', 'po'], true)) {
-                $due = ReportPeriod::incomeTaxDeadline($year);
+                // The main date is the electronic one (§ 136 odst. 2 písm. a) DŘ), the paper one (§ 136 odst. 1) is informative.
+                $due = ReportPeriod::incomeTaxElectronicDeadline($year);
                 $days = $inWindow($due);
                 if ($days !== null) {
                     $form = $supplier['taxpayer_type'] === 'po' ? 'dppdp9' : 'dpfdp5';
                     $items[] = [
                         'type' => 'income_tax', 'key' => 'income_tax:' . $year, 'year' => $year, 'month' => null,
                         'quarter' => null, 'period' => 'yearly', 'period_label' => (string) $year,
-                        'form_code' => $form, 'due_date' => $due, 'days_left' => $days, 'link' => self::LINKS['income_tax'],
+                        'form_code' => $form, 'due_date' => $due, 'paper_due_date' => ReportPeriod::incomeTaxPaperDeadline($year),
+                        'days_left' => $days, 'link' => self::LINKS['income_tax'],
                         'filing' => $badgeFor(TaxSubmissionRepository::slotKey($form, $year, null, null)),
                     ];
                 }
@@ -159,11 +161,14 @@ final class TaxCalendarService
     }
 
     /**
-     * Does a souhrnné hlášení have to be filed for this VAT period?
+     * Does a souhrnné hlášení have to be filed for this VAT period? (§ 102 ZDPH)
      *
-     * Monthly period: any EU supply in the month. Quarterly period (quarter ends in $month): only
-     * when the quarter has services but no goods — supplies of goods make every month a monthly SH
-     * of its own, which is reported when that month's deadline comes.
+     * A monthly payer files a monthly SH for every month with an EU supply. A quarterly payer:
+     *  - goods supplied in a month  -> a monthly SH for that month (supplies of goods are never quarterly),
+     *  - services only in a month   -> reported in the monthly SH of that month too when the quarter
+     *                                   contains goods in any month,
+     *  - a quarter with services only (no goods in any of its months) -> ONE quarterly SH.
+     * `$month` is the last month of the quarter for the quarterly period.
      */
     private function shDue(int $supplierId, int $year, int $month, string $period, string $vatPeriod): bool
     {
@@ -172,8 +177,8 @@ final class TaxCalendarService
             if ($vatPeriod === 'monthly') {
                 return $supplies['goods'] || $supplies['services'];
             }
-            // A quarterly payer: months with goods are filed monthly, the rest goes to the quarterly SH.
-            return $supplies['goods'];
+            return $supplies['goods']
+                || ($supplies['services'] && $this->euSupplies($supplierId, ...ReportPeriod::range($year, $month, 'quarterly'))['goods']);
         }
         if ($vatPeriod !== 'quarterly') {
             return false;

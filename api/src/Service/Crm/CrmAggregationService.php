@@ -1173,6 +1173,24 @@ final class CrmAggregationService
             ];
         }
 
+        // 3c. Approved drafts the approval flow kept back from issuing (AutoIssueAndSendService, e.g. a zero-rated
+        // draft of a VAT payer): nothing was issued or sent, so without this item nobody would notice the invoice
+        // is still waiting. It disappears once the draft is issued (or deleted).
+        $heldIds = $this->filterByDismissal($this->heldDraftIds($supplierId), $dismissals, 'held_drafts');
+        if ($heldIds !== []) {
+            $heldCount = count($heldIds);
+            $items[] = [
+                'type'     => 'held_drafts',
+                'severity' => 'high',
+                'title'    => $heldCount === 1 ? 'Faktura čeká na kontrolu sazby DPH' : 'Faktury čekají na kontrolu sazby DPH',
+                'hint'     => $heldCount === 1
+                    ? 'Schválená faktura zůstala jako koncept a neodešla — zkontroluj sazbu DPH a vystav ji'
+                    : sprintf('%d schválených faktur zůstalo jako koncept a neodešlo — zkontroluj sazbu DPH a vystav je', $heldCount),
+                'link'     => $heldCount === 1 ? '/invoices/' . $heldIds[0] : '/invoices?status=draft',
+                'count'    => $heldCount,
+            ];
+        }
+
         // 4. Tax deadlines (DPH return, kontrolní hlášení, souhrnné hlášení) — derived by the shared
         // TaxCalendarService from the supplier's VAT period / taxpayer type / EU supplies and the dated
         // VAT status; see taxDeadlineItems(). Date-based, so "historical" dismissal behaves like "forever".
@@ -1430,7 +1448,7 @@ final class CrmAggregationService
     {
         $validTypes = ['overdue_invoices', 'bank_unmatched', 'recurring_due', 'overdue_payables',
             'purchase_drafts', 'tax_deadline', 'kh_deadline', 'shv_deadline', 'churn_risk',
-            'myucto_upgrade', 'vat_payment'];
+            'myucto_upgrade', 'vat_payment', 'held_drafts'];
         $validModes = ['day', 'week', 'forever', 'historical'];
         if (!in_array($itemType, $validTypes, true)) {
             throw new \InvalidArgumentException("Invalid item_type: {$itemType}");
@@ -1506,6 +1524,25 @@ final class CrmAggregationService
         );
         $stmt->execute([$supplierId, $userId]);
         return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Drafts that the approval flow wanted to issue and held back (`invoice.auto_issue_held` in the activity
+     * log) and that are still drafts.
+     *
+     * @return list<int>
+     */
+    private function heldDraftIds(int $supplierId): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT i.id FROM invoices i
+              WHERE i.supplier_id = ? AND i.status = 'draft'
+                AND EXISTS (SELECT 1 FROM activity_log a
+                             WHERE a.entity_type = 'invoice' AND a.entity_id = i.id AND a.action = 'invoice.auto_issue_held')
+           ORDER BY i.id"
+        );
+        $stmt->execute([$supplierId]);
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     /**
@@ -1592,6 +1629,8 @@ final class CrmAggregationService
                 break;
             case 'vat_payment':
                 return array_map(static fn (array $c): int => (int) $c['submission_id'], $this->vatPayments->unpaidLiabilities($supplierId));
+            case 'held_drafts':
+                return $this->heldDraftIds($supplierId);
             case 'tax_deadline':
             case 'kh_deadline':
             case 'shv_deadline':

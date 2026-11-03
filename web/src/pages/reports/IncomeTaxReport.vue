@@ -47,6 +47,7 @@ function exportCsv() {
     [t('reports.income_tax.profit_orientacni'), s.profit_orientacni],
     [t('reports.income_tax.csv_vat'), s.is_vat_payer ? t('common.yes') : t('common.no')],
     [t('reports.dph.deadline'), s.submission_deadline],
+    [t('reports.income_tax.csv_paper_deadline'), s.paper_deadline],
   ]
   const csv = '﻿' + rows.map(([k, v]) =>
     `"${String(k).replace(/"/g, '""')}";"${String(v).replace(/"/g, '""')}"`).join('\r\n')
@@ -160,7 +161,7 @@ onMounted(loadPreview)
           <div class="text-xl font-bold font-mono text-neutral-900">
             {{ preview.summary.submission_deadline }}
           </div>
-          <div class="text-xs text-neutral-500 mt-1">{{ t('reports.income_tax.deadline_hint') }}</div>
+          <div class="text-xs text-neutral-500 mt-1">{{ t('reports.income_tax.deadline_hint', { paper: preview.summary.paper_deadline }) }}</div>
         </div>
       </div>
 

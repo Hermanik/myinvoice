@@ -105,6 +105,15 @@ final class ChangesAfterFilingTest extends TestCase
         self::assertSame(['deleted'], self::types($listed['purchase:P-DELETED']));
     }
 
+    public function testBookingAReceivedPurchaseAfterFilingIsNotAChange(): void
+    {
+        // Booking only files the document into the books: it changes no figure of the return.
+        $id = $this->fx->purchase('P-BOOKED-LATER', $this->client, '2099-06-17', 1000, 210, 21, '40', 'received', '2099-06-20 10:00:00');
+        $this->fx->pdo->exec("UPDATE purchase_invoices SET booked_at = '2099-07-09 10:00:00' WHERE id = {$id}");
+
+        self::assertArrayNotHasKey('purchase:P-BOOKED-LATER', $this->listed());
+    }
+
     public function testAnEditBeforeAndAfterFilingReportsOnlyTheLaterOne(): void
     {
         $id = $this->fx->sale('S-TWICE', $this->client, '2099-06-10', 1000, 210, 21, '1', 'issued', '2099-06-01 10:00:00');

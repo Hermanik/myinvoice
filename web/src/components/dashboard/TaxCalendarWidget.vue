@@ -60,6 +60,7 @@ function badgeClass(status: string): string {
             <div class="text-xs text-neutral-500 truncate">
               {{ i.period_label }}
               <template v-if="i.type === 'pausal' && i.amount">· {{ formatMoney(i.amount, 'CZK') }}</template>
+              <template v-if="i.paper_due_date">· {{ t('dashboard.tax_calendar.electronic') }} · {{ t('dashboard.tax_calendar.paper_until', { date: formatDate(i.paper_due_date) }) }}</template>
             </div>
           </div>
           <span v-if="i.filing" :class="['px-2 py-0.5 rounded text-xs font-medium shrink-0', badgeClass(i.filing.status)]" data-testid="tax-calendar-badge">
