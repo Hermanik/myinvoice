@@ -1580,6 +1580,7 @@
       "modal_desc_rejected": "Zápis důvodu zamítnutí. Faktura zůstane jako draft.",
       "reason_required": "Důvod zamítnutí je povinný.",
       "status_updated": "Stav schválení byl aktualizován.",
+      "approved_held": "Schváleno, ale faktura zůstala jako koncept (nevystavila se ani neodeslala). {reason}",
       "approved_and_sent": "Schváleno. Faktura odeslána na: {recipients}",
       "auto_send_failed": "Schválení proběhlo, ale auto-odeslání faktury selhalo: {error}",
       "status_update_failed": "Změna stavu selhala"

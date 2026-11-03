@@ -1222,6 +1222,8 @@ async function updateApprovalStatus() {
     approvalStatusOpen.value = false
     if (r.auto_send_error) {
       toast.error(t('invoice.approval.auto_send_failed', { error: r.auto_send_error }))
+    } else if (r.auto_send?.held) {
+      toast.warning(t('invoice.approval.approved_held', { reason: r.auto_send.warnings?.[0]?.message ?? '' }))
     } else if (r.auto_send && r.auto_send.sent_to.length > 0) {
       toast.success(t('invoice.approval.approved_and_sent', { recipients: r.auto_send.sent_to.join(', ') }))
     } else {

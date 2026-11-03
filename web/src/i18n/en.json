@@ -1580,6 +1580,7 @@
       "modal_desc_rejected": "Records the rejection reason. Invoice stays as draft.",
       "reason_required": "Rejection reason is required.",
       "status_updated": "Approval status updated.",
+      "approved_held": "Approved, but the invoice was kept as a draft (not issued or sent). {reason}",
       "approved_and_sent": "Approved. Invoice sent to: {recipients}",
       "auto_send_failed": "Approval succeeded but auto-sending the invoice failed: {error}",
       "status_update_failed": "Status change failed"

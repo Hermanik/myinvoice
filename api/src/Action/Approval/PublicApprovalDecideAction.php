@@ -137,6 +137,16 @@ final class PublicApprovalDecideAction
             ]);
         }
 
+        if (!empty($autoResult['held'])) {
+            // Held as a draft by the VAT check — nothing leaves the building; the client only needs
+            // to know the approval went through (the supplier is told in the app).
+            return Json::ok($response, [
+                'decision' => 'approved',
+                'message'  => 'Výkaz byl schválen. Fakturu zašleme po jejím vystavení.',
+                'sent_to'  => [],
+            ]);
+        }
+
         return Json::ok($response, [
             'decision' => 'approved',
             'message'  => 'Výkaz byl schválen. Faktura již byla odeslána.',

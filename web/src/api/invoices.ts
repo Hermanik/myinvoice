@@ -650,7 +650,14 @@ export const invoicesApi = {
   updateApprovalStatus: (id: number, status: ApprovalStatus, rejectionReason?: string) =>
     api.put<{
       invoice: Invoice
-      auto_send?: { issued: boolean; sent_to: string[]; varsymbol: string | null }
+      auto_send?: {
+        issued: boolean
+        sent_to: string[]
+        varsymbol: string | null
+        /** Payer-time 0 % draft kept as a draft (nothing issued or sent). */
+        held?: boolean
+        warnings?: Array<{ code: string; message: string }>
+      }
       auto_send_error?: string
     }>(
       `/invoices/${id}/approval-status`,
