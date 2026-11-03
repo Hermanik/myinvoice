@@ -34,6 +34,9 @@ use MyInvoice\Action\Admin\Import\FakturoidCredentialsAction;
 use MyInvoice\Action\Admin\Import\AnthropicCredentialsAction;
 use MyInvoice\Action\Admin\Import\AiExtractPdfAction;
 use MyInvoice\Action\Crm\CrmDashboardAction;
+use MyInvoice\Action\Databox\DataboxBoxAction;
+use MyInvoice\Action\Databox\DataboxMessageAction;
+use MyInvoice\Action\Databox\DataboxSendAction;
 use MyInvoice\Action\Report\DphPriznaniAction;
 use MyInvoice\Action\Report\KontrolniHlaseniAction;
 use MyInvoice\Action\Report\DphBookAction;
@@ -581,6 +584,31 @@ final class Routes
         $app->get    ('/api/reports/submissions/{id:[0-9]+}',     [\MyInvoice\Action\Report\TaxSubmissionAction::class, 'detail']);
         $app->get    ('/api/reports/submissions/{id:[0-9]+}/xml', [\MyInvoice\Action\Report\TaxSubmissionAction::class, 'downloadXml']);
         $app->delete ('/api/reports/submissions/{id:[0-9]+}',     [\MyInvoice\Action\Report\TaxSubmissionAction::class, 'delete']);
+
+        // Datové schránky (ISDS) — session + admin only; /api/databox is deliberately NOT in the API-token allowlist.
+        $app->get    ('/api/databox/boxes',                                    [DataboxBoxAction::class, 'list']);
+        $app->post   ('/api/databox/boxes',                                    [DataboxBoxAction::class, 'create']);
+        $app->get    ('/api/databox/boxes/{id:[0-9]+}',                        [DataboxBoxAction::class, 'get']);
+        $app->put    ('/api/databox/boxes/{id:[0-9]+}',                        [DataboxBoxAction::class, 'update']);
+        $app->delete ('/api/databox/boxes/{id:[0-9]+}',                        [DataboxBoxAction::class, 'delete']);
+        $app->post   ('/api/databox/boxes/{id:[0-9]+}/verify',                 [DataboxBoxAction::class, 'verify']);
+        $app->post   ('/api/databox/boxes/{id:[0-9]+}/sync',                   [DataboxBoxAction::class, 'syncNow']);
+        $app->post   ('/api/databox/boxes/{id:[0-9]+}/acknowledge-all',        [DataboxBoxAction::class, 'acknowledgeAll']);
+        $app->get    ('/api/databox/boxes/{id:[0-9]+}/lookup',                 [DataboxBoxAction::class, 'lookup']);
+        $app->put    ('/api/databox/boxes/{id:[0-9]+}/credentials/{purpose:[a-z]+}',    [DataboxBoxAction::class, 'setCredential']);
+        $app->delete ('/api/databox/boxes/{id:[0-9]+}/credentials/{purpose:[a-z]+}',    [DataboxBoxAction::class, 'removeCredential']);
+        $app->get    ('/api/databox/boxes/{id:[0-9]+}/messages',               [DataboxMessageAction::class, 'list']);
+        $app->get    ('/api/databox/messages/{id:[0-9]+}',                     [DataboxMessageAction::class, 'get']);
+        $app->post   ('/api/databox/messages/{id:[0-9]+}/open',                [DataboxMessageAction::class, 'open']);
+        $app->get    ('/api/databox/messages/{id:[0-9]+}/attachments/{index:[0-9]+}', [DataboxMessageAction::class, 'attachment']);
+        $app->get    ('/api/databox/messages/{id:[0-9]+}/zfo',                 [DataboxMessageAction::class, 'zfo']);
+        $app->post   ('/api/databox/messages/{id:[0-9]+}/acknowledge',         [DataboxMessageAction::class, 'acknowledge']);
+        $app->post   ('/api/databox/messages/{id:[0-9]+}/receipt',             [DataboxMessageAction::class, 'refreshReceipt']);
+        $app->post   ('/api/databox/messages/prepare',                         [DataboxSendAction::class, 'prepare']);
+        $app->post   ('/api/databox/messages/send',                            [DataboxSendAction::class, 'send']);
+        $app->get    ('/api/databox/submissions/links',                        [DataboxSendAction::class, 'submissionLinks']);
+        $app->get    ('/api/databox/submissions/{id:[0-9]+}/prefill',          [DataboxSendAction::class, 'submissionPrefill']);
+        $app->post   ('/api/databox/submissions/{id:[0-9]+}/prepare',          [DataboxSendAction::class, 'submissionPrepare']);
 
         $app->get    ('/api/admin/imports/{id:[0-9]+}',         ImportJobStatusAction::class);
         $app->post   ('/api/admin/imports/{id:[0-9]+}/cancel',  CancelImportJobAction::class);

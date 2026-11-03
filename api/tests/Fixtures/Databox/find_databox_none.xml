@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Body>
+<q:FindDataBox2Response xmlns:q="http://isds.czechpoint.cz/v20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <q:dbResults/>
+  <q:dbStatus><q:dbStatusCode>0002</q:dbStatusCode><q:dbStatusMessage>Podmínkám neodpovídá žádná datová schránka.</q:dbStatusMessage></q:dbStatus>
+</q:FindDataBox2Response>
+</SOAP-ENV:Body></SOAP-ENV:Envelope>

@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Body>
+<q:GetListOfReceivedMessagesResponse xmlns:q="http://isds.czechpoint.cz/v20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <q:dmRecords>
+    <q:dmRecord>
+      <q:dmOrdinal>1</q:dmOrdinal>
+      <q:dmID>4101001</q:dmID>
+      <q:dbIDSender>7nyn2d9</q:dbIDSender>
+      <q:dmSender>Finanční úřad pro hlavní město Prahu</q:dmSender>
+      <q:dmSenderAddress>Testovací 1, 11000 Praha, CZ</q:dmSenderAddress>
+      <q:dmSenderType>10</q:dmSenderType>
+      <q:dmRecipient>Jan Testovací - IT služby</q:dmRecipient>
+      <q:dmRecipientAddress>Testovací 1, 11000 Praha, CZ</q:dmRecipientAddress>
+      <q:dmSenderOrgUnit xsi:nil="true"/>
+      <q:dmSenderOrgUnitNum xsi:nil="true"/>
+      <q:dbIDRecipient>tpbxbx7</q:dbIDRecipient>
+      <q:dmRecipientOrgUnit xsi:nil="true"/>
+      <q:dmRecipientOrgUnitNum xsi:nil="true"/>
+      <q:dmToHands xsi:nil="true"/>
+      <q:dmAnnotation>Výzva k odstranění pochybností - kontrolní hlášení 03/2026</q:dmAnnotation>
+      <q:dmRecipientRefNumber xsi:nil="true"/>
+      <q:dmSenderRefNumber>123456/26/2000-1</q:dmSenderRefNumber>
+      <q:dmRecipientIdent xsi:nil="true"/>
+      <q:dmSenderIdent xsi:nil="true"/>
+      <q:dmLegalTitleLaw xsi:nil="true"/>
+      <q:dmLegalTitleYear xsi:nil="true"/>
+      <q:dmLegalTitleSect xsi:nil="true"/>
+      <q:dmLegalTitlePar xsi:nil="true"/>
+      <q:dmLegalTitlePoint xsi:nil="true"/>
+      <q:dmPersonalDelivery>false</q:dmPersonalDelivery>
+      <q:dmAllowSubstDelivery>true</q:dmAllowSubstDelivery>
+      <q:dmMessageStatus>4</q:dmMessageStatus>
+      <q:dmAttachmentSize>12</q:dmAttachmentSize>
+      <q:dmDeliveryTime>2026-10-27T09:15:30.120+01:00</q:dmDeliveryTime>
+      <q:dmAcceptanceTime xsi:nil="true"/>
+    </q:dmRecord>
+    <q:dmRecord>
+      <q:dmOrdinal>2</q:dmOrdinal>
+      <q:dmID>4101002</q:dmID>
+      <q:dbIDSender>q7m2zpk</q:dbIDSender>
+      <q:dmSender>Dodavatel s.r.o.</q:dmSender>
+      <q:dmSenderAddress>Testovací 1, 11000 Praha, CZ</q:dmSenderAddress>
+      <q:dmSenderType>20</q:dmSenderType>
+      <q:dmRecipient>Jan Testovací - IT služby</q:dmRecipient>
+      <q:dmRecipientAddress>Testovací 1, 11000 Praha, CZ</q:dmRecipientAddress>
+      <q:dmSenderOrgUnit xsi:nil="true"/>
+      <q:dmSenderOrgUnitNum xsi:nil="true"/>
+      <q:dbIDRecipient>tpbxbx7</q:dbIDRecipient>
+      <q:dmRecipientOrgUnit xsi:nil="true"/>
+      <q:dmRecipientOrgUnitNum xsi:nil="true"/>
+      <q:dmToHands xsi:nil="true"/>
+      <q:dmAnnotation>Objednávka 2026-117</q:dmAnnotation>
+      <q:dmRecipientRefNumber xsi:nil="true"/>
+      <q:dmSenderRefNumber>123456/26/2000-1</q:dmSenderRefNumber>
+      <q:dmRecipientIdent xsi:nil="true"/>
+      <q:dmSenderIdent xsi:nil="true"/>
+      <q:dmLegalTitleLaw xsi:nil="true"/>
+      <q:dmLegalTitleYear xsi:nil="true"/>
+      <q:dmLegalTitleSect xsi:nil="true"/>
+      <q:dmLegalTitlePar xsi:nil="true"/>
+      <q:dmLegalTitlePoint xsi:nil="true"/>
+      <q:dmPersonalDelivery>false</q:dmPersonalDelivery>
+      <q:dmAllowSubstDelivery>true</q:dmAllowSubstDelivery>
+      <q:dmMessageStatus>6</q:dmMessageStatus>
+      <q:dmAttachmentSize>12</q:dmAttachmentSize>
+      <q:dmDeliveryTime>2026-10-20T14:02:11.500+02:00</q:dmDeliveryTime>
+      <q:dmAcceptanceTime>2026-10-20T14:30:00.000+02:00</q:dmAcceptanceTime>
+    </q:dmRecord>
+    <q:dmRecord>
+      <q:dmOrdinal>3</q:dmOrdinal>
+      <q:dmID>4101003</q:dmID>
+      <q:dbIDSender>kd4n6w3</q:dbIDSender>
+      <q:dmSender>Obec Testov</q:dmSender>
+      <q:dmSenderAddress>Testovací 1, 11000 Praha, CZ</q:dmSenderAddress>
+      <q:dmSenderType>10</q:dmSenderType>
+      <q:dmRecipient>Jan Testovací - IT služby</q:dmRecipient>
+      <q:dmRecipientAddress>Testovací 1, 11000 Praha, CZ</q:dmRecipientAddress>
+      <q:dmSenderOrgUnit xsi:nil="true"/>
+      <q:dmSenderOrgUnitNum xsi:nil="true"/>
+      <q:dbIDRecipient>tpbxbx7</q:dbIDRecipient>
+      <q:dmRecipientOrgUnit xsi:nil="true"/>
+      <q:dmRecipientOrgUnitNum xsi:nil="true"/>
+      <q:dmToHands xsi:nil="true"/>
+      <q:dmAnnotation>Informace o poplatku</q:dmAnnotation>
+      <q:dmRecipientRefNumber xsi:nil="true"/>
+      <q:dmSenderRefNumber>123456/26/2000-1</q:dmSenderRefNumber>
+      <q:dmRecipientIdent xsi:nil="true"/>
+      <q:dmSenderIdent xsi:nil="true"/>
+      <q:dmLegalTitleLaw xsi:nil="true"/>
+      <q:dmLegalTitleYear xsi:nil="true"/>
+      <q:dmLegalTitleSect xsi:nil="true"/>
+      <q:dmLegalTitlePar xsi:nil="true"/>
+      <q:dmLegalTitlePoint xsi:nil="true"/>
+      <q:dmPersonalDelivery>true</q:dmPersonalDelivery>
+      <q:dmAllowSubstDelivery>true</q:dmAllowSubstDelivery>
+      <q:dmMessageStatus>5</q:dmMessageStatus>
+      <q:dmAttachmentSize>12</q:dmAttachmentSize>
+      <q:dmDeliveryTime>2026-10-05T08:00:00.000+02:00</q:dmDeliveryTime>
+      <q:dmAcceptanceTime>2026-10-15T23:59:59.999+02:00</q:dmAcceptanceTime>
+    </q:dmRecord>
+  </q:dmRecords>
+  <q:dmStatus><q:dmStatusCode>0000</q:dmStatusCode><q:dmStatusMessage>Provedeno úspěšně.</q:dmStatusMessage></q:dmStatus>
+</q:GetListOfReceivedMessagesResponse>
+</SOAP-ENV:Body></SOAP-ENV:Envelope>

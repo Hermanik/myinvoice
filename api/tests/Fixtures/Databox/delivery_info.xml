@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Body>
+<q:GetDeliveryInfoResponse xmlns:q="http://isds.czechpoint.cz/v20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <q:dmDelivery>
+    <q:dmDm>
+      <q:dmID>4102001</q:dmID>
+      <q:dbIDSender>tpbxbx7</q:dbIDSender>
+      <q:dmSender>Jan Testovací - IT služby</q:dmSender>
+      <q:dmSenderAddress>Testovací 1, 11000 Praha, CZ</q:dmSenderAddress>
+      <q:dmSenderType>30</q:dmSenderType>
+      <q:dmRecipient>Finanční úřad pro hlavní město Prahu</q:dmRecipient>
+      <q:dmRecipientAddress>Testovací 1, 11000 Praha, CZ</q:dmRecipientAddress>
+      <q:dmAmbiguousRecipient>false</q:dmAmbiguousRecipient>
+      <q:dmSenderOrgUnit xsi:nil="true"/>
+      <q:dmSenderOrgUnitNum xsi:nil="true"/>
+      <q:dbIDRecipient>7nyn2d9</q:dbIDRecipient>
+      <q:dmRecipientOrgUnit xsi:nil="true"/>
+      <q:dmRecipientOrgUnitNum xsi:nil="true"/>
+      <q:dmToHands xsi:nil="true"/>
+      <q:dmAnnotation>Přiznání k DPH za 09/2026, DIČ CZ12345678</q:dmAnnotation>
+      <q:dmRecipientRefNumber xsi:nil="true"/>
+      <q:dmSenderRefNumber xsi:nil="true"/>
+      <q:dmRecipientIdent xsi:nil="true"/>
+      <q:dmSenderIdent xsi:nil="true"/>
+      <q:dmLegalTitleLaw xsi:nil="true"/>
+      <q:dmLegalTitleYear xsi:nil="true"/>
+      <q:dmLegalTitleSect xsi:nil="true"/>
+      <q:dmLegalTitlePar xsi:nil="true"/>
+      <q:dmLegalTitlePoint xsi:nil="true"/>
+      <q:dmPersonalDelivery>false</q:dmPersonalDelivery>
+      <q:dmAllowSubstDelivery>true</q:dmAllowSubstDelivery>
+    </q:dmDm>
+    <q:dmHash algorithm="SHA-256">9nWUAmCwgenVF22eoHpPzAXA30K6KgVtZn5FVen21+o=</q:dmHash>
+    <q:dmQTimestamp>MIIB</q:dmQTimestamp>
+    <q:dmDeliveryTime>2026-10-24T10:00:00.000+02:00</q:dmDeliveryTime>
+    <q:dmAcceptanceTime>2026-10-24T10:00:05.000+02:00</q:dmAcceptanceTime>
+    <q:dmMessageStatus>6</q:dmMessageStatus>
+    <q:dmEvents>
+      <q:dmEvent><q:dmEventTime>2026-10-24T09:59:59.800+02:00</q:dmEventTime><q:dmEventDescr>EV0: Datová zpráva byla podána.</q:dmEventDescr></q:dmEvent>
+      <q:dmEvent><q:dmEventTime>2026-10-24T10:00:00.000+02:00</q:dmEventTime><q:dmEventDescr>EV5: Datová zpráva byla dodána do datové schránky adresáta.</q:dmEventDescr></q:dmEvent>
+      <q:dmEvent><q:dmEventTime>2026-10-24T10:00:05.000+02:00</q:dmEventTime><q:dmEventDescr>EV11: Přihlásila se primární oprávněná osoba a zpráva byla doručena přihlášením.</q:dmEventDescr></q:dmEvent>
+    </q:dmEvents>
+  </q:dmDelivery>
+  <q:dmStatus><q:dmStatusCode>0000</q:dmStatusCode><q:dmStatusMessage>Provedeno úspěšně.</q:dmStatusMessage></q:dmStatus>
+</q:GetDeliveryInfoResponse>
+</SOAP-ENV:Body></SOAP-ENV:Envelope>

@@ -1034,6 +1034,16 @@ final class CrmAggregationService
             ];
         }
 
+        // 0b. Data boxes: new messages (tax office first, high severity) and a broken synchronisation.
+        // Admin only, like the pages the items link to; also keeps the extra queries off everybody else's dashboard.
+        if ($userRole === 'admin') {
+            foreach ($this->databoxItems($supplierId) as $databoxItem) {
+                if (!$this->isFullyDismissed($dismissals, (string) $databoxItem['type'])) {
+                    $items[] = $databoxItem;
+                }
+            }
+        }
+
         $overdueOperator = $this->overduePolicy->comparisonOperator();
 
         // 1. Overdue vystavené faktury — pošli upomínku.
@@ -1272,6 +1282,69 @@ final class CrmAggregationService
     }
 
     /**
+     * Action items of the connected data boxes.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function databoxItems(int $supplierId): array
+    {
+        $boxes = new \MyInvoice\Repository\DataboxRepository($this->db);
+        if (!$boxes->hasActive($supplierId)) {
+            return []; // the common case costs a single query
+        }
+        $messages = new \MyInvoice\Repository\DataboxMessageRepository($this->db);
+        $unread = $messages->unreadSummary($supplierId);
+        $broken = $messages->brokenSyncs($supplierId);
+        $expiring = $boxes->expiringLogins($supplierId, 7);
+
+        $items = [];
+        if ($unread['tax_office'] > 0) {
+            $items[] = [
+                'type'     => 'databox_tax_office',
+                'severity' => 'high',
+                'title'    => $unread['tax_office'] === 1 ? 'Nová zpráva od finančního úřadu v datové schránce' : 'Nové zprávy od finančního úřadu v datových schránkách',
+                'hint'     => ($unread['latest_tax_office_annotation'] !== null ? '„' . mb_substr((string) $unread['latest_tax_office_annotation'], 0, 80) . '“ — ' : '')
+                    . 'zkontrolujte lhůty (např. výzva ke kontrolnímu hlášení)',
+                'link'     => '/databox?box=' . (int) $unread['box_id'] . '&filter=tax_office',
+                'count'    => $unread['tax_office'],
+            ];
+        }
+        $other = $unread['unread'] - $unread['tax_office'];
+        if ($other > 0) {
+            $items[] = [
+                'type'     => 'databox_unread',
+                'severity' => 'medium',
+                'title'    => 'Nové zprávy v datových schránkách',
+                'hint'     => sprintf('%d nepřečtených', $other),
+                'link'     => '/databox?filter=unread',
+                'count'    => $other,
+            ];
+        }
+        if ($expiring !== []) {
+            $items[] = [
+                'type'     => 'databox_password_expiry',
+                'severity' => 'medium',
+                'title'    => 'Heslo k datové schránce brzy vyprší',
+                'hint'     => implode(', ', array_map(static fn (array $e): string => $e['label'] . ' (' . substr($e['expires_at'], 0, 10) . ')', $expiring))
+                    . ' — po vypršení se aplikace nepřihlásí; nové heslo zadejte v nastavení',
+                'link'     => '/admin/settings#databox',
+                'count'    => count($expiring),
+            ];
+        }
+        if ($broken !== []) {
+            $items[] = [
+                'type'     => 'databox_sync_error',
+                'severity' => 'medium',
+                'title'    => 'Synchronizace datové schránky nefunguje',
+                'hint'     => implode(', ', array_map(static fn (array $b): string => $b['label'], $broken)) . ' — zkontrolujte přihlášení v nastavení',
+                'link'     => '/admin/settings#databox',
+                'count'    => count($broken),
+            ];
+        }
+        return $items;
+    }
+
+    /**
      * Daňové termíny (DPH přiznání + Kontrolní hlášení) podle periodicity dodavatele.
      *
      * Pravidla (zákon 235/2004 Sb.):
@@ -1496,7 +1569,7 @@ final class CrmAggregationService
     {
         $validTypes = ['overdue_invoices', 'bank_unmatched', 'recurring_due', 'overdue_payables',
             'purchase_drafts', 'tax_deadline', 'kh_deadline', 'shv_deadline', 'churn_risk',
-            'myucto_upgrade'];
+            'myucto_upgrade', 'databox_tax_office', 'databox_unread', 'databox_password_expiry', 'databox_sync_error'];
         $validModes = ['day', 'week', 'forever', 'historical'];
         if (!in_array($itemType, $validTypes, true)) {
             throw new \InvalidArgumentException("Invalid item_type: {$itemType}");
