@@ -23,7 +23,7 @@ final class FlatTaxWidgetVatStatusTest extends TestCase
     private int $supplierId = 0;
     private string $origBand = 'none';
     /** @var list<array{valid_from: string, status: string, note: ?string}> */
-    private array $origVatHistory = [];
+    private ?array $origVatHistory = null;
 
     protected function setUp(): void
     {
@@ -54,7 +54,9 @@ final class FlatTaxWidgetVatStatusTest extends TestCase
         }
         $pdo = $this->db->pdo();
         $pdo->prepare('UPDATE supplier SET flat_tax_band = ? WHERE id = ?')->execute([$this->origBand, $this->supplierId]);
-        VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
+        if ($this->origVatHistory !== null) {
+            VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
+        }
         $this->db->close();
     }
 

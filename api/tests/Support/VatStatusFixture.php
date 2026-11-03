@@ -35,6 +35,11 @@ final class VatStatusFixture
     /** @param list<array{valid_from: string, status: string, note: ?string}> $rows */
     public static function restore(PDO $pdo, int $supplierId, array $rows): void
     {
+        // Migration 9002 seeds a floor row for every supplier, so an empty snapshot is a test
+        // bug (e.g. restoring before snapshot() ran); restoring it would wipe the history.
+        if ($rows === []) {
+            throw new \LogicException("Refusing to restore an empty VAT history for supplier {$supplierId}.");
+        }
         self::replace($pdo, $supplierId, $rows);
     }
 

@@ -39,7 +39,7 @@ final class IncomeTaxVatBaseTest extends TestCase
     private int $userId = 0;
     private int $czId = 0;
     /** @var list<array{valid_from: string, status: string, note: ?string}> */
-    private array $origVatHistory = [];
+    private ?array $origVatHistory = null;
 
     private int $customerId = 0;
     private int $vendorId = 0;
@@ -96,7 +96,9 @@ final class IncomeTaxVatBaseTest extends TestCase
             }
         }
         // Restore the supplier's original VAT status history.
-        VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
+        if ($this->origVatHistory !== null) {
+            VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
+        }
         $this->db->close();
     }
 

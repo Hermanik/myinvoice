@@ -29,7 +29,7 @@ final class CrmVatBasisTest extends TestCase
     private int $currencyId = 0;
     private int $userId = 0;
     /** @var list<array{valid_from: string, status: string, note: ?string}> */
-    private array $origVatHistory = [];
+    private ?array $origVatHistory = null;
     /** @var int[] */
     private array $createdInvoices = [];
     /** @var int[] */
@@ -69,7 +69,9 @@ final class CrmVatBasisTest extends TestCase
     {
         if (isset($this->db)) {
             $this->cleanup();
-            VatStatusFixture::restore($this->db->pdo(), $this->supplierId, $this->origVatHistory);
+            if ($this->origVatHistory !== null) {
+                VatStatusFixture::restore($this->db->pdo(), $this->supplierId, $this->origVatHistory);
+            }
         }
     }
 

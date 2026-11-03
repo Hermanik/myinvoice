@@ -29,7 +29,7 @@ final class CrmTaxDeadlineTest extends TestCase
     private CrmAggregationService $crm;
     private int $supplierId = 0;
     /** @var list<array{valid_from: string, status: string, note: ?string}> */
-    private array $origVatHistory = [];
+    private ?array $origVatHistory = null;
     private ?string $origTaxpayerType = null;
     private ?string $origVatPeriod = null;
 
@@ -63,7 +63,9 @@ final class CrmTaxDeadlineTest extends TestCase
         if (isset($this->db) && $this->supplierId > 0) {
             $stmt = $this->db->pdo()->prepare('UPDATE supplier SET taxpayer_type = ?, vat_period = ? WHERE id = ?');
             $stmt->execute([$this->origTaxpayerType, $this->origVatPeriod, $this->supplierId]);
-            VatStatusFixture::restore($this->db->pdo(), $this->supplierId, $this->origVatHistory);
+            if ($this->origVatHistory !== null) {
+                VatStatusFixture::restore($this->db->pdo(), $this->supplierId, $this->origVatHistory);
+            }
         }
     }
 

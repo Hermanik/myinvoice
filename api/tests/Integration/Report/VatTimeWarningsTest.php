@@ -27,7 +27,7 @@ final class VatTimeWarningsTest extends TestCase
     private int $userId = 0;
     private int $clientId = 0;
     /** @var list<array{valid_from: string, status: string, note: ?string}> */
-    private array $origVatHistory = [];
+    private ?array $origVatHistory = null;
     /** @var int[] */
     private array $invoiceIds = [];
 
@@ -76,7 +76,9 @@ final class VatTimeWarningsTest extends TestCase
         if ($this->clientId > 0) {
             $pdo->prepare('DELETE FROM clients WHERE id = ?')->execute([$this->clientId]);
         }
-        VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
+        if ($this->origVatHistory !== null) {
+            VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
+        }
         $this->db->close();
     }
 

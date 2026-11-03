@@ -57,7 +57,7 @@ final class PaymentTaxDocumentVatTest extends TestCase
     private array $invoiceIds = [];
     private ?array $origVatFlags = null;
     /** @var list<array{valid_from: string, status: string, note: ?string}> */
-    private array $origVatHistory = [];
+    private ?array $origVatHistory = null;
 
     protected function setUp(): void
     {
@@ -113,7 +113,9 @@ final class PaymentTaxDocumentVatTest extends TestCase
         }
         $pdo = $this->db->pdo();
         if ($this->origVatFlags !== null && $this->supplierId > 0) {
-            VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
+            if ($this->origVatHistory !== null) {
+                VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
+            }
         }
         // Děti (final, tax_document) dřív než proforma; invoice_payments mažou FK cascade.
         foreach (array_reverse($this->invoiceIds) as $id) {

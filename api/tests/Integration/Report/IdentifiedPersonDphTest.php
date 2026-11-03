@@ -44,7 +44,7 @@ final class IdentifiedPersonDphTest extends TestCase
     private int $czId = 0;
     private int $deId = 0;
     /** @var list<array{valid_from: string, status: string, note: ?string}> */
-    private array $origVatHistory = [];
+    private ?array $origVatHistory = null;
 
     /** @var int[] */
     private array $clientIds = [];
@@ -101,7 +101,9 @@ final class IdentifiedPersonDphTest extends TestCase
         foreach ($this->clientIds as $id) {
             $pdo->prepare('DELETE FROM clients WHERE id = ?')->execute([$id]);
         }
-        VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
+        if ($this->origVatHistory !== null) {
+            VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
+        }
         $this->db->close();
     }
 

@@ -48,7 +48,7 @@ final class RecurringGeneratorTest extends TestCase
     /** Původní plátcovství supplier-a — test ho vynucuje na plátce (viz setUp). */
     private ?array $origVatFlags = null;
     /** @var list<array{valid_from: string, status: string, note: ?string}> */
-    private array $origVatHistory = [];
+    private ?array $origVatHistory = null;
 
     protected function setUp(): void
     {
@@ -124,7 +124,9 @@ final class RecurringGeneratorTest extends TestCase
     protected function tearDown(): void
     {
         if (isset($this->db) && $this->origVatFlags !== null && $this->supplierId > 0) {
-            VatStatusFixture::restore($this->db->pdo(), $this->supplierId, $this->origVatHistory);
+            if ($this->origVatHistory !== null) {
+                VatStatusFixture::restore($this->db->pdo(), $this->supplierId, $this->origVatHistory);
+            }
         }
         if (empty($this->createdInvoiceIds) && empty($this->createdTemplateIds)) {
             if (isset($this->db)) $this->db->close();

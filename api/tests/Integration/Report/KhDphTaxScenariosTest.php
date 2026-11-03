@@ -66,7 +66,7 @@ final class KhDphTaxScenariosTest extends TestCase
     /** Původní plátcovství supplier-a — test vynucuje plátce (viz setUp). */
     private ?array $origVatFlags = null;
     /** @var list<array{valid_from: string, status: string, note: ?string}> */
-    private array $origVatHistory = [];
+    private ?array $origVatHistory = null;
 
     protected function setUp(): void
     {
@@ -120,7 +120,9 @@ final class KhDphTaxScenariosTest extends TestCase
         $pdo = $this->db->pdo();
         if ($this->origVatFlags !== null && $this->supplierId > 0) {
             $pdo->prepare('UPDATE supplier SET dic = ? WHERE id = ?')->execute([$this->origVatFlags['dic'] ?? null, $this->supplierId]);
-            VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
+            if ($this->origVatHistory !== null) {
+                VatStatusFixture::restore($pdo, $this->supplierId, $this->origVatHistory);
+            }
         }
         foreach ($this->invoiceIds as $id) {
             $pdo->prepare('DELETE FROM invoice_items WHERE invoice_id = ?')->execute([$id]);
