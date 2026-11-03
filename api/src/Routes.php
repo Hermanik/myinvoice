@@ -249,6 +249,8 @@ final class Routes
             $g->put   ('/session/lock-preference',            [SessionAction::class, 'updateLockPreference']);
             $g->post  ('/session/unlock/options',             [SessionAction::class, 'unlockOptions']);
             $g->post  ('/session/unlock/verify',              [SessionAction::class, 'unlockVerify']);
+            // Starred sidebar items; the current list comes with /me (user.nav_favorites)
+            $g->put   ('/nav-favorites',                      \MyInvoice\Action\Auth\NavFavoritesAction::class);
             // API tokeny (Personal Access Tokens) — správa jen ze session auth
             $g->get   ('/tokens',                  ListTokensAction::class);
             $g->post  ('/tokens',                  CreateTokenAction::class);

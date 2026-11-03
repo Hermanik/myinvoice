@@ -12,6 +12,8 @@ export interface User {
   mfa_methods?: Array<'passkey' | 'totp'>
   passkey_count?: number
   must_setup_mfa?: boolean
+  /** Starred sidebar items (internal route paths), stored per user on the server. */
+  nav_favorites?: string[]
 }
 
 export interface SupplierBrief {
@@ -280,6 +282,8 @@ export const authApi = {
   logout: () => api.post('/auth/logout').then(() => undefined),
 
   me: () => api.get<MeResponse>('/auth/me').then(r => r.data),
+  updateNavFavorites: (items: string[]) =>
+    api.put<{ items: string[] }>('/auth/nav-favorites', { items }).then(r => r.data.items),
 
   changePassword: (current: string, next: string) =>
     api.post('/auth/change-password', {

@@ -97,3 +97,22 @@ třemi stavy:
 Volba se ukládá do prohlížeče (per zařízení) a platí napříč celou aplikací
 včetně grafů. Na mobilu je přepínač v rozbalovacím menu (☰) dole, vedle
 přepínače jazyka.
+
+## 8.9 Oblíbené položky menu
+
+Položky, se kterými pracuješ nejčastěji, si můžeš připnout do sekce
+**Oblíbené** v postranním menu, hned pod **Přehled**:
+
+- Najeď myší na položku menu a klikni na **☆** u jejího pravého okraje.
+  Položka se přidá do sekce Oblíbené a hvězdička se vybarví.
+- Opětovným klikem na **★** ji z oblíbených odebereš.
+- Na mobilu (bez myši) je hvězdička vidět u stránky, na které právě jsi,
+  a u položek, které už v oblíbených máš. Stránku tedy otevři, rozbal menu (☰)
+  a ťukni na hvězdičku u zvýrazněné položky.
+
+Oblíbené se řadí ve stejném pořadí jako v menu a položka zůstává i ve své
+původní sekci. Ukládají se k tvému uživatelskému účtu na server, takže je
+uvidíš na všech zařízeních, kde se přihlásíš. Každý uživatel má vlastní výběr;
+položka, ke které nemáš oprávnění (nebo se k firmě nehodí, např. Daňový
+optimalizátor u s.r.o.), se v Oblíbených nezobrazí. Oblíbené si může nastavit
+i uživatel s rolí *jen pro čtení*.

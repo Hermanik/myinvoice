@@ -300,6 +300,7 @@
     "section_documents": "Dokumenty", "documents": "Dokumenty", "logbook": "Kniha jízd",
     "purchase_invoices": "Přijaté faktury", "purchase_export": "Export přijatých", "payment_orders": "Platební příkazy", "vendors": "Dodavatelé",
     "support_dev": "Podpořte rozvoj",
+    "section_favorites": "Oblíbené", "favorite_add": "Přidat do oblíbených", "favorite_remove": "Odebrat z oblíbených", "favorite_save_failed": "Oblíbené se nepodařilo uložit.",
     "quick_new": "Vytvořit", "quick_invoice": "Vydaná faktura", "quick_proforma": "Zálohová faktura", "quick_recurring": "Pravidelná fakturace", "quick_client": "Klient", "quick_vendor": "Dodavatel", "quick_purchase": "Přijatá faktura", "quick_trip": "Kniha jízd", "quick_fueling": "Tankování"
   },
   "support": {

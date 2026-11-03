@@ -11,6 +11,7 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\PasskeyCredentialRepository;
 use MyInvoice\Service\Auth\MfaPolicyService;
+use MyInvoice\Service\Auth\NavFavoritesService;
 use MyInvoice\Service\Auth\SessionLockPolicy;
 use Psr\Clock\ClockInterface;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -26,6 +27,7 @@ final class MeAction
         private readonly MfaPolicyService $mfaPolicy,
         private readonly SessionLockPolicy $lockPolicy,
         private readonly ClockInterface $clock,
+        private readonly NavFavoritesService $navFavorites,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -122,6 +124,7 @@ final class MeAction
                 'mfa_methods'     => $mfaMethods,
                 'passkey_count'   => $passkeyCount,
                 'must_setup_mfa'  => $mustSetupMfa,
+                'nav_favorites'   => $userId > 0 ? $this->navFavorites->get($userId) : [],
             ],
             'csrf_token'          => $session['csrf_token'] ?? '',
             'current_supplier_id' => $currentSupplierId,

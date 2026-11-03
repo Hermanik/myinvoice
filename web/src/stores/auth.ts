@@ -6,6 +6,7 @@ import { broadcastSessionEvent } from '@/security/sessionChannel'
 import { setOverdueIncludesToday } from '@/utils/invoiceOverdue'
 import { setAppTimeZone } from '@/utils/date'
 import { useSupplierStore } from './supplier'
+import { createFavoritesSync } from '@/utils/navFavorites'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
@@ -29,6 +30,13 @@ export const useAuthStore = defineStore('auth', () => {
   const isAdmin = computed(() => user.value?.role === 'admin')
   const isReadonly = computed(() => user.value?.role === 'readonly')
   const canWrite = computed(() => user.value != null && user.value.role !== 'readonly')
+
+  const navFavorites = computed(() => user.value?.nav_favorites ?? [])
+  const toggleNavFavorite = createFavoritesSync({
+    read: () => navFavorites.value,
+    write: (items) => { if (user.value) user.value.nav_favorites = items },
+    save: (items) => authApi.updateNavFavorites(items),
+  })
 
   async function fetchSetupStatus() {
     setupStatus.value = await authApi.setupStatus()
@@ -178,6 +186,8 @@ export const useAuthStore = defineStore('auth', () => {
     isAdmin,
     isReadonly,
     canWrite,
+    navFavorites,
+    toggleNavFavorite,
     fetchSetupStatus,
     setSessionCsrfToken,
     setMfaPolicy,

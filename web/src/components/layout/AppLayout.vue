@@ -11,6 +11,7 @@ import GlobalSearch from './GlobalSearch.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import { useSessionSecurityStore } from '@/stores/sessionSecurity'
 import { useToast } from '@/composables/useToast'
+import { pickFavorites } from '@/utils/navFavorites'
 
 const { t, locale } = useI18n()
 function setLocale(l: 'cs' | 'en') {
@@ -91,6 +92,8 @@ interface NavSection {
   title?: string
   /** Color accent pro vertikální pruh + text. Tailwind utility class group. */
   accent?: 'primary' | 'warning' | 'success' | 'danger' | 'neutral'
+  /** The user's starred items, rendered as their own section below the dashboard. */
+  favorites?: boolean
   items: NavItem[]
 }
 
@@ -144,6 +147,7 @@ const ICONS = {
   tax_income: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   tax_archive: 'M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4',
   tax_book:   'M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25',
+  star:       'M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z',
   tax_optimizer: 'M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z',
 }
 
@@ -280,6 +284,59 @@ const quickActions = computed(() => [
 const flatNavItems = computed(() =>
   navSections.value.flatMap(s => s.items.map(it => ({ to: it.to, label: it.label, icon: it.icon, external: it.external })))
 )
+
+/** The dashboard always sits on top, so starring it would only duplicate it. */
+function canStar(item: NavItem): boolean {
+  return !item.external && item.to !== '/'
+}
+
+const favoriteItems = computed(() =>
+  pickFavorites(navSections.value.flatMap(s => s.items).filter(canStar), auth.navFavorites)
+)
+
+/** Menu as rendered: starred items get their own section right below the dashboard. */
+const displaySections = computed<NavSection[]>(() => {
+  if (favoriteItems.value.length === 0) return navSections.value
+  const [dashboard, ...rest] = navSections.value
+  return [
+    dashboard,
+    { title: t('nav.section_favorites'), accent: 'neutral', favorites: true, items: favoriteItems.value },
+    ...rest,
+  ]
+})
+
+function isFavorite(item: NavItem): boolean {
+  return auth.navFavorites.includes(item.to)
+}
+
+function starLabel(item: NavItem): string {
+  return isFavorite(item) ? t('nav.favorite_remove') : t('nav.favorite_add')
+}
+
+/**
+ * The star stays visible where it carries information (the current page, a
+ * starred item outside the Favorites section); elsewhere it appears on hover
+ * like the quick "+". A hidden star must not catch taps on touch screens.
+ */
+function starClasses(item: NavItem, section: NavSection): string[] {
+  const starred = isFavorite(item)
+  const shown = isActive(item) || (starred && !section.favorites)
+  return [
+    item.newTo && auth.canWrite ? 'right-7' : 'right-1.5',
+    starred ? 'text-warning-500 hover:text-warning-600' : 'text-neutral-400 hover:text-warning-500',
+    shown
+      ? 'opacity-100'
+      : 'opacity-0 pointer-events-none lg:group-hover:opacity-100 lg:group-hover:pointer-events-auto focus:opacity-100',
+  ]
+}
+
+async function toggleFavorite(item: NavItem) {
+  try {
+    await auth.toggleNavFavorite(item.to)
+  } catch {
+    toast.error(t('nav.favorite_save_failed'))
+  }
+}
 
 /**
  * „Pokrývá" URL (path + případná query) současnou route?
@@ -528,13 +585,18 @@ onMounted(async () => {
           <!-- Globální vyhledávač (před Přehled) — našeptává menu + hledá klienty/faktury -->
           <GlobalSearch :menu-items="flatNavItems" @navigated="mobileOpen = false" />
 
-          <template v-for="(section, si) in navSections" :key="si">
+          <template v-for="(section, si) in displaySections" :key="si">
             <!-- Section title — soft pill background v barvě sekce -->
             <div v-if="section.title" :class="si === 0 ? 'pt-1 pb-1.5' : 'pt-4 pb-1.5'">
               <div
                 class="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider"
                 :class="section.accent ? ACCENT_CLASSES[section.accent] : 'bg-neutral-100 text-neutral-600'"
-              >{{ section.title }}</div>
+              >
+                <svg v-if="section.favorites" class="w-3 h-3 mr-1 text-warning-500" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path :d="ICONS.star" />
+                </svg>
+                {{ section.title }}
+              </div>
             </div>
 
             <!-- Items: external (např. Nápověda → /manual v novém tabu) vs internal route -->
@@ -572,6 +634,21 @@ onMounted(async () => {
                   </svg>
                   {{ item.label }}
                 </RouterLink>
+                <!-- Star overlays the free space at the row end; the label padding stays as for the "+" alone -->
+                <button
+                  v-if="canStar(item)"
+                  type="button"
+                  :title="starLabel(item)"
+                  :aria-label="starLabel(item)"
+                  :aria-pressed="isFavorite(item)"
+                  class="absolute top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-5 h-5 rounded-md hover:bg-warning-50 transition-all"
+                  :class="starClasses(item, section)"
+                  @click="toggleFavorite(item)"
+                >
+                  <svg class="w-4 h-4" :fill="isFavorite(item) ? 'currentColor' : 'none'" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.star" />
+                  </svg>
+                </button>
                 <!-- Rychlé „+" (vytvořit nový) — skryté, odhalí se až při hoveru nad položkou -->
                 <RouterLink
                   v-if="item.newTo && auth.canWrite"
