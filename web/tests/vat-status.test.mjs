@@ -47,3 +47,16 @@ test('an invoice for December issued in January is still a non-payer invoice', (
   const duzp = documentVatDate('2026-12-31', '2027-01-05', '2027-01-05')
   assert.equal(vatFlagsAt(registration, duzp).is_vat_payer, false)
 })
+
+test('an empty history falls back to the supplier\'s cached flags instead of assuming a payer', () => {
+  assert.equal(vatStatusAt([], '2026-12-31', { is_vat_payer: false, is_identified: false }), 'non_payer')
+  assert.equal(vatStatusAt(undefined, '2026-12-31', { is_vat_payer: false, is_identified: true }), 'identified')
+  assert.equal(vatStatusAt([], '2026-12-31', { is_vat_payer: true, is_identified: false }), 'payer')
+  assert.deepEqual(
+    vatFlagsAt([], '2026-12-31', { is_vat_payer: false, is_identified: false }),
+    { is_vat_payer: false, is_identified: false },
+  )
+  // A real history wins over the fallback.
+  assert.equal(vatStatusAt(registration, '2027-02-01', { is_vat_payer: false, is_identified: false }), 'payer')
+})
+

@@ -217,6 +217,13 @@ export interface Invoice {
   _meta?: {
     exchange_rate?: ExchangeRateMeta
   }
+  /** Non-blocking hints (e.g. `payer_zero_rated`) returned by create / update / get of a draft. */
+  warnings?: InvoiceWarning[]
+}
+
+export interface InvoiceWarning {
+  code: string
+  message: string
 }
 
 export interface CzkRecap {

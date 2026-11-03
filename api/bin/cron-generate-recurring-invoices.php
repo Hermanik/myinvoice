@@ -68,6 +68,7 @@ $report = [
     'opened'     => 0,
     'generated'  => 0,
     'issued'     => 0,
+    'held_for_review' => 0,
     'sent'       => 0,
     'reminders'  => 0,
     'errors'     => 0,
@@ -121,6 +122,7 @@ foreach ($candidates as $t) {
     $tplId = (int) $t['id'];
     $mode = (string) ($t['draft_open_mode'] ?? 'at_issue');
     $nextRun = (string) $t['next_run_date'];
+    $generated = false; // true once this run issued / generated a period invoice (not just opened a draft)
     try {
         if ($mode === 'period_start' && $nextRun >= $today) {
             // OPEN fáze — jsme uvnitř fakturovaného období VČETNĚ jeho posledního dne
@@ -149,6 +151,7 @@ foreach ($candidates as $t) {
                 !empty($r['sent_to']) ? ' → ' . implode(', ', $r['sent_to']) : '',
                 $r['new_next_run_date'] ?? '?',
                 $r['template_status'] === 'expired' ? ', EXPIRED' : '');
+            $generated = true;
 
             // Po uzávěrce rovnou otevři koncept DALŠÍHO období, pokud už začalo
             // (draftOpenDate <= dnes) — u end-of-month šablon je to 1. den nového
@@ -180,9 +183,20 @@ foreach ($candidates as $t) {
                 !empty($r['sent_to']) ? ' → ' . implode(', ', $r['sent_to']) : '',
                 $r['new_next_run_date'] ?? '?',
                 $r['template_status'] === 'expired' ? ', EXPIRED' : '');
+            $generated = true;
         }
-        // Úspěch → vyčisti případnou starou chybu (banner na šabloně zmizí).
-        $repo->clearLastError($tplId);
+        // A run that generated an invoice clears an old error banner, unless the generator held the
+        // invoice as a draft and wrote the reason there. Merely opening a draft never touches the
+        // banner, so a held-draft notice survives the daily open-phase runs of period_start templates.
+        if ($generated) {
+            if (empty($r['warnings'])) {
+                $repo->clearLastError($tplId);
+            } else {
+                $report['held_for_review']++;
+                printf("  ⚠ #%d \"%s\" → faktura #%d zůstala jako koncept (DUZP v době plátcovství, všechny položky 0 %%)\n",
+                    $tplId, (string) $t['name'], $r['invoice_id']);
+            }
+        }
     } catch (\MyInvoice\Service\Invoice\RecurringScheduleChangedException) {
         continue;
     } catch (\Throwable $e) {

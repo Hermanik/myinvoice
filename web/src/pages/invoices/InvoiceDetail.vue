@@ -1358,6 +1358,12 @@ const invoiceActions = computed<ActionItem[]>(() => {
       <ActionBar :actions="invoiceActions" />
     </div>
 
+    <!-- Non-blocking hints before issuing (e.g. a payer's draft with every line on 0 %) -->
+    <div v-if="invoice.warnings?.length" data-invoice-warnings
+      class="rounded-md border border-warning-500/50 bg-warning-50 px-3 py-2 text-sm text-warning-600 space-y-1">
+      <p v-for="w in invoice.warnings" :key="w.code">{{ te('invoice.warnings.' + w.code) ? t('invoice.warnings.' + w.code) : w.message }}</p>
+    </div>
+
     <div class="flex items-start justify-between gap-4">
       <div class="flex-1 min-w-0 space-y-1">
         <div class="text-lg font-semibold text-neutral-900">

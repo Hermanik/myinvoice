@@ -224,7 +224,11 @@ final class SummaryAction
             $band = 'none';
         }
 
-        if (!isset(self::FLAT_TAX_BANDS[$band])) {
+        // A VAT payer cannot be in the flat tax regime (§ 7a ZDP): a year with any payer day (e.g. the
+        // registration year) has no flat-tax limit to watch, whatever band is still set.
+        if (!isset(self::FLAT_TAX_BANDS[$band])
+            || $this->vatStatus->history($sid)->hasPayerTimeBetween("$year-01-01", "$year-12-31")
+        ) {
             return ['applicable' => false, 'band' => null, 'current_czk' => 0.0,
                     'limit_czk' => null, 'percent' => null, 'status' => null, 'year' => $year];
         }

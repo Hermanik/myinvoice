@@ -260,6 +260,19 @@ const supplierIsVatPayer = computed(() => supplierVatFlags.value.is_vat_payer)
 // under reverse charge (Art. 196 of the directive) and files the EC Sales List.
 const supplierIsIdentified = computed(() => supplierVatFlags.value.is_identified)
 
+// Non-blocking hint, mirrors InvoiceVatAdvisor on the backend: a domestic invoice whose DUZP lies in payer
+// time and whose lines are ALL on 0 % is usually prepared from non-payer times and would go out without VAT.
+// (0 % is legal for a payer's exempt supplies, so this is a banner, never an error.)
+const zeroRatedPayerWarning = computed(() => {
+  const f = form.value
+  if (editedStatus.value !== 'draft' || f.invoice_type === 'credit_note' || f.reverse_charge || !supplierIsVatPayer.value || f.items.length === 0) return false
+  if (clients.value.find(c => c.id === f.client_id)?.country_iso2 !== 'CZ') return false
+  return f.items.every((it) => {
+    const rate = vatRates.value.find(v => v.id === it.vat_rate_id)
+    return !it.oss_applicable && rate !== undefined && Number(rate.rate_percent) === 0
+  })
+})
+
 // Changing the DUZP / issue date / document type across a VAT status boundary switches the item rates. For a non-payer
 // the VAT column is hidden, so the user could not fix a stale 21 % rate by hand and the server would reject the
 // invoice. Only after the editor has loaded (`loaded`) — hydrating an existing invoice must not overwrite rates.
@@ -1788,6 +1801,10 @@ async function deleteDraft() {
               {{ t('invoice.add_item') }}
             </button>
           </div>
+        </div>
+        <div v-if="zeroRatedPayerWarning" data-zero-rated-warning
+          class="mx-5 my-3 rounded-md border border-warning-500/50 bg-warning-50 px-3 py-2 text-sm text-warning-600">
+          {{ t('invoice.warnings.payer_zero_rated') }}
         </div>
         <div v-if="requiresPositiveAmountToPay" class="px-5 py-3 border-b border-neutral-100 text-xs text-neutral-500">
           {{ t('invoice.negative_item_hint') }}

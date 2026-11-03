@@ -39,6 +39,7 @@ use MyInvoice\Service\Vat\VatStatusService;
  *     sent_to: list<string>,
  *     new_next_run_date: ?string,
  *     template_status: string,
+ *     warnings: list<array{code: string, message: string}>,
  * }
  */
 final class RecurringInvoiceGenerator
@@ -57,6 +58,7 @@ final class RecurringInvoiceGenerator
         private readonly ActivityLogger $logger,
         private readonly RecurringPriceListService $priceList,
         private readonly VatStatusService $vatStatus,
+        private readonly InvoiceVatAdvisor $vatAdvisor,
     ) {}
 
     /**
@@ -110,8 +112,9 @@ final class RecurringInvoiceGenerator
             $issued = false;
             $sentTo = [];
             $varsymbol = null;
+            $warnings = [];
         } else {
-            ['issued' => $issued, 'sent_to' => $sentTo, 'varsymbol' => $varsymbol] =
+            ['issued' => $issued, 'sent_to' => $sentTo, 'varsymbol' => $varsymbol, 'warnings' => $warnings] =
                 $this->performIssue($invoiceId, $template, $userId, $ip, $ua);
         }
 
@@ -128,6 +131,7 @@ final class RecurringInvoiceGenerator
             'auto_issue'  => $template['auto_issue'],
             'auto_send'   => $template['auto_send_email'],
             'sent_to'     => $sentTo,
+            'warnings'    => array_column($warnings, 'code'),
             'advance_schedule' => $advanceSchedule,
             'next_run'    => $newNext,
             'new_status'  => $newStatus,
@@ -140,6 +144,7 @@ final class RecurringInvoiceGenerator
             'sent_to'           => $sentTo,
             'new_next_run_date' => $newNext,
             'template_status'   => $newStatus,
+            'warnings'          => $warnings,
         ];
     }
 
@@ -248,6 +253,7 @@ final class RecurringInvoiceGenerator
         $issued = false;
         $sentTo = [];
         $varsymbol = null;
+        $warnings = [];
 
         if ($existing !== null && (string) $existing['status'] !== 'draft') {
             // Už vystaveno (ručně nebo dřívějším během) — nic neděláme, jen posuneme rozvrh.
@@ -265,7 +271,7 @@ final class RecurringInvoiceGenerator
             $this->calc->recompute($invoiceId);
             $this->rateApplier->applyToInvoice($invoiceId);
 
-            ['issued' => $issued, 'sent_to' => $sentTo, 'varsymbol' => $varsymbol] =
+            ['issued' => $issued, 'sent_to' => $sentTo, 'varsymbol' => $varsymbol, 'warnings' => $warnings] =
                 $this->performIssue($invoiceId, $template, $userId, $ip, $ua);
         }
 
@@ -278,6 +284,7 @@ final class RecurringInvoiceGenerator
             'auto_issue'  => $template['auto_issue'],
             'auto_send'   => $template['auto_send_email'],
             'sent_to'     => $sentTo,
+            'warnings'    => array_column($warnings, 'code'),
             'next_run'    => $newNext,
             'new_status'  => $newStatus,
             'from_opened_draft' => $existing !== null,
@@ -290,6 +297,7 @@ final class RecurringInvoiceGenerator
             'sent_to'           => $sentTo,
             'new_next_run_date' => $newNext,
             'template_status'   => $newStatus,
+            'warnings'          => $warnings,
         ];
     }
 
@@ -307,19 +315,32 @@ final class RecurringInvoiceGenerator
     /**
      * Vystaví fakturu dle per-šablona flagů auto_issue / auto_send_email.
      *
-     * @return array{issued:bool, sent_to:list<string>, varsymbol:?string}
+     * A payer-time invoice with every line on 0 % (typically a template saved while the supplier
+     * was a non-payer) is NOT issued or sent: it stays a draft and the problem is reported on the
+     * template (`last_error` banner), like every other generation problem.
+     *
+     * @return array{issued:bool, sent_to:list<string>, varsymbol:?string, warnings:list<array{code:string, message:string}>}
      */
     private function performIssue(int $invoiceId, array $template, ?int $userId, string $ip, string $ua): array
     {
         if (!$template['auto_issue']) {
-            return ['issued' => false, 'sent_to' => [], 'varsymbol' => null];
+            return ['issued' => false, 'sent_to' => [], 'varsymbol' => null, 'warnings' => []];
+        }
+        $warnings = $this->vatAdvisor->warnings((int) $template['supplier_id'], $this->invoices->find($invoiceId) ?? []);
+        if ($warnings !== []) {
+            $this->templates->setLastError((int) $template['id'], sprintf(
+                'Faktura #%d zůstala jako koncept (nevystavila se ani neodeslala). %s Po registraci k DPH ulož šablonu znovu se skutečnou sazbou DPH.',
+                $invoiceId,
+                $warnings[0]['message'],
+            ));
+            return ['issued' => false, 'sent_to' => [], 'varsymbol' => null, 'warnings' => $warnings];
         }
         if ($template['auto_send_email']) {
             $r = $this->issueAndSend->run($invoiceId, $userId, $ip, $ua);
-            return ['issued' => $r['issued'], 'sent_to' => $r['sent_to'], 'varsymbol' => $r['varsymbol']];
+            return ['issued' => $r['issued'], 'sent_to' => $r['sent_to'], 'varsymbol' => $r['varsymbol'], 'warnings' => []];
         }
         $varsymbol = $this->issueOnlyWithoutSend($invoiceId, $userId, $ip, $ua);
-        return ['issued' => true, 'sent_to' => [], 'varsymbol' => $varsymbol];
+        return ['issued' => true, 'sent_to' => [], 'varsymbol' => $varsymbol, 'warnings' => []];
     }
 
     /**

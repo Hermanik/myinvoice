@@ -1868,6 +1868,9 @@
     "reverse_charge": "Reverse charge",
     "reverse_charge_io_hint": "You invoice without VAT — the amounts shown are the tax base. The customer self-assesses VAT at their country's rate; no Czech VAT rate appears on the document. The supply is included in the EC Sales List.",
     "vat_status_rates_adjusted": "The VAT status on the entered date differs from the previous one — the item rates were adjusted.",
+    "warnings": {
+      "payer_zero_rated": "The document's tax point falls in a period when you are a VAT payer, but every line is on a 0 % rate. If this is an ordinary taxable supply, pick the real VAT rate on the lines before issuing (0 % is fine for a payer only for exempt supplies)."
+    },
     "prices_include_vat": "Item prices include VAT",
     "prices_include_vat_hint": "Item prices are gross (incl. VAT); VAT is calculated top-down so the total matches to the cent.",
     "income_tax_exempt": "Exempt from income tax",

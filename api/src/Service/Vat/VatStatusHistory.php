@@ -62,6 +62,12 @@ final class VatStatusHistory
         return $this->statusAt($date) === VatStatus::PAYER;
     }
 
+    /** The supplier is a payer or an identified person on $date. */
+    public function hasVatDutiesAt(string $date): bool
+    {
+        return VatStatus::hasVatDuties($this->statusAt($date));
+    }
+
     /** @return array{is_vat_payer: bool, is_identified: bool} */
     public function flagsAt(string $date): array
     {

@@ -61,3 +61,15 @@ test('the daily VAT cache job has a frequency label in both languages', async ()
   assert.ok(find(cs), 'cs label')
   assert.ok(find(en), 'en label')
 })
+
+test('a payer-time invoice with every line on 0 % shows a non-blocking banner in the editor and on the draft detail', async () => {
+  const editor = await read('pages/invoices/InvoiceEditor.vue')
+  const detail = await read('pages/invoices/InvoiceDetail.vue')
+
+  assert.match(editor, /const zeroRatedPayerWarning = computed\(/)
+  assert.match(editor, /<div v-if="zeroRatedPayerWarning" data-zero-rated-warning/)
+  assert.match(detail, /v-if="invoice\.warnings\?\.length"/)
+
+  const [cs, en] = await Promise.all([read('i18n/cs.json'), read('i18n/en.json')].map(p => p.then(JSON.parse)))
+  assert.ok(cs.invoice.warnings.payer_zero_rated && en.invoice.warnings.payer_zero_rated)
+})

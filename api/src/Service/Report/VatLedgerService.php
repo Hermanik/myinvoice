@@ -6,7 +6,6 @@ namespace MyInvoice\Service\Report;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\TaxConstantsRepository;
-use MyInvoice\Service\Vat\VatStatus;
 use MyInvoice\Service\Vat\VatStatusService;
 
 /**
@@ -91,7 +90,7 @@ final class VatLedgerService
         $history = $this->vatStatus->history($supplierId);
         return array_values(array_filter($rows, static function (array $r) use ($history): bool {
             $date = (string) ($r['tax_date'] ?? $r['issue_date'] ?? '');
-            return $date === '' || VatStatus::hasVatDuties($history->statusAt($date));
+            return $date === '' || $history->hasVatDutiesAt($date);
         }));
     }
 

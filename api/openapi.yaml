@@ -6137,6 +6137,17 @@ components:
         currency_symbol: { type: string, example: "Kč" }
         exchange_rate: { type: [number, "null"], format: float, description: "CZK / 1 jednotka cizí měny (ČNB). NULL = neaplikováno (např. faktura v CZK)" }
         exchange_rate_date: { type: [string, "null"], format: date }
+        warnings:
+          type: array
+          description: |
+            Nezávazná upozornění ke konceptu (vrací create, update a get konceptu), nikdy ne chyba.
+            `payer_zero_rated` = DUZP je v době plátcovství DPH, doklad je tuzemský bez reverse charge
+            a všechny položky jsou na 0 % sazbě (typicky šablona nebo koncept z doby neplátcovství).
+          items:
+            type: object
+            properties:
+              code: { type: string, example: payer_zero_rated }
+              message: { type: string }
         total_without_vat: { type: number, format: float }
         total_vat: { type: number, format: float }
         total_with_vat: { type: number, format: float }

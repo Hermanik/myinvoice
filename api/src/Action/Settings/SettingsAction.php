@@ -381,7 +381,7 @@ final class SettingsAction
             try {
                 $plannedStatus = $this->vatStatus->planFlagChange($id, $flagPayer, $flagIdentified, $newBand);
             } catch (VatStatusException $e) {
-                return Json::error($response, 'validation_failed', $e->getMessage(), 422);
+                return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
             }
         }
         // CZ-NACE (c_okec v DPHDP3, BUG 7): kanonizace proti snapshotu číselníku

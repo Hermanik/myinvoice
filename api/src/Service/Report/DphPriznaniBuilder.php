@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Report;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Vat\VatStatus;
+use MyInvoice\Service\Vat\VatStatusHistory;
 use MyInvoice\Service\Vat\VatStatusService;
 
 /**
@@ -109,7 +110,7 @@ final class DphPriznaniBuilder
                 . implode(', ', \MyInvoice\Service\Report\VatLedgerService::missingExchangeRateLabels($missingRates))
                 . '. Při stažení XML se doplní z ČNB.';
         }
-        $this->appendSalesDataWarnings($supplierId, $year, $month, $period, $warnings);
+        $this->appendSalesDataWarnings($supplierId, $year, $month, $period, $history, $warnings);
         if ($isIdentified) {
             $lines = $this->filterLinesForIdentified($lines, $warnings);
         }
@@ -403,18 +404,11 @@ final class DphPriznaniBuilder
     /**
      * @param list<string> $warnings
      */
-    private function appendSalesDataWarnings(int $supplierId, int $year, int $month, string $period, array &$warnings): void
+    private function appendSalesDataWarnings(int $supplierId, int $year, int $month, string $period, VatStatusHistory $history, array &$warnings): void
     {
-        if ($period === 'quarterly') {
-            $quarter = (int) ceil($month / 3);
-            $startMonth = ($quarter - 1) * 3 + 1;
-            $endMonth = $quarter * 3;
-        } else {
-            $startMonth = $endMonth = $month;
-        }
-        $start = sprintf('%04d-%02d-01', $year, $startMonth);
-        $end = (new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $endMonth)))
-            ->modify('last day of this month')->format('Y-m-d');
+        [$start, $end] = ReportPeriod::range($year, $month, $period);
+        // Only documents with their DUZP in VAT-duty time count (a pre-registration document is in no return).
+        $inVatTime = static fn (array $r): bool => $history->hasVatDutiesAt((string) $r['duzp']);
 
         // Čistě OSS dobropis nesnižuje tuzemskou daň na výstupu (jeho záporná DPH je zahraniční),
         // takže by § 42 varování jen mátlo. Vyžadujeme aspoň jeden ne-OSS řádek.
@@ -424,7 +418,7 @@ final class DphPriznaniBuilder
                               AND COALESCE(cii.oss_applicable, 0) = 0)"
             : '';
         $creditNotes = $this->db->pdo()->prepare(
-            "SELECT varsymbol
+            "SELECT varsymbol, COALESCE(tax_date, issue_date) AS duzp
                FROM invoices
               WHERE supplier_id = ?
                 AND status NOT IN ('draft', 'cancelled')
@@ -435,7 +429,7 @@ final class DphPriznaniBuilder
            ORDER BY COALESCE(tax_date, issue_date), id"
         );
         $creditNotes->execute([$supplierId, $start, $end]);
-        foreach ($creditNotes->fetchAll(\PDO::FETCH_COLUMN) as $number) {
+        foreach (array_filter($creditNotes->fetchAll(\PDO::FETCH_ASSOC), $inVatTime) as ['varsymbol' => $number]) {
             $warnings[] = "Dobropis {$number} snižuje daň na výstupu. Ověřte, že datum zařazení odpovídá doručení opravného daňového dokladu nebo vynaložení rozumného úsilí o jeho doručení (§ 42 ZDPH).";
         }
 
@@ -443,7 +437,7 @@ final class DphPriznaniBuilder
             ? 'AND COALESCE(ii.oss_applicable, 0) = 0'
             : '';
         $unclassifiedZero = $this->db->pdo()->prepare(
-            "SELECT DISTINCT i.varsymbol
+            "SELECT DISTINCT i.varsymbol, COALESCE(i.tax_date, i.issue_date) AS duzp
                FROM invoices i
                JOIN invoice_items ii ON ii.invoice_id = i.id
               WHERE i.supplier_id = ?
@@ -458,7 +452,7 @@ final class DphPriznaniBuilder
            ORDER BY i.varsymbol"
         );
         $unclassifiedZero->execute([$supplierId, $start, $end]);
-        foreach ($unclassifiedZero->fetchAll(\PDO::FETCH_COLUMN) as $number) {
+        foreach (array_filter($unclassifiedZero->fetchAll(\PDO::FETCH_ASSOC), $inVatTime) as ['varsymbol' => $number]) {
             $warnings[] = "Doklad {$number} obsahuje neklasifikovaný řádek se sazbou 0 %. Řádek nebyl zahrnut na ř. 50; zvolte výslovnou klasifikaci DPH.";
         }
     }

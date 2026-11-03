@@ -21,9 +21,19 @@ export interface VatFlags {
 
 const day = (date: string): string => date.slice(0, 10)
 
-/** Status on `date` (YYYY-MM-DD); an empty history counts as a payer, like the "no data" default elsewhere. */
-export function vatStatusAt(history: readonly VatHistoryRow[] | null | undefined, date: string): VatStatus {
-  if (!history || history.length === 0) return 'payer'
+/**
+ * Status on `date` (YYYY-MM-DD). An empty history falls back to the supplier's cached flags
+ * (`fallback`, what the server derives its own floor row from); without them it counts as a payer.
+ */
+export function vatStatusAt(
+  history: readonly VatHistoryRow[] | null | undefined,
+  date: string,
+  fallback?: VatFlags,
+): VatStatus {
+  if (!history || history.length === 0) {
+    if (!fallback) return 'payer'
+    return fallback.is_vat_payer ? 'payer' : fallback.is_identified ? 'identified' : 'non_payer'
+  }
   const rows = [...history].sort((a, b) => day(a.valid_from).localeCompare(day(b.valid_from)))
   const d = day(date)
   let status = rows[0].status
@@ -34,8 +44,12 @@ export function vatStatusAt(history: readonly VatHistoryRow[] | null | undefined
   return status
 }
 
-export function vatFlagsAt(history: readonly VatHistoryRow[] | null | undefined, date: string): VatFlags {
-  const status = vatStatusAt(history, date)
+export function vatFlagsAt(
+  history: readonly VatHistoryRow[] | null | undefined,
+  date: string,
+  fallback?: VatFlags,
+): VatFlags {
+  const status = vatStatusAt(history, date, fallback)
   return { is_vat_payer: status === 'payer', is_identified: status === 'identified' }
 }
 

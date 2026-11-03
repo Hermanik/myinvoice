@@ -367,4 +367,58 @@ final class VatStatusServiceTest extends TestCase
             self::assertSame(422, $e->httpStatus);
         }
     }
+
+    // ── a supplier without stored rows ────────────────────────────────
+
+    public function testFirstRowOnASupplierWithoutStoredRowsMaterialisesTheCachedFloor(): void
+    {
+        // Created by raw SQL / never seeded: the history is derived from the cached flags.
+        $this->pdo->exec('INSERT INTO supplier (id, is_vat_payer, is_identified) VALUES (1, 0, 0)');
+
+        $this->service->add(1, '2099-01-01', VatStatus::PAYER, null, null);
+
+        // A lone future payer row must not make every earlier date a payer date.
+        self::assertSame([['2000-01-01', VatStatus::NON_PAYER], ['2099-01-01', VatStatus::PAYER]], $this->rows());
+        self::assertSame(VatStatus::NON_PAYER, $this->service->statusAt(1, '2026-12-31'));
+        self::assertSame(VatStatus::PAYER, $this->service->statusAt(1, '2099-01-01'));
+    }
+
+    public function testLegacyFlagChangeOnASupplierWithoutStoredRowsKeepsTheEarlierStatus(): void
+    {
+        $this->pdo->exec('INSERT INTO supplier (id, is_vat_payer, is_identified) VALUES (1, 0, 1)');
+
+        $this->service->applyFlagChange(1, true, false, null, null, '2026-11-03');
+
+        self::assertSame([['2000-01-01', VatStatus::IDENTIFIED], ['2026-11-03', VatStatus::PAYER]], $this->rows());
+        self::assertSame(VatStatus::IDENTIFIED, $this->service->statusAt(1, '2026-11-02'));
+    }
+
+    // ── migration 9002 not applied ────────────────────────────────────
+
+    public function testWritesWithoutTheHistoryTableFailWithAClearMigrationError(): void
+    {
+        $this->pdo->exec('DROP TABLE supplier_vat_status_history');
+        $this->pdo->exec('INSERT INTO supplier (id, is_vat_payer, is_identified) VALUES (1, 0, 0)');
+        // Connection caches the schema probe per instance — build a fresh service over the table-less DB.
+        $conn = new Connection($this->createStub(\MyInvoice\Infrastructure\Config\Config::class));
+        (new \ReflectionClass($conn))->getProperty('pdo')->setValue($conn, $this->pdo);
+        $service = new VatStatusService(new SupplierVatStatusRepository($conn));
+
+        foreach ([
+            fn () => $service->add(1, '2099-01-01', VatStatus::PAYER, null, null),
+            fn () => $service->delete(1, 5),
+            fn () => $service->planFlagChange(1, true, null, null, '2026-11-03'),
+        ] as $write) {
+            try {
+                $write();
+                self::fail('Expected the missing-table refusal');
+            } catch (VatStatusException $e) {
+                self::assertSame('migration_required', $e->errorCode);
+                self::assertSame(409, $e->httpStatus);
+                self::assertStringContainsString('migrace', $e->getMessage());
+            }
+        }
+        // Reads keep working from the cached flags.
+        self::assertSame(VatStatus::NON_PAYER, $service->statusAt(1, '2026-01-01'));
+    }
 }

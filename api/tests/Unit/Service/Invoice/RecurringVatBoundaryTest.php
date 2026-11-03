@@ -18,6 +18,7 @@ use PHPUnit\Framework\TestCase;
 final class RecurringVatBoundaryTest extends TestCase
 {
     private PDO $pdo;
+    private Connection $db;
     private RecurringInvoiceGenerator $generator;
 
     protected function setUp(): void
@@ -37,17 +38,26 @@ final class RecurringVatBoundaryTest extends TestCase
         $db->method('pdo')->willReturn($this->pdo);
         $db->method('hasTable')->willReturn(true);
 
+        $this->db = $db;
+        $this->generator = $this->generator();
+    }
+
+    /**
+     * @param array<class-string, object> $collaborators replaces the default stub of a constructor dependency
+     */
+    private function generator(array $collaborators = []): RecurringInvoiceGenerator
+    {
         $reflection = new \ReflectionClass(RecurringInvoiceGenerator::class);
         $args = [];
         foreach ($reflection->getConstructor()->getParameters() as $parameter) {
             $type = $parameter->getType()->getName();
-            $args[] = match ($type) {
-                Connection::class => $db,
-                VatStatusService::class => VatStatusService::forConnection($db),
+            $args[] = $collaborators[$type] ?? match ($type) {
+                Connection::class => $this->db,
+                VatStatusService::class => VatStatusService::forConnection($this->db),
                 default => $this->createStub($type),
             };
         }
-        $this->generator = $reflection->newInstanceArgs($args);
+        return $reflection->newInstanceArgs($args);
     }
 
     /** @return list<array<string,mixed>> */
@@ -66,5 +76,60 @@ final class RecurringVatBoundaryTest extends TestCase
     {
         self::assertSame(1, $this->coerce('2027-01-01')[0]['vat_rate_id']);
         self::assertSame(1, $this->coerce('2027-01-31')[0]['vat_rate_id']);
+    }
+
+    // ── payer-time invoice with every line on 0 % is held as a draft ──────────────────
+
+    /** @return array{0: RecurringInvoiceGenerator, 1: \PHPUnit\Framework\MockObject\MockObject, 2: \PHPUnit\Framework\MockObject\MockObject} */
+    private function generatorWithInvoice(float $rate): array
+    {
+        $invoices = $this->createStub(\MyInvoice\Repository\InvoiceRepository::class);
+        $invoices->method('clientIsDomestic')->willReturn(true);
+        $invoices->method('find')->willReturn([
+            'id' => 50, 'status' => 'draft', 'invoice_type' => 'invoice', 'client_id' => 8, 'tax_date' => '2027-01-31', 'issue_date' => '2027-02-05',
+            'items' => [['vat_rate_snapshot' => $rate]],
+        ]);
+        $templates = $this->createMock(\MyInvoice\Repository\RecurringTemplateRepository::class);
+        $issueAndSend = $this->createMock(\MyInvoice\Service\Invoice\AutoIssueAndSendService::class);
+        $generator = $this->generator([
+            \MyInvoice\Repository\InvoiceRepository::class => $invoices,
+            \MyInvoice\Repository\RecurringTemplateRepository::class => $templates,
+            \MyInvoice\Service\Invoice\AutoIssueAndSendService::class => $issueAndSend,
+            \MyInvoice\Service\Invoice\InvoiceVatAdvisor::class => new \MyInvoice\Service\Invoice\InvoiceVatAdvisor($invoices, VatStatusService::forConnection($this->db)),
+        ]);
+        return [$generator, $templates, $issueAndSend];
+    }
+
+    private function performIssue(RecurringInvoiceGenerator $generator): array
+    {
+        $template = ['id' => 12, 'supplier_id' => 7, 'auto_issue' => true, 'auto_send_email' => true];
+        return (new \ReflectionMethod(RecurringInvoiceGenerator::class, 'performIssue'))
+            ->invoke($generator, 50, $template, 3, '127.0.0.1', 'phpunit');
+    }
+
+    public function testPayerTimeInvoiceOnZeroPercentIsNotIssuedOrSent(): void
+    {
+        [$generator, $templates, $issueAndSend] = $this->generatorWithInvoice(0.0);
+        $issueAndSend->expects(self::never())->method('run');
+        $templates->expects(self::once())->method('setLastError')->with(12, self::stringContains('zůstala jako koncept'));
+
+        $result = $this->performIssue($generator);
+
+        self::assertFalse($result['issued']);
+        self::assertSame([], $result['sent_to']);
+        self::assertNull($result['varsymbol']);
+        self::assertSame('payer_zero_rated', $result['warnings'][0]['code']);
+    }
+
+    public function testPayerTimeInvoiceWithARealRateIsIssuedAsBefore(): void
+    {
+        [$generator, $templates, $issueAndSend] = $this->generatorWithInvoice(21.0);
+        $templates->expects(self::never())->method('setLastError');
+        $issueAndSend->expects(self::once())->method('run')->willReturn(['issued' => true, 'sent_to' => ['a@example.invalid'], 'varsymbol' => '2701001']);
+
+        $result = $this->performIssue($generator);
+
+        self::assertTrue($result['issued']);
+        self::assertSame([], $result['warnings']);
     }
 }

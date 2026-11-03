@@ -514,6 +514,59 @@ final class RecurringGeneratorTest extends TestCase
     }
 
     /**
+     * A template saved while the supplier was a non-payer keeps the 0 % rate. For a payer the generator
+     * does not rewrite it (0 % is legal), so an invoice with its DUZP in payer time and every line on 0 %
+     * is NOT issued or sent: it stays a draft and the reason shows as a banner (`last_error`) on the template.
+     */
+    public function testGeneratorHoldsAPayerTimeInvoiceWithEveryLineOnZeroPercentAsDraft(): void
+    {
+        $zeroId = (int) $this->db->pdo()->query(
+            'SELECT id FROM vat_rates WHERE rate_percent = 0 AND is_reverse_charge = 0 AND valid_to IS NULL ORDER BY id LIMIT 1'
+        )->fetchColumn();
+        $domestic = Bootstrap::buildApp()->getContainer()->get(\MyInvoice\Repository\InvoiceRepository::class)->clientIsDomestic($this->clientId);
+        if ($zeroId <= 0 || !$domestic) {
+            $this->markTestSkipped('Chybí 0% sazba nebo tuzemský klient.');
+        }
+        // The setUp already made the supplier a payer.
+        $today = (new \DateTimeImmutable('today'))->format('Y-m-d');
+        $tplId = $this->repo->create([
+            'supplier_id'      => $this->supplierId,
+            'client_id'        => $this->clientId,
+            'name'             => 'TEST 0 % po registraci (PHPUnit)',
+            'frequency'        => 'monthly',
+            'end_of_month'     => false,
+            'anchor_date'      => $today,
+            'next_run_date'    => $today,
+            'invoice_type'     => 'invoice',
+            'currency_id'      => $this->currencyId,
+            'language'         => 'cs',
+            'payment_method'   => 'bank_transfer',
+            'payment_due_days' => 14,
+            'increment_month_in_descriptions' => false,
+            'auto_issue'       => true,
+            'auto_send_email'  => false,
+        ], $this->userId);
+        $this->createdTemplateIds[] = $tplId;
+        $this->repo->replaceItems($tplId, [[
+            'description' => 'Paušál', 'quantity' => 1.0, 'unit' => 'měs',
+            'unit_price_without_vat' => 1000.00, 'vat_rate_id' => $zeroId, 'order_index' => 0,
+        ]]);
+
+        $result = $this->generator->generate($tplId, $today, $this->userId, '127.0.0.1', 'phpunit');
+        $this->createdInvoiceIds[] = $result['invoice_id'];
+
+        $this->assertFalse($result['issued'], 'nesmí se vystavit bez DPH');
+        $this->assertNull($result['varsymbol']);
+        $this->assertSame('payer_zero_rated', $result['warnings'][0]['code']);
+        $status = $this->db->pdo()->prepare('SELECT status FROM invoices WHERE id = ?');
+        $status->execute([$result['invoice_id']]);
+        $this->assertSame('draft', $status->fetchColumn());
+        $err = $this->db->pdo()->prepare('SELECT last_error FROM recurring_invoice_templates WHERE id = ?');
+        $err->execute([$tplId]);
+        $this->assertStringContainsString('zůstala jako koncept', (string) $err->fetchColumn());
+    }
+
+    /**
      * Přenos šablony s `prices_include_vat=true` do VYDANÉ faktury: režim se musí
      * propsat, DPH se počítá koeficientem (na haléř), unit_price_without_vat nese
      * brutto, ale uložený řádkový základ + zobrazené netto sedí na haléř.
@@ -1165,6 +1218,7 @@ final class RecurringGeneratorTest extends TestCase
             $container->get(\MyInvoice\Service\ActivityLogger::class),
             $container->get(\MyInvoice\Service\Invoice\RecurringPriceListService::class),
             $container->get(\MyInvoice\Service\Vat\VatStatusService::class),
+            $container->get(\MyInvoice\Service\Invoice\InvoiceVatAdvisor::class),
         );
 
         $tplId = $this->createPeriodTemplate(

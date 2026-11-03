@@ -197,21 +197,23 @@ final class VatStatusService
             throw new VatStatusException('Poznámka může mít nejvýše 255 znaků.', 'validation_failed', 400);
         }
 
-        [$rows, $before] = $this->load($supplierId);
-        foreach ($rows as $row) {
-            if ($row['valid_from'] === $validFrom) {
-                throw new VatStatusException(
-                    'Pro toto datum už záznam existuje. Smažte ho a vytvořte znovu.',
-                    'vat_status_duplicate',
-                    409,
-                );
-            }
-        }
-
-        $after = new VatStatusHistory([...$before->rows(), ['valid_from' => $validFrom, 'status' => $status]]);
-        $this->assertNoNewFlatTaxConflict($supplierId, $before, $after);
-
+        $this->requireHistoryTable();
+        // One transaction: a refused row (duplicate / flat tax rule) must not leave the floor row seeded either.
         $rowId = $this->repo->transactional(function () use ($supplierId, $validFrom, $status, $note, $userId): int {
+            $this->ensureFloorRow($supplierId);
+            [$rows, $before] = $this->load($supplierId);
+            foreach ($rows as $row) {
+                if ($row['valid_from'] === $validFrom) {
+                    throw new VatStatusException(
+                        'Pro toto datum už záznam existuje. Smažte ho a vytvořte znovu.',
+                        'vat_status_duplicate',
+                        409,
+                    );
+                }
+            }
+            $after = new VatStatusHistory([...$before->rows(), ['valid_from' => $validFrom, 'status' => $status]]);
+            $this->assertNoNewFlatTaxConflict($supplierId, $before, $after);
+
             $id = $this->repo->insert($supplierId, $validFrom, $status, $note, $userId);
             $this->refreshCache($supplierId);
             return $id;
@@ -228,6 +230,7 @@ final class VatStatusService
      */
     public function delete(int $supplierId, int $rowId): void
     {
+        $this->requireHistoryTable();
         [$rows, $before] = $this->load($supplierId);
         if (!in_array($rowId, array_column($rows, 'id'), true)) {
             throw new VatStatusException('Záznam nenalezen.', 'not_found', 404);
@@ -281,6 +284,7 @@ final class VatStatusService
             return null;
         }
 
+        $this->requireHistoryTable();
         $after = $this->historyWith($history, $today, $desired);
         $this->assertNoNewFlatTaxConflict($supplierId, $history, $after, $newFlatTaxBand, (int) substr($today, 0, 4));
         return $desired;
@@ -306,6 +310,7 @@ final class VatStatusService
     {
         $today ??= self::today();
         $this->repo->transactional(function () use ($supplierId, $today, $desired, $userId): void {
+            $this->ensureFloorRow($supplierId);
             $rows = $this->repo->rows($supplierId);
             $todayRow = null;
             foreach ($rows as $row) {
@@ -466,6 +471,31 @@ final class VatStatusService
             'vat_flat_tax_conflict',
             422,
         );
+    }
+
+    /**
+     * A supplier without stored rows (created by raw SQL, or migrated before it had any) derives its
+     * history from the cached flags. Before the first real row is written, materialise that floor
+     * row — otherwise a lone future "payer" row would become the status of every earlier date.
+     */
+    private function ensureFloorRow(int $supplierId): void
+    {
+        $flags = $this->repo->hasRows($supplierId) ? null : $this->repo->cachedFlags($supplierId);
+        if ($flags !== null) {
+            $this->seedInitialRow($supplierId, $flags['is_vat_payer'], $flags['is_identified']);
+        }
+    }
+
+    /** @throws VatStatusException when migration 9002 has not run (writes would fail with a 500) */
+    private function requireHistoryTable(): void
+    {
+        if (!$this->repo->hasTable()) {
+            throw new VatStatusException(
+                'Historie plátcovství DPH není dostupná — spusťte databázové migrace (php api/bin/migrate.php).',
+                'migration_required',
+                409,
+            );
+        }
     }
 
     /**

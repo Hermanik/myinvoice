@@ -13,6 +13,7 @@ use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Currency\ExchangeRateApplier;
 use MyInvoice\Service\Invoice\InvoiceCalculator;
 use MyInvoice\Service\Invoice\InvoiceDefaults;
+use MyInvoice\Service\Invoice\InvoiceVatAdvisor;
 use MyInvoice\Service\Invoice\VarsymbolGenerator;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
@@ -40,6 +41,7 @@ final class UpdateInvoiceAction
         private readonly VarsymbolGenerator $varsymbol,
         private readonly Connection $db,
         private readonly VatStatusService $vatStatus,
+        private readonly InvoiceVatAdvisor $vatAdvisor,
     ) {}
 
     public function __invoke(Request $request, Response $response, array $args): Response
@@ -220,6 +222,7 @@ final class UpdateInvoiceAction
         $this->pdf->invalidate($id, 'invalidate_update');
 
         $invoice = $this->repo->find($id);
+        $invoice['warnings'] = $this->vatAdvisor->warnings((int) $existing['supplier_id'], $invoice);
 
         // Audit detail: která pole se opravila (zobrazí se v historii u faktury).
         $changed = self::diffFields($existing, $invoice);

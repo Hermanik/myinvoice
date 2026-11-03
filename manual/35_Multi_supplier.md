@@ -254,7 +254,11 @@ dokladu (nemá-li ho, k datu vystavení), ne podle dnešního stavu:
   plátce. Editor faktury podle DUZP sám ukáže nebo skryje sloupec DPH a při
   přechodu přes hranici přepne sazby položek. Neplátci server fakturu
   s nenulovou sazbou DPH odmítne;
-- **pravidelná fakturace** použije stav k DUZP každé vygenerované faktury;
+- **pravidelná fakturace** použije stav k DUZP každé vygenerované faktury. Šablona
+  uložená v době neplátcovství drží sazbu 0 % — po registraci ji generátor
+  nepřepisuje, a proto fakturu plátce s DUZP v době plátcovství a všemi položkami
+  na 0 % nevystaví ani neodešle, nechá ji jako koncept (viz [§ 12](12_Pravidelne_fakturace.md));
+  ruční fakturu stejného tvaru editor jen označí upozorněním;
 - **daňový doklad k přijaté platbě** se vystaví jen tehdy, byl-li dodavatel
   plátcem v den přijetí platby;
 - **přiznání DPH, kontrolní a souhrnné hlášení a Kniha DPH** zahrnou jen doklady

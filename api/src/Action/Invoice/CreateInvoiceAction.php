@@ -13,6 +13,7 @@ use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Currency\ExchangeRateApplier;
 use MyInvoice\Service\Invoice\InvoiceCalculator;
 use MyInvoice\Service\Invoice\InvoiceDefaults;
+use MyInvoice\Service\Invoice\InvoiceVatAdvisor;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Report\VatClassificationDefaulter;
 use MyInvoice\Service\Validation\InvoiceValidation;
@@ -34,6 +35,7 @@ final class CreateInvoiceAction
         private readonly IpMatcher $ipMatcher,
         private readonly ExchangeRateApplier $rateApplier,
         private readonly VatStatusService $vatStatus,
+        private readonly InvoiceVatAdvisor $vatAdvisor,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -85,6 +87,7 @@ final class CreateInvoiceAction
         ], $ip, $request->getHeaderLine('User-Agent'));
 
         $invoice = $this->repo->find($id);
+        $invoice['warnings'] = $this->vatAdvisor->warnings(SupplierGuard::currentId($request), $invoice);
         if ($rateMeta !== null) {
             $invoice['_meta'] = ['exchange_rate' => $rateMeta];
         }

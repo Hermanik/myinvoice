@@ -1868,6 +1868,9 @@
     "reverse_charge": "Reverse charge",
     "reverse_charge_io_hint": "Fakturujete bez DPH — uvedené částky jsou základ daně. DPH si samovyměří odběratel sazbou své země; česká sazba se na dokladu neuvádí. Plnění vstoupí do souhrnného hlášení.",
     "vat_status_rates_adjusted": "Plátcovství DPH k zadanému datu se liší od původního — sazby položek byly upraveny.",
+    "warnings": {
+      "payer_zero_rated": "Doklad má DUZP v době, kdy jste plátcem DPH, ale všechny položky jsou na 0 % sazbě. Pokud jde o běžné zdanitelné plnění, vyberte před vystavením u položek skutečnou sazbu DPH (0 % je u plátce v pořádku jen u osvobozených plnění)."
+    },
     "prices_include_vat": "Ceny zadávám včetně DPH",
     "prices_include_vat_hint": "Ceny položek jsou s DPH (brutto); DPH se počítá shora koeficientem, takže celek sedí na haléř.",
     "income_tax_exempt": "Osvobozeno od daně z příjmů",

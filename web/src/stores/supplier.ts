@@ -38,7 +38,9 @@ export const useSupplierStore = defineStore('supplier', () => {
 
   /** VAT flags of the current supplier on a date (an invoice's DUZP) — from the dated history sent with /me. */
   function vatFlagsAt(date: string): VatFlags {
-    return resolveVatFlagsAt(currentSupplier.value?.vat_history, date)
+    const s = currentSupplier.value ?? undefined
+    // Empty history (not migrated / not loaded yet) → the supplier's cached flags, not "payer".
+    return resolveVatFlagsAt(s?.vat_history, date, s)
   }
 
   function setSupplier(id: number) {
