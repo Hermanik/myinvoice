@@ -327,7 +327,7 @@ final class FakturoidImportService
      */
     private function applyIssuedPaymentState(int $invoiceId, int $clientId, int $currencyId, int $supplierId, ?array $state, string $fallbackPaidAt, string $issueDate): void
     {
-        $snapshots = $this->snapshots->build($clientId, $currencyId, $supplierId);
+        $snapshots = $this->snapshots->build($clientId, $currencyId, $supplierId, null, $this->snapshots->vatStatusDateOfInvoice($invoiceId));
 
         $snapshotSql = 'client_snapshot = ?, supplier_snapshot = ?, bank_snapshot = ?';
         $snapshotParams = [

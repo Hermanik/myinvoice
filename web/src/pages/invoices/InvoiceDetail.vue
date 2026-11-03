@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { overdueDays } from '@/utils/date'
+import { appIsoDate, overdueDays } from '@/utils/date'
 import LinkedDocumentsPanel from '@/components/documents/LinkedDocumentsPanel.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
@@ -17,6 +17,7 @@ import { apiErrorMessage } from '@/api/errors'
 import { formatMoney, formatDate, formatPercent, statusLabel, typeLabel, statusBadgeClass, displayStatus } from '@/composables/useFormat'
 import { useAuthStore } from '@/stores/auth'
 import { useSupplierStore } from '@/stores/supplier'
+import { documentVatDate } from '@/utils/vatStatus'
 import { useHotkey } from '@/composables/useHotkey'
 import { useToast } from '@/composables/useToast'
 import WorkReportModal from '@/components/modals/WorkReportModal.vue'
@@ -29,7 +30,10 @@ const auth = useAuthStore()
 const isAdmin = computed(() => auth.user?.role === 'admin')
 
 const supplierStore = useSupplierStore()
-const supplierIsVatPayer = computed(() => supplierStore.currentSupplier?.is_vat_payer ?? true)
+// VAT columns follow the supplier's status on the invoice's DUZP (issue date when there is none), not today's flag.
+const supplierIsVatPayer = computed(() => supplierStore.vatFlagsAt(
+  documentVatDate(invoice.value?.tax_date, invoice.value?.issue_date, appIsoDate()),
+).is_vat_payer)
 
 function formatRate(rate: number): string {
   const tag = locale.value === 'cs' ? 'cs-CZ' : 'en-US'

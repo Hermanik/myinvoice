@@ -16,6 +16,7 @@ use MyInvoice\Service\Invoice\InvoiceDefaults;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Report\VatClassificationDefaulter;
 use MyInvoice\Service\Validation\InvoiceValidation;
+use MyInvoice\Service\Vat\VatStatusService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -32,6 +33,7 @@ final class CreateInvoiceAction
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
         private readonly ExchangeRateApplier $rateApplier,
+        private readonly VatStatusService $vatStatus,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -43,7 +45,10 @@ final class CreateInvoiceAction
             return Json::error($response, 'integrity_violation', $e->getMessage(), 400);
         }
 
-        $errors = InvoiceValidation::invoice($body, $this->repo->vatRateMap(), $this->repo->vatRateCountryMap());
+        // The supplier's VAT status is resolved on the invoice's DUZP (issue date for a proforma),
+        // not from today's flag — see VatStatusService.
+        $vatStatus = $this->vatStatus->statusForDocument(SupplierGuard::currentId($request), $body['tax_date'] ?? null, $body['issue_date'] ?? null);
+        $errors = InvoiceValidation::invoice($body, $this->repo->vatRateMap(), $this->repo->vatRateCountryMap(), $vatStatus);
         if (!empty($errors)) {
             return Json::error($response, 'validation_failed', 'Validace selhala', 400, ['fields' => $errors]);
         }

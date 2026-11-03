@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Export;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Vat\VatStatusService;
 
 /**
  * Shared party/payment data resolver for invoice XML exports.
@@ -23,7 +24,13 @@ final class InvoiceExportDataResolver
      */
     public function supplier(array $invoice): array
     {
-        $live = $this->loadLiveSupplier((int) ($invoice['supplier_id'] ?? 0));
+        $supplierId = (int) ($invoice['supplier_id'] ?? 0);
+        $live = $this->loadLiveSupplier($supplierId);
+        if ($live !== []) {
+            // The live flags only cache "status today"; use the status at the invoice's DUZP so an
+            // export of an invoice without (or with a legacy) snapshot never reflects a later change.
+            $live = array_merge($live, VatStatusService::forConnection($this->db)->flagsForDocument($supplierId, $invoice));
+        }
         $snapshot = $this->snapshot($invoice['supplier_snapshot'] ?? null);
 
         return $snapshot !== [] ? array_merge($live, $snapshot) : $live;

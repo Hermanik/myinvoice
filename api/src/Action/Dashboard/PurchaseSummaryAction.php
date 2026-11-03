@@ -7,6 +7,8 @@ namespace MyInvoice\Action\Dashboard;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Service\Vat\VatStatusService;
+use MyInvoice\Service\Vat\VatStatusSql;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -36,7 +38,7 @@ final class PurchaseSummaryAction
     /** Stavy nezaplacených závazků (čeká na úhradu dodavateli). */
     private const UNPAID_STATUSES = "('received', 'booked')";
 
-    public function __construct(private readonly Connection $db) {}
+    public function __construct(private readonly Connection $db, private readonly VatStatusService $vatStatus) {}
 
     public function __invoke(Request $request, Response $response): Response
     {
@@ -45,28 +47,28 @@ final class PurchaseSummaryAction
         $year = (int) $today->format('Y');
         $prevYear = $year - 1;
         $sid = (int) $request->getAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, 0);
-        $isVatPayer = $this->fetchIsVatPayer($pdo, $sid);
+        $isVatPayer = $this->fetchIsVatPayer($sid);
 
         return Json::ok($response, [
-            'kpi'                    => $this->kpi($pdo, $year, $prevYear, $sid, $isVatPayer),
+            'kpi'                    => $this->kpi($pdo, $year, $prevYear, $sid),
             'overdue'                => $this->overdue($pdo, $sid),
             'unpaid_upcoming'        => $this->unpaidUpcoming($pdo, $sid),
-            'top_vendors_ytd'        => $this->topVendors($pdo, $year, $sid, $isVatPayer),
-            'top_vendors_prev_year'  => $this->topVendors($pdo, $prevYear, $sid, $isVatPayer),
-            'top_vendors_12m'        => $this->topVendorsRolling12m($pdo, $sid, $isVatPayer),
-            'costs_by_month'         => $this->costsByMonth($pdo, $sid, $isVatPayer),
-            'costs_by_year'          => $this->costsByYear($pdo, $sid, $isVatPayer),
-            'rolling_12m'            => $this->rolling12mCosts($pdo, $sid, $isVatPayer),
+            'top_vendors_ytd'        => $this->topVendors($pdo, $year, $sid),
+            'top_vendors_prev_year'  => $this->topVendors($pdo, $prevYear, $sid),
+            'top_vendors_12m'        => $this->topVendorsRolling12m($pdo, $sid),
+            'costs_by_month'         => $this->costsByMonth($pdo, $sid),
+            'costs_by_year'          => $this->costsByYear($pdo, $sid),
+            'rolling_12m'            => $this->rolling12mCosts($pdo, $sid),
             'cashflow_out_ytd'       => $this->cashflowOutYtd($pdo, $year, $prevYear, $sid),
             'payment_days_histogram' => $this->paymentDaysHistogram($pdo, $sid),
             'vat_breakdown_12m'      => $isVatPayer ? $this->vatInputBreakdown12m($pdo, $sid) : [],
             'cashflow_forecast'      => $this->cashflowOutForecast($pdo, $sid),
             'due_buckets'            => $this->dueBuckets($pdo, $sid),
             'aging_report'           => $this->agingReport($pdo, $sid),
-            'costs_forecast'         => $this->costsForecast($pdo, $year, $prevYear, $sid, $isVatPayer),
-            'expense_breakdown_12m'  => $this->expenseBreakdown12m($pdo, $sid, $isVatPayer),
-            'invoice_size_histogram' => $this->invoiceSizeHistogram($pdo, $sid, $isVatPayer),
-            'costs_last_30d'         => $this->costsLast30d($pdo, $sid, $isVatPayer),
+            'costs_forecast'         => $this->costsForecast($pdo, $year, $prevYear, $sid),
+            'expense_breakdown_12m'  => $this->expenseBreakdown12m($pdo, $sid),
+            'invoice_size_histogram' => $this->invoiceSizeHistogram($pdo, $sid),
+            'costs_last_30d'         => $this->costsLast30d($pdo, $sid),
             'active_vendors_count'   => $this->activeVendorsCount($pdo, $sid),
             'today'                  => $today->format('Y-m-d'),
             'year'                   => $year,
@@ -75,18 +77,19 @@ final class PurchaseSummaryAction
         ]);
     }
 
-    /** Zda je aktuální dodavatel plátce DPH — určuje sloupec nákladu (bez/s DPH). */
-    private function fetchIsVatPayer(\PDO $pdo, int $sid): bool
+    /** Whether the supplier is a VAT payer TODAY — presentation only; amounts are decided per document (costCol()). */
+    private function fetchIsVatPayer(int $sid): bool
     {
-        $stmt = $pdo->prepare('SELECT is_vat_payer FROM supplier WHERE id = ?');
-        $stmt->execute([$sid]);
-        return (bool) $stmt->fetchColumn();
+        return $this->vatStatus->isPayerAt($sid, VatStatusService::today());
     }
 
-    /** SQL fragment vybírající správný sloupec nákladu dle plátcovství DPH. */
-    private function costCol(bool $isVatPayer): string
+    /**
+     * SQL expression of a purchase invoice's cost amount (alias `pi`), decided PER DOCUMENT by
+     * the supplier's VAT status on its DUZP: base without VAT for a payer, total for a non-payer.
+     */
+    private function costCol(): string
     {
-        return $isVatPayer ? 'pi.total_without_vat' : 'pi.total_with_vat';
+        return VatStatusSql::amount('pi');
     }
 
     /**
@@ -121,9 +124,9 @@ final class PurchaseSummaryAction
      * Náklady za posledních 30 dní per měna — live indikátor aktuálních výdajů.
      * @return list<array{currency: string, total: float, invoice_count: int}>
      */
-    private function costsLast30d(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function costsLast30d(\PDO $pdo, int $sid): array
     {
-        $cost = $this->costCol($isVatPayer);
+        $cost = $this->costCol();
         $sql = "SELECT cur.code AS currency, SUM($cost) AS total, COUNT(*) AS invoice_count
                   FROM purchase_invoices pi
                   JOIN currencies cur ON cur.id = pi.currency_id
@@ -144,9 +147,9 @@ final class PurchaseSummaryAction
      * Náklady po rocích per měna — všechny roky s přijatými fakturami.
      * @return list<array{year: int, currency: string, total: float, invoice_count: int}>
      */
-    private function costsByYear(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function costsByYear(\PDO $pdo, int $sid): array
     {
-        $cost = $this->costCol($isVatPayer);
+        $cost = $this->costCol();
         $sql = "SELECT YEAR(GREATEST(COALESCE(pi.tax_date, pi.issue_date), pi.issue_date)) AS year,
                        cur.code AS currency,
                        SUM($cost) AS total,
@@ -173,9 +176,9 @@ final class PurchaseSummaryAction
      *
      * @return array<string, mixed>
      */
-    private function kpi(\PDO $pdo, int $year, int $prevYear, int $sid, bool $isVatPayer): array
+    private function kpi(\PDO $pdo, int $year, int $prevYear, int $sid): array
     {
-        $cost = $this->costCol($isVatPayer);
+        $cost = $this->costCol();
         // YoY: this_year (YTD) vs prev_year_ytd (loni do stejné kalendářní pozice). prev_year = celý loňský rok.
         $sql = "SELECT cur.code AS currency,
                        SUM(CASE WHEN YEAR(GREATEST(COALESCE(pi.tax_date, pi.issue_date), pi.issue_date)) = ?
@@ -348,9 +351,9 @@ final class PurchaseSummaryAction
      * Top dodavatelé za daný rok — náklady přepočtené na CZK (pi.exchange_rate), grupováno
      * po dodavateli (multi-currency vendor se neroztrhne, ranking je správný napříč měnami).
      */
-    private function topVendors(\PDO $pdo, int $year, int $sid, bool $isVatPayer): array
+    private function topVendors(\PDO $pdo, int $year, int $sid): array
     {
-        $cost = $this->costCol($isVatPayer);
+        $cost = $this->costCol();
         $costCzk = "$cost * COALESCE(IF(cur.code = 'CZK', 1, pi.exchange_rate), 1)";
         $sql = "SELECT c.id, c.company_name,
                        SUM($costCzk) AS total_czk,
@@ -377,9 +380,9 @@ final class PurchaseSummaryAction
     }
 
     /** Top dodavatelé za rolling 12 měsíců — robustní vůči začátku roku. */
-    private function topVendorsRolling12m(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function topVendorsRolling12m(\PDO $pdo, int $sid): array
     {
-        $cost = $this->costCol($isVatPayer);
+        $cost = $this->costCol();
         $costCzk = "$cost * COALESCE(IF(cur.code = 'CZK', 1, pi.exchange_rate), 1)";
         $sql = "SELECT c.id, c.company_name,
                        SUM($costCzk) AS total_czk,
@@ -409,9 +412,9 @@ final class PurchaseSummaryAction
      * Náklady po měsících (rolling 12m + porovnávací řada −1 rok), per měna.
      * @return list<array{currency: string, months: list<array{ym: string, total: float}>, prev_year: list<array{ym: string, total: float}>}>
      */
-    private function costsByMonth(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function costsByMonth(\PDO $pdo, int $sid): array
     {
-        $cost = $this->costCol($isVatPayer);
+        $cost = $this->costCol();
         $sql = "SELECT cur.code AS currency,
                        DATE_FORMAT(GREATEST(COALESCE(pi.tax_date, pi.issue_date), pi.issue_date), '%Y-%m') AS ym,
                        SUM($cost) AS total
@@ -529,9 +532,9 @@ final class PurchaseSummaryAction
      * Plovoucí 12měsíční náklady (rolling) + tentýž součet o 12 měsíců dříve (YoY). Per měna.
      * @return list<array{currency: string, total: float, prev_period_total: float}>
      */
-    private function rolling12mCosts(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function rolling12mCosts(\PDO $pdo, int $sid): array
     {
-        $cost = $this->costCol($isVatPayer);
+        $cost = $this->costCol();
         $sql = "SELECT cur.code AS currency,
                        SUM(CASE WHEN GREATEST(COALESCE(pi.tax_date, pi.issue_date), pi.issue_date) >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
                                  THEN $cost ELSE 0 END) AS total_12m,
@@ -637,9 +640,9 @@ final class PurchaseSummaryAction
      * Rozpad nákladů po kategoriích (12m) přepočtený na CZK — pro koláč/tabulku.
      * @return list<array{category_id: ?int, code: ?string, label: ?string, total_czk: float, count: int, percent: float}>
      */
-    private function expenseBreakdown12m(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function expenseBreakdown12m(\PDO $pdo, int $sid): array
     {
-        $cost = $this->costCol($isVatPayer);
+        $cost = $this->costCol();
         $costCzk = "$cost * COALESCE(IF(cur.code = 'CZK', 1, pi.exchange_rate), 1)";
         $sql = "SELECT pi.expense_category_id, ec.code, ec.label,
                        SUM($costCzk) AS total,
@@ -770,9 +773,9 @@ final class PurchaseSummaryAction
     /**
      * Forecast ročních nákladů — growth-adjusted seasonality (stejná logika jako u obratu).
      */
-    private function costsForecast(\PDO $pdo, int $year, int $prevYear, int $sid, bool $isVatPayer): array
+    private function costsForecast(\PDO $pdo, int $year, int $prevYear, int $sid): array
     {
-        $cost = $this->costCol($isVatPayer);
+        $cost = $this->costCol();
         $sql = "SELECT cur.code AS currency,
                        SUM(CASE WHEN YEAR(GREATEST(COALESCE(pi.tax_date, pi.issue_date), pi.issue_date)) = ?
                                  THEN $cost ELSE 0 END) AS ytd,
@@ -813,14 +816,14 @@ final class PurchaseSummaryAction
     /**
      * Histogram velikosti přijatých faktur (12m) — buckety v CZK ekvivalentu.
      */
-    private function invoiceSizeHistogram(\PDO $pdo, int $sid, bool $isVatPayer): array
+    private function invoiceSizeHistogram(\PDO $pdo, int $sid): array
     {
-        $cost = $isVatPayer ? 'total_without_vat' : 'total_with_vat';
-        $sql = "SELECT $cost * COALESCE(exchange_rate, 1) AS size_czk
-                  FROM purchase_invoices
-                 WHERE supplier_id = ?
-                   AND status IN " . self::COST_STATUSES . $this->advanceCostExclude('') . "
-                   AND GREATEST(COALESCE(tax_date, issue_date), issue_date) >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)";
+        $cost = $this->costCol();
+        $sql = "SELECT $cost * COALESCE(pi.exchange_rate, 1) AS size_czk
+                  FROM purchase_invoices pi
+                 WHERE pi.supplier_id = ?
+                   AND pi.status IN " . self::COST_STATUSES . $this->advanceCostExclude('pi') . "
+                   AND GREATEST(COALESCE(pi.tax_date, pi.issue_date), pi.issue_date) >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)";
         $stmt = $pdo->prepare($sql);
         $stmt->execute([$sid]);
         $sizes = array_map(static fn ($v) => (float) $v, $stmt->fetchAll(\PDO::FETCH_COLUMN));

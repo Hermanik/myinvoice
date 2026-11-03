@@ -25,6 +25,7 @@ samotného skriptu, takže jsou přenositelné mezi `C:\inetpub\wwwroot\…`,
 | `cron-send-reminders.{cmd,sh}` | Odeslání upomínkových e-mailů na faktury po splatnosti (`--days=N`, `--cooldown=N`, `--dry-run`) |
 | `cron-send-approval-reminders.{cmd,sh}` | Upomínky zákazníkům, kteří neschválili výkaz víceprací (`--days=N`, `--dry-run`) |
 | `cron-generate-recurring-invoices.{cmd,sh}` | Generování faktur ze šablon pravidelné fakturace; volitelné rovnou vystavení a odeslání klientovi (`--dry-run`) |
+| `cron-refresh-vat-status.{cmd,sh}` | Denní přepočet cache `supplier.is_vat_payer` / `is_identified` z historie plátcovství DPH (přepne stav, když nastane datum v budoucím záznamu) |
 | `cron-version-check.{cmd,sh}` | Denní kontrola GitHub Releases API; cachuje poslední dostupnou verzi + release notes pro **Systém → Aktualizace** |
 
 Všechny tři backup ZIPy (DB, PDF, Dokumenty) lze volitelně šifrovat heslem
@@ -76,6 +77,7 @@ snapshot nic neblokuje — kód mimo něj se uloží i odešle, jen s upozorněn
 | `cron-send-approval-reminders` | 1× denně (pracovní dny) | 09:15, Po–Pá |
 | `cron-generate-recurring-invoices` | 1× denně | 06:30 |
 | `cron-version-check` | 1× denně | 06:00 |
+| `cron-refresh-vat-status` | 1× denně | 00:05 (přepne cache plátcovství DPH podle historie) |
 
 Logy se ukládají do `log/cron/<nazev>-YYYY-MM-DD.log`. Stav úloh sleduj
 v admin/activity-log (každý cron sám zapíše záznam `cron.<nazev>`).
@@ -93,6 +95,7 @@ schtasks /create /tn "MyInvoice Reminders" /tr "C:\inetpub\wwwroot\myinvoice.cz\
 schtasks /create /tn "MyInvoice ApprovalReminders" /tr "C:\inetpub\wwwroot\myinvoice.cz\cmd\cron-send-approval-reminders.cmd" /sc weekly /d MON,TUE,WED,THU,FRI /st 09:15 /ru SYSTEM
 schtasks /create /tn "MyInvoice Recurring"         /tr "C:\inetpub\wwwroot\myinvoice.cz\cmd\cron-generate-recurring-invoices.cmd" /sc daily /st 06:30 /ru SYSTEM
 schtasks /create /tn "MyInvoice VersionCheck"      /tr "C:\inetpub\wwwroot\myinvoice.cz\cmd\cron-version-check.cmd"           /sc daily /st 06:00 /ru SYSTEM
+schtasks /create /tn "MyInvoice RefreshVatStatus"  /tr "C:\inetpub\wwwroot\myinvoice.cz\cmd\cron-refresh-vat-status.cmd"       /sc daily /st 00:05 /ru SYSTEM
 ```
 
 > 💡 **Update watcher** (samostatný proces, ne plánovaná úloha) — kontroluje
@@ -132,6 +135,7 @@ Edituj `crontab -e` (nebo `/etc/cron.d/myinvoice`):
  15  9  *   *   1-5  /var/www/myinvoice.cz/cmd/cron-send-approval-reminders.sh
  30  6  *   *   *    /var/www/myinvoice.cz/cmd/cron-generate-recurring-invoices.sh
   0  6  *   *   *    /var/www/myinvoice.cz/cmd/cron-version-check.sh
+  5  0  *   *   *    /var/www/myinvoice.cz/cmd/cron-refresh-vat-status.sh
 ```
 
 `*.sh` skripty musí být spustitelné: `chmod +x cmd/*.sh`.

@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\TaxConstantsRepository;
 use MyInvoice\Service\Report\DphBookBuilder;
 use MyInvoice\Service\Report\VatLedgerService;
+use MyInvoice\Service\Vat\VatStatusService;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -39,7 +40,8 @@ final class DphBookBuilderTest extends TestCase
         $ref->getProperty('pdo')->setValue($conn, $this->pdo);
 
         $taxConstants = new TaxConstantsRepository($conn);
-        $this->builder = new DphBookBuilder($conn, new VatLedgerService($conn, $taxConstants), $taxConstants);
+        $vatStatus = VatStatusService::forConnection($conn);
+        $this->builder = new DphBookBuilder($conn, new VatLedgerService($conn, $taxConstants, $vatStatus), $taxConstants, $vatStatus);
     }
 
     public function testReverseChargeNetsToZeroInBalance(): void

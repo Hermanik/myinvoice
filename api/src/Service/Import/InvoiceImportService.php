@@ -496,7 +496,7 @@ final class InvoiceImportService
         }
 
         // Snapshoty z aktuálního supplier/client/bank
-        $snapshots = $this->snapshots->build($clientId, $currencyId, $supplierId);
+        $snapshots = $this->snapshots->build($clientId, $currencyId, $supplierId, null, $this->snapshots->vatStatusDateOfInvoice($invoiceId));
         $pdo->prepare(
             'UPDATE invoices SET client_snapshot = ?, supplier_snapshot = ?, bank_snapshot = ? WHERE id = ?'
         )->execute([

@@ -227,6 +227,63 @@ nebo hromadně v seznamu faktur při označování plateb.
 
 Viz [15. Exporty](15_Exporty.md).
 
+### 35.5.7 Plátcovství DPH (historie podle data)
+
+Plátcovství DPH už není jedno zaškrtávátko. Na stránce **Systém → Nastavení**
+je sekce **Plátcovství DPH** s historií stavů dodavatele:
+
+| Sloupec | Význam |
+|---|---|
+| **Platí od** | První den, od kterého stav platí; platí do dalšího záznamu |
+| **Stav** | *Plátce DPH*, *Neplátce DPH* nebo *Identifikovaná osoba* (neplátce v tuzemsku s přeshraničními povinnostmi, viz [§ 28.1.1](28_Fakturujeme.md#2811-identifikovana-osoba-6g6l-zdph)) |
+| **Poznámka** | Volitelný komentář, např. „registrace k DPH“ |
+
+Nahoře je vidět stav **dnes** a nejbližší naplánovaná změna. Záznam s datem
+v budoucnosti (u nás např. *plátce od 1. 1. 2027*) je označený **budoucí** a
+zadat ho lze předem — stav se přepne sám v den platnosti (denní úloha
+`cron-refresh-vat-status`, viz [§ 5.5](05_Po_instalaci.md#55-cron-skripty);
+výpočty podle data na ní nezávisí). Datum záznamu nejde upravit; chybný záznam
+smaž a zadej znovu. Nejstarší záznam (základ historie) smazat nelze.
+
+**Co se posuzuje podle data.** O plátcovství se rozhoduje vždy k **DUZP**
+dokladu (nemá-li ho, k datu vystavení), ne podle dnešního stavu:
+
+- faktura za prosinec 2026 s DUZP 31. 12. 2026 zůstane **fakturou neplátce**
+  (bez DPH, na PDF „Není plátce DPH“, ISDOC bez DPH), i když ji vystavíš až
+  v lednu 2027 po registraci; faktura s DUZP od 1. 1. 2027 už je daňový doklad
+  plátce. Editor faktury podle DUZP sám ukáže nebo skryje sloupec DPH a při
+  přechodu přes hranici přepne sazby položek. Neplátci server fakturu
+  s nenulovou sazbou DPH odmítne;
+- **pravidelná fakturace** použije stav k DUZP každé vygenerované faktury;
+- **daňový doklad k přijaté platbě** se vystaví jen tehdy, byl-li dodavatel
+  plátcem v den přijetí platby;
+- **přiznání DPH, kontrolní a souhrnné hlášení a Kniha DPH** zahrnou jen doklady
+  s DUZP v době, kdy byl dodavatel plátcem (nebo identifikovanou osobou). XML
+  za období, ve kterém dodavatel nebyl plátcem ani na jediný den, se nevygeneruje;
+- **tržby, náklady, CRM, daňový optimalizátor a daň z příjmů** počítají u každého
+  dokladu částku bez DPH (doklad plátce) nebo s DPH (doklad neplátce) podle stavu
+  k jeho DUZP, takže rok, v němž se stav změnil, vyjde správně.
+
+> ⚠️ **Zpětná změna.** Zadáš-li záznam s datem v minulosti, přepočítají se
+> výkazy a statistiky ihned; mezipaměť tržeb zakázek a klientů se obnoví při
+> příští změně faktury, nebo hned příkazem `php api/bin/recompute-stats.php`.
+> Při migraci dostane každý dodavatel jeden počáteční záznam od 1. 1. 2000
+> podle dosavadního nastavení — pokud jsi dřív byl plátcem jinak, doplň skutečné
+> změny, jinak se staré doklady posuzují podle dnešního stavu.
+
+**Paušální daň.** Plátce DPH nemůže být v režimu paušální daně (§ 7a ZDP). Server
+proto odmítne záznam „plátce“, který by překryl rok, pro který je paušální daň
+nastavená — u pásma v Nastavení se tím myslí **aktuální rok**, u dalších let jejich
+uložený daňový profil. Budoucí registrace (např. od 1. 1. 2027) jde zadat, i když
+letos paušální daň ještě platí; od registrace ale musíš paušál vypnout. Dokud je
+rozpor v platnosti, sekce na něj upozorní.
+
+**Starší integrace a skripty.** Změna `is_vat_payer` / `is_identified` v
+`PUT /api/v1/settings/supplier` už nepřepisuje minulost — uloží se jako **nový záznam
+platný od dneška**. Vrací se stále `is_vat_payer` / `is_identified` (stav dnes) a
+navíc `vat_history` a `vat_next_change`; stav k datu vrátí
+`GET /api/v1/settings/vat-status?date=RRRR-MM-DD`.
+
 ## 35.6 Branding e-mailů a PDF
 
 Na rozdíl od zbytku nastavení dodavatele se **branding needituje v číselníku

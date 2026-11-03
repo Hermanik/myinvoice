@@ -20,6 +20,7 @@ import { formatMoney, formatPercent } from '@/composables/useFormat'
 import { evalMath } from '@/directives/vMath'
 import { apiErrorMessage } from '@/api/errors'
 import { useSupplierStore } from '@/stores/supplier'
+import { documentVatDate } from '@/utils/vatStatus'
 import SearchableSelect from '@/components/ui/SearchableSelect.vue'
 import Modal from '@/components/ui/Modal.vue'
 import ClientFormModal from '@/components/modals/ClientFormModal.vue'
@@ -167,12 +168,6 @@ function defaultItemUnit(): string {
   return units.value.find(u => u.is_default)?.code || units.value[0]?.code || 'ks'
 }
 
-// Aktivní dodavatel — pokud není plátce DPH, fakturuje bez DPH (žádné DPH UI ani v PDF).
-const supplierIsVatPayer = computed(() => supplierStore.currentSupplier?.is_vat_payer ?? true)
-// Identifikovaná osoba (§ 6g–6l ZDPH, #94) — neplátce, který ale služby do EU
-// fakturuje s přenesenou daňovou povinností (čl. 196 směrnice) a podává SHV.
-const supplierIsIdentified = computed(() => supplierStore.currentSupplier?.is_identified ?? false)
-
 // „Osvobozeno od daně z příjmů" má smysl jen pro OSVČ (FO): osvobození dle § 4 ZDP
 // platí výhradně pro fyzické osoby, u s.r.o. (PO) žádný § 4 není a prodej majetku je
 // vždy zdanitelný výnos. U PO proto checkbox skryjeme. Ponecháme ho ale, pokud už je
@@ -250,6 +245,39 @@ const form = ref<{
   items: [],
 })
 
+// The supplier's VAT status is judged on the document's DUZP (the issue date for a proforma), not by
+// today's flag: a December invoice issued in January after the VAT registration stays an invoice
+// of a non-payer. The server sends the status history with the supplier list (`vat_history`).
+// A non-payer invoices without VAT (no VAT UI, none in the PDF either).
+const vatStatusDate = computed(() => documentVatDate(
+  form.value.invoice_type === 'proforma' ? null : form.value.tax_date,
+  form.value.issue_date,
+  today(),
+))
+const supplierVatFlags = computed(() => supplierStore.vatFlagsAt(vatStatusDate.value))
+const supplierIsVatPayer = computed(() => supplierVatFlags.value.is_vat_payer)
+// VAT-identified person (§ 6g–6l ZDPH, #94) — a non-payer who nevertheless invoices services to the EU
+// under reverse charge (Art. 196 of the directive) and files the EC Sales List.
+const supplierIsIdentified = computed(() => supplierVatFlags.value.is_identified)
+
+// Changing the DUZP / issue date / document type across a VAT status boundary switches the item rates. For a non-payer
+// the VAT column is hidden, so the user could not fix a stale 21 % rate by hand and the server would reject the
+// invoice. Only after the editor has loaded (`loaded`) — hydrating an existing invoice must not overwrite rates.
+watch(supplierIsVatPayer, (payer, wasPayer) => {
+  if (!loaded.value || payer === wasPayer) return
+  const exemptId = exemptVatRateId()
+  const nextId = defaultVatRateId()
+  // payer -> non-payer: every line to the 0 % exempt rate; non-payer -> payer: lines on that exempt
+  // rate get the default rate (a deliberate exempt line has to be picked again).
+  let changed = false
+  for (const it of form.value.items) {
+    if (!payer || it.vat_rate_id === exemptId) {
+      if (nextId && it.vat_rate_id !== nextId) { it.vat_rate_id = nextId; changed = true }
+    }
+  }
+  if (changed) toast.info(t('invoice.vat_status_rates_adjusted'))
+})
+
 // Per-faktura přepínač automatických upomínek má smysl jen když je posílá dodavatel
 // i klient (cron je AND přes všechny tři úrovně, viz cron-send-reminders.php). Jakmile
 // je kterákoli z těch dvou vypnutá, faktuře se auto-upomínky stejně neodešlou → přepínač
@@ -303,12 +331,18 @@ function supplierDueDate(issueDate: string): string {
 // RC (přenesená daň. povinnost) je teď jen hlavičkový příznak `reverse_charge` — položky si
 // drží nominální sazbu (21 %), daň vynuluje backend (InvoiceMath). Default sazby RC neřeší,
 // proto se položky při zaškrtnutí RC už nepřepisují na 0% „CZ-RC".
+/** The 0 % "exempt" rate (rate_percent=0, !is_reverse_charge) — the non-payer rate. */
+function exemptVatRateId(): number | null {
+  const zero = vatRates.value.find(v => v.country === 'CZ' && Number(v.rate_percent) === 0 && !v.is_reverse_charge)
+    || vatRates.value.find(v => Number(v.rate_percent) === 0 && !v.is_reverse_charge)
+  return zero?.id ?? null
+}
+
 function defaultVatRateId(): number {
-  // Neplátce DPH → vždy 0% Osvobozeno (rate_percent=0, !is_reverse_charge).
+  // A non-payer always gets the 0 % exempt rate.
   if (!supplierIsVatPayer.value) {
-    const zero = vatRates.value.find(v => v.country === 'CZ' && Number(v.rate_percent) === 0 && !v.is_reverse_charge)
-      || vatRates.value.find(v => Number(v.rate_percent) === 0 && !v.is_reverse_charge)
-    if (zero) return zero.id
+    const zero = exemptVatRateId()
+    if (zero !== null) return zero
   }
   const def = vatRates.value.find(v => v.country === 'CZ' && v.is_default)
     || vatRates.value.find(v => v.is_default)

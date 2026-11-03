@@ -12,6 +12,7 @@ use MyInvoice\Service\Currency\ExchangeRateApplier;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
 use MyInvoice\Service\Stats\StatsRecomputer;
 use MyInvoice\Service\Validation\InvoiceAmountPolicy;
+use MyInvoice\Service\Vat\VatStatusService;
 
 /**
  * Vygeneruje fakturu ze šablony pravidelné fakturace.
@@ -55,6 +56,7 @@ final class RecurringInvoiceGenerator
         private readonly StatsRecomputer $stats,
         private readonly ActivityLogger $logger,
         private readonly RecurringPriceListService $priceList,
+        private readonly VatStatusService $vatStatus,
     ) {}
 
     /**
@@ -379,10 +381,13 @@ final class RecurringInvoiceGenerator
             throw new \DomainException($amountError);
         }
 
-        // Neplátce DPH → položky se přepnou na 0% osvobozenou sazbu (stejně jako u ručně
-        // vystavené faktury, viz InvoiceEditor.defaultVatRateId). Autoritativní záchrana i
-        // pro šablony uložené dřív s nominální sazbou (21 %) — bez toho by cron tiše vystavil
-        // fakturu s DPH u neplátce. Děje se PŘED guardem, aby se validovala coercnutá sazba.
+        // Non-payer at the invoice's DUZP → items are switched to the 0 % exempt rate (like a
+        // manually issued invoice, see InvoiceEditor.defaultVatRateId). Authoritative rescue also
+        // for templates saved earlier with a nominal rate (21 %) — without it cron would silently
+        // issue an invoice with VAT for a non-payer. The status comes from the dated history at
+        // the DUZP (not the live flag), so an invoice of a month before the registration date
+        // stays VAT-free even when generated after it. Runs BEFORE the guard so the coerced rate
+        // is the one that gets validated.
         $template['items'] = $this->coerceNonVatPayerRates(
             $pdo,
             (int) $template['supplier_id'],
@@ -494,22 +499,19 @@ final class RecurringInvoiceGenerator
     }
 
     /**
-     * Neplátce DPH fakturuje bez DPH → všechny položky se přepnou na 0% osvobozenou sazbu
-     * (rate_percent=0, !is_reverse_charge) platnou k datu plnění. Zrcadlí chování ruční
-     * faktury (InvoiceEditor.defaultVatRateId), kde frontend vybere 0% sazbu; tady to dělá
-     * autoritativně backend, takže to ochrání i šablony uložené dřív s nominální sazbou.
-     * Plátce (nebo nenalezený supplier) zůstává beze změny.
+     * A non-payer invoices without VAT → all items are switched to the 0 % exempt rate
+     * (rate_percent=0, !is_reverse_charge) valid on the tax point date. Mirrors a manually
+     * issued invoice (InvoiceEditor.defaultVatRateId), where the frontend picks the 0 % rate;
+     * here the backend does it authoritatively, which also protects templates saved earlier
+     * with a nominal rate. "Non-payer" is decided by the dated VAT status history on
+     * $referenceDate (the DUZP), a payer at that date keeps its rates.
      *
      * @param list<array<string, mixed>> $items
      * @return list<array<string, mixed>>
      */
     private function coerceNonVatPayerRates(\PDO $pdo, int $supplierId, array $items, string $referenceDate): array
     {
-        $stmt = $pdo->prepare('SELECT is_vat_payer FROM supplier WHERE id = ?');
-        $stmt->execute([$supplierId]);
-        $isVatPayer = $stmt->fetchColumn();
-        // false = supplier nenalezen → nech beze změny; 1 = plátce → nic neřeš.
-        if ($isVatPayer === false || (int) $isVatPayer === 1) {
+        if ($this->vatStatus->isPayerAt($supplierId, $referenceDate)) {
             return $items;
         }
 
@@ -553,6 +555,7 @@ final class RecurringInvoiceGenerator
             (int) $invoice['currency_id'],
             $supplierId,
             isset($invoice['branding_profile_id']) ? (int) $invoice['branding_profile_id'] : null,
+            VatStatusService::documentDateOf($invoice),
         );
 
         $this->db->pdo()->prepare(

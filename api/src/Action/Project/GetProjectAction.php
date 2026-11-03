@@ -7,6 +7,7 @@ namespace MyInvoice\Action\Project;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Service\Vat\VatStatusSql;
 use MyInvoice\Repository\ProjectRepository;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -34,11 +35,10 @@ final class GetProjectAction
         $stmt->execute([$id]);
         $project['invoices_count'] = (int) $stmt->fetchColumn();
 
-        // VAT-aware obrat — plátci DPH vidí čísla bez DPH (relevantní pro DPH limit),
-        // neplátci s DPH (fakturované částky odpovídají reálnému inkasu).
-        $vatStmt = $pdo->prepare('SELECT is_vat_payer FROM supplier WHERE id = ?');
-        $vatStmt->execute([$sid]);
-        $rev = ((bool) $vatStmt->fetchColumn()) ? 'i.total_without_vat' : 'i.total_with_vat';
+        // VAT-aware revenue — documents of a VAT payer count without VAT (relevant for the VAT limit), documents of a
+        // non-payer including VAT (invoiced amounts match the real cash-in). The supplier's status
+        // on each invoice's DUZP decides, not today's flag.
+        $rev = VatStatusSql::amount('i');
 
         // Obrat po měsících za posledních 24 měsíců.
         // Zahrnuje invoice + credit_note (dobropis má záporné částky, automaticky odečte).

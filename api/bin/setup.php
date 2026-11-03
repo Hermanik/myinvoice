@@ -248,6 +248,10 @@ try {
         $vatRateId,
     ]);
     $supplierId = (int) $pdo->lastInsertId();
+    // First row of the dated VAT status history.
+    (new \MyInvoice\Service\Vat\VatStatusService(
+        new \MyInvoice\Repository\SupplierVatStatusRepository(new Connection($config)),
+    ))->seedInitialRow($supplierId, (bool) $isVatPayer, false);
 
     // Seed defaults currencies (CZK + EUR) pro tohoto supplier
     $insertCur = $pdo->prepare(

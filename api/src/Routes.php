@@ -56,6 +56,7 @@ use MyInvoice\Action\Settings\SettingsAction;
 use MyInvoice\Action\Settings\SignatureDocumentSelectionAction;
 use MyInvoice\Action\Settings\SigningProfilesAction;
 use MyInvoice\Action\Settings\SupplierInvoiceCounterAction;
+use MyInvoice\Action\Settings\VatStatusAction;
 use MyInvoice\Action\Bank\BankEmailNoticeAction;
 use MyInvoice\Action\Bank\BankStatementAction;
 use MyInvoice\Action\Dashboard\SummaryAction;
@@ -607,6 +608,11 @@ final class Routes
         $app->get ('/api/settings/supplier',                [SettingsAction::class, 'getSupplier']);
         $app->put ('/api/settings/supplier',                [SettingsAction::class, 'updateSupplier']);
         $app->put ('/api/settings/supplier/invoice-counter', SupplierInvoiceCounterAction::class);
+        // Dated VAT status history ("Plátcovství DPH"): reads for every role, writes admin-only.
+        $app->get    ('/api/settings/vat-status',                   [VatStatusAction::class, 'atDate']);
+        $app->get    ('/api/settings/vat-status/history',           [VatStatusAction::class, 'history']);
+        $app->post   ('/api/settings/vat-status/history',           [VatStatusAction::class, 'add']);
+        $app->delete ('/api/settings/vat-status/history/{id:[0-9]+}', [VatStatusAction::class, 'delete']);
         $app->get ('/api/settings/nace-codes',              NaceCodesAction::class);
         $app->get    ('/api/settings/email-profiles',       [EmailProfilesAction::class, 'list']);
         $app->post   ('/api/settings/email-profiles',       [EmailProfilesAction::class, 'create']);

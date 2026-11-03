@@ -6,6 +6,9 @@ namespace MyInvoice\Service\Report;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\TaxConstantsRepository;
+use MyInvoice\Service\Vat\VatStatus;
+use MyInvoice\Service\Vat\VatStatusHistory;
+use MyInvoice\Service\Vat\VatStatusService;
 
 /**
  * Builder XML pro Kontrolní hlášení (DPHKH1) — EPO portál MFČR.
@@ -40,6 +43,7 @@ final class KontrolniHlaseniBuilder
         // Limit A.4/A.5 a B.2/B.3 (10 000 Kč) + práh základní/snížená sazba — per
         // rok období z číselníku daňových konstant (admin override), ne natvrdo.
         private readonly TaxConstantsRepository $taxConstants,
+        private readonly VatStatusService $vatStatus,
     ) {}
 
     /** Povolené formy podání KH (EPO XSD, § 101e–101f): B řádné, O opravné, N následné, E následné/opravné. */
@@ -75,22 +79,13 @@ final class KontrolniHlaseniBuilder
             throw new \InvalidArgumentException('Následné kontrolní hlášení vyžaduje datum zjištění důvodů (d_zjist).');
         }
         $supplier = $this->loadSupplier($supplierId);
-        $warnings = $this->validateSupplier($supplier, $period);
 
-        if ($period === 'quarterly') {
-            $quarter = (int) ceil($month / 3);
-            $startMonth = ($quarter - 1) * 3 + 1;
-            // Konec kvartálu = poslední den měsíce quarter*3, NEZÁVISLE na předaném
-            // $month (jinak build(..., 4, 'quarterly') utne období na duben a zahodí
-            // květen+červen). Stejná logika jako DphBookBuilder::build().
-            $endMonth = $quarter * 3;
-            $start = sprintf('%04d-%02d-01', $year, $startMonth);
-        } else {
-            $quarter = null;
-            $endMonth = $month;
-            $start = sprintf('%04d-%02d-01', $year, $month);
-        }
-        $end = (new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $endMonth)))->modify('last day of this month')->format('Y-m-d');
+        // A quarter ends on the last day of month quarter*3, INDEPENDENT of the passed $month (see ReportPeriod).
+        $quarter = $period === 'quarterly' ? (int) ceil($month / 3) : null;
+        [$start, $end] = ReportPeriod::range($year, $month, $period);
+
+        // VAT status over the filing period from the dated history (not the live flag).
+        $warnings = $this->validateSupplier($supplier, $period, $this->vatStatus->history($supplierId), $start, $end);
 
         // Všechny sekce z jedné projekce kanonických řádků (VatLedgerService).
         ['a1' => $a1, 'a2' => $a2, 'a4' => $a4, 'a5' => $a5, 'b1' => $b1, 'b2' => $b2, 'b3' => $b3,
@@ -343,9 +338,9 @@ final class KontrolniHlaseniBuilder
         $dphkh->appendChild($vetaC);
 
         // Termín podání = 25. dne měsíce následujícího po konci období.
-        // U kvartálního podání je rozhodující konec kvartálu ($endMonth), NE předaný
+        // For a quarterly filing the end of the quarter ($end) decides, NOT the passed
         // $month (jinak build(..., 4, 'quarterly') = Q2 vrátí termín 25.05. místo 25.07.).
-        $deadlineMonth = $endMonth + 1;
+        $deadlineMonth = (int) substr($end, 5, 2) + 1;
         $deadlineYear = $year;
         if ($deadlineMonth > 12) { $deadlineMonth -= 12; $deadlineYear++; }
         // § 33/4 daňového řádu: sobota/neděle/svátek → nejbližší následující pracovní den
@@ -593,15 +588,17 @@ final class KontrolniHlaseniBuilder
     }
 
     /** @return list<string> warnings */
-    private function validateSupplier(array $s, string $period = 'monthly'): array
+    private function validateSupplier(array $s, string $period, VatStatusHistory $history, string $start, string $end): array
     {
         $w = [];
-        if (!$s['is_vat_payer']) {
+        if (!$history->hasPayerTimeBetween($start, $end)) {
             // Identifikovaná osoba (§ 6g–6l, issue #94) KH nepodává NIKDY (§ 101c
             // jen plátci) — přeshraniční povinnosti pokrývá DPHDP3 typ I + SHV.
-            $w[] = !empty($s['is_identified'])
+            $w[] = $history->hasStatusBetween($start, $end, [VatStatus::IDENTIFIED])
                 ? 'Identifikovaná osoba kontrolní hlášení nepodává (§ 101c — jen plátci DPH). Přeshraniční plnění patří do přiznání DPH (typ I) a souhrnného hlášení.'
-                : 'Tenant není plátce DPH — KH nemusí být relevantní.';
+                : 'V tomto období nebyl dodavatel plátcem DPH — KH nemusí být relevantní.';
+        } elseif ($history->hasStatusBetween($start, $end, [VatStatus::NON_PAYER, VatStatus::IDENTIFIED])) {
+            $w[] = 'Dodavatel byl plátcem DPH jen část období — do hlášení se započítávají jen doklady s DUZP v době plátcovství.';
         }
         if ($period === 'quarterly' && ($s['taxpayer_type'] ?? '') === 'po') {
             $w[] = 'Právnické osoby podávají kontrolní hlášení VŽDY měsíčně (§ 101e odst. 1 zákona 235/2004 Sb.). Kvartální podání je povoleno pouze fyzickým osobám.';
@@ -616,7 +613,7 @@ final class KontrolniHlaseniBuilder
         $stmt = $this->db->pdo()->prepare(
             "SELECT s.id, s.company_name, s.street, s.city, s.zip,
                     COALESCE(c.iso2, 'CZ') AS country_iso2,
-                    s.ic, s.dic, s.is_vat_payer, s.is_identified,
+                    s.ic, s.dic,
                     s.taxpayer_type, s.vat_period, s.financial_office_code,
                     s.workplace_code, s.data_box_id,
                     s.email, s.phone, s.cz_nace_code,

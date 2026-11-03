@@ -112,11 +112,13 @@ snapshotu uložit bez jeho výslovného obnovení.
 > ve šabloně vybereš aktuální sazbu. Tím se nikdy tiše nevystaví doklad se starou
 > sazbou. (Totéž hlídá i klonování faktury.)
 
-> 💡 **Neplátce DPH** — pokud je dodavatel neplátce, pravidelná fakturace se chová
-> stejně jako jednorázové vystavení: výběr sazby DPH se v šabloně skryje a každá
-> vygenerovaná faktura je **bez DPH** (0 % „Osvobozeno"). Platí to i pro šablony
-> založené dřív s nominální sazbou — generátor sazbu při vystavení sám sjednotí
-> na 0 %.
+> 💡 **Neplátce DPH** — pokud je dodavatel k DUZP vygenerované faktury neplátce,
+> pravidelná fakturace se chová stejně jako jednorázové vystavení: výběr sazby DPH
+> se v šabloně skryje a faktura je **bez DPH** (0 % „Osvobozeno"). Platí to i pro
+> šablony založené dřív s nominální sazbou — generátor sazbu při vystavení sám
+> sjednotí na 0 %. Rozhoduje historie plátcovství (Nastavení → Plátcovství DPH),
+> takže šablona, která přechází přes datum registrace k DPH, vystaví faktury za
+> dřívější období bez DPH a od registrace s DPH.
 
 **Placeholdery období** — do popisu položky (a do poznámek nad/pod
 položkami šablony) lze vložit tokeny, které se při **každém vygenerování** faktury

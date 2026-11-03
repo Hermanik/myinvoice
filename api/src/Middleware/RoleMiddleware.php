@@ -172,6 +172,8 @@ final class RoleMiddleware implements MiddlewareInterface
         // Nastavení — jen čtení supplier + číselníkové sekce; signing/pdf-signing/
         // email-branding/bank-email-notices NEdáváme readonly (admin/accountant only).
         'GET #^/api/settings/supplier$#',
+        // VAT status history is part of the supplier settings readers already see; writes stay admin-only.
+        'GET #^/api/settings/vat-status(/history)?$#',
         'GET #^/api/settings/currencies(/|$)#',
         'GET #^/api/settings/vat-rates(/|$)#',
         'GET #^/api/settings/units(/|$)#',

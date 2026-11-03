@@ -80,6 +80,8 @@ final class ApiScopeMiddleware implements MiddlewareInterface
         '#^/api/settings/supplier$#',
         '#^/api/settings/supplier/invoice-counter$#',
         '#^/api/settings/supplier/logo$#',
+        // Read-only "VAT status on a date" lookup (the history itself is edited in the UI only).
+        '#^/api/settings/vat-status$#',
         // Číselník ČINNOSTI (CZ-NACE) — read-only referenční data pro c_okec.
         '#^/api/settings/nace-codes$#',
         '#^/api/settings/currencies(/|$)#',

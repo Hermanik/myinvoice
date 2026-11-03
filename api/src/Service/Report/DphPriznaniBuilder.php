@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Report;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Vat\VatStatus;
+use MyInvoice\Service\Vat\VatStatusService;
 
 /**
  * Builder XML pro DPH přiznání (DPHDP3) — EPO portál MFČR.
@@ -21,6 +23,7 @@ final class DphPriznaniBuilder
     public function __construct(
         private readonly Connection $db,
         private readonly VatClassificationMapper $mapper,
+        private readonly VatStatusService $vatStatus,
     ) {}
 
     /**
@@ -55,26 +58,27 @@ final class DphPriznaniBuilder
             throw new \InvalidArgumentException('Dodatečné přiznání vyžaduje datum zjištění důvodů (d_zjist).');
         }
         $supplier = $this->loadSupplier($supplierId);
-        // Default period z supplier.vat_period, fallback 'monthly'
-        if ($period === null) {
-            $period = (string) ($supplier['vat_period'] ?? 'monthly');
-        }
-        if (!in_array($period, ['monthly', 'quarterly'], true)) {
-            $period = 'monthly';
-        }
+        $period = self::normalizePeriod($period, $supplier['vat_period'] ?? null);
+        // The VAT status comes from the dated history over the filing period (never the
+        // live flag): the supplier may become a payer in the middle of it.
         // Identifikovaná osoba (§ 6g–6l ZDPH, issue #94): přiznání typu 'I' —
         // vyplňuje JEN samovyměření z přeshraničních přijatých plnění (ř. 3-6
         // pořízení zboží / služby z EU, ř. 12-13 služby ze 3. zemí), vždy měsíčně,
         // a jen za měsíce, kdy povinnost vznikla. BEZ nároku na odpočet (žádná
         // Veta4 vč. zrcadlového ř. 43), bez tuzemských výstupů (ř. 1/2) i oddílu C
         // (ř. 20-26 — služby do EU vykazuje jen v souhrnném hlášení).
-        $isIdentified = !$supplier['is_vat_payer'] && !empty($supplier['is_identified']);
+        $history = $this->vatStatus->history($supplierId);
+        [$periodStart, $periodEnd] = ReportPeriod::range($year, $month, $period);
+        $hasPayerTime = $history->hasPayerTimeBetween($periodStart, $periodEnd);
+        $isIdentified = !$hasPayerTime && $history->hasStatusBetween($periodStart, $periodEnd, [VatStatus::IDENTIFIED]);
 
         $warnings = [];
         if ($isIdentified) {
             $warnings[] = 'Přiznání identifikované osoby (typ I): jen samovyměření z přeshraničních plnění, bez nároku na odpočet. Podává se pouze za měsíce, kdy povinnost vznikla (do 25. dne následujícího měsíce).';
-        } elseif (!$supplier['is_vat_payer']) {
-            $warnings[] = 'Tenant není evidovaný jako plátce DPH — výkaz nemusí být relevantní.';
+        } elseif (!$hasPayerTime) {
+            $warnings[] = 'V tomto období nebyl dodavatel evidovaný jako plátce DPH — výkaz nemusí být relevantní.';
+        } elseif ($history->hasStatusBetween($periodStart, $periodEnd, [VatStatus::NON_PAYER, VatStatus::IDENTIFIED])) {
+            $warnings[] = 'Dodavatel byl plátcem DPH jen část období — do přiznání se započítávají jen doklady s DUZP v době plátcovství.';
         }
         if (empty($supplier['financial_office_code'])) {
             $warnings[] = 'Chybí kód finančního úřadu — XML nemusí projít validací EPO.';
@@ -91,6 +95,9 @@ final class DphPriznaniBuilder
             // povinnost vzniká per měsíc dle § 101 odst. 5).
             $period = 'monthly';
             $warnings[] = 'Identifikovaná osoba podává vždy za kalendářní měsíc — kvartální volba ignorována.';
+            // The narrower month may be a plain non-payer month although the quarter had identified time.
+            [$periodStart, $periodEnd] = ReportPeriod::range($year, $month, $period);
+            $isIdentified = $history->hasStatusBetween($periodStart, $periodEnd, [VatStatus::IDENTIFIED]);
         }
 
         $lines = $this->mapper->aggregateForDphPriznani($supplierId, $year, $month, $period);
@@ -497,6 +504,13 @@ final class DphPriznaniBuilder
         return $kept;
     }
 
+    /** Period of the filing: the requested one, else supplier.vat_period, else 'monthly'. */
+    public static function normalizePeriod(?string $requested, ?string $supplierVatPeriod): string
+    {
+        $period = $requested ?? (string) ($supplierVatPeriod ?? 'monthly');
+        return in_array($period, ['monthly', 'quarterly'], true) ? $period : 'monthly';
+    }
+
     /**
      * Načti tax-relevantní info o tenantovi.
      * @return array<string,mixed>
@@ -506,7 +520,7 @@ final class DphPriznaniBuilder
         $stmt = $this->db->pdo()->prepare(
             "SELECT s.id, s.company_name, s.street, s.city, s.zip,
                     COALESCE(c.iso2, 'CZ') AS country_iso2,
-                    s.ic, s.dic, s.is_vat_payer, s.is_identified,
+                    s.ic, s.dic,
                     s.taxpayer_type, s.vat_period, s.financial_office_code,
                     s.workplace_code, s.cz_nace_code, s.data_box_id,
                     s.email, s.phone,

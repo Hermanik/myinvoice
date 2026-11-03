@@ -14,6 +14,7 @@ use MyInvoice\Service\Pdf\InvoicePdfRenderer;
 use MyInvoice\Service\Pdf\PdfArchiveService;
 use MyInvoice\Service\Stats\StatsRecomputer;
 use MyInvoice\Service\Validation\InvoiceAmountPolicy;
+use MyInvoice\Service\Vat\VatStatusService;
 
 /**
  * Po schválení výkazu klientem (nebo manuálním přepnutí na 'approved'):
@@ -185,6 +186,7 @@ final class AutoIssueAndSendService
             (int) $invoice['currency_id'],
             $supplierId,
             isset($invoice['branding_profile_id']) ? (int) $invoice['branding_profile_id'] : null,
+            VatStatusService::documentDateOf($invoice),
         );
 
         $stmt = $this->db->pdo()->prepare(

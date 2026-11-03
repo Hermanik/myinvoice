@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { VatStatus } from '@/utils/vatStatus'
 
 /** Typy zpráv pro kopii dodavateli — zrcadlí RecipientResolver::TYPE_*. */
 export type SelfCopyType = 'documents' | 'reminders' | 'approvals'
@@ -24,6 +25,34 @@ export interface NaceResolved {
   valid_to: string | null
 }
 
+/** One row of the dated VAT status history (Settings → "Plátcovství DPH"). */
+export interface VatStatusRow {
+  id: number
+  valid_from: string
+  status: VatStatus
+  note: string | null
+  created_at: string
+  created_by: number | null
+  /** Row not in force yet (a scheduled change). */
+  is_future: boolean
+  /** Row in force today. */
+  is_current: boolean
+  /** The earliest row is the floor of the history and cannot be deleted. */
+  can_delete: boolean
+}
+
+export interface VatStatusOverview {
+  /** Status today. */
+  status: VatStatus
+  is_vat_payer: boolean
+  is_identified: boolean
+  as_of: string
+  history: VatStatusRow[]
+  next_change: { valid_from: string; status: VatStatus } | null
+  /** Year in which the supplier is a payer although a flat tax band applies (warning), else null. */
+  flat_tax_conflict_year: number | null
+}
+
 export interface Supplier {
   id: number
   company_name: string
@@ -37,10 +66,13 @@ export interface Supplier {
   country_name_en?: string
   ic: string | null
   dic: string | null
+  /** VAT payer TODAY (from the status history); changes are made in the "Plátcovství DPH" section. */
   is_vat_payer: boolean
   /** Identifikovaná osoba (§ 6g–6l ZDPH, issue #94) — neplátce v tuzemsku
    *  s přeshraničními povinnostmi. Nelze kombinovat s is_vat_payer. */
   is_identified: boolean
+  /** VAT status history (the response also carries `vat_status`, `vat_next_change`, `vat_flat_tax_conflict_year`). */
+  vat_history?: VatStatusRow[]
   email: string
   phone: string | null
   web: string | null
@@ -617,6 +649,12 @@ export type PdfSignatureOutputSettingPayload = Partial<Pick<
 export const settingsApi = {
   getSupplier: () => api.get<Supplier>('/settings/supplier').then(r => r.data),
   updateSupplier: (payload: Partial<Supplier>) => api.put<Supplier>('/settings/supplier', payload).then(r => r.data),
+
+  /** Dated VAT status: history + status today + next scheduled change. */
+  getVatStatusHistory: () => api.get<VatStatusOverview>('/settings/vat-status/history').then(r => r.data),
+  addVatStatus: (payload: { valid_from: string; status: VatStatus; note?: string | null }) =>
+    api.post<VatStatusOverview>('/settings/vat-status/history', payload).then(r => r.data),
+  deleteVatStatus: (id: number) => api.delete<VatStatusOverview>(`/settings/vat-status/history/${id}`).then(r => r.data),
 
   /**
    * Našeptávač CZ-NACE — vrací jen kódy platné k dnešku. ARES eviduje ještě

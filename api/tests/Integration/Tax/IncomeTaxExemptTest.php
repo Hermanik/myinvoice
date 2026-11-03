@@ -73,14 +73,14 @@ final class IncomeTaxExemptTest extends TestCase
     {
         // Rok daleko v budoucnu → izolace od reálných dat v testovací DB.
         $year = 2099;
-        $base0 = $this->repo->annualIncome($this->supplierId, $year, true);
-        $exempt0 = $this->repo->annualExemptIncome($this->supplierId, $year, true);
+        $base0 = $this->repo->annualIncome($this->supplierId, $year);
+        $exempt0 = $this->repo->annualExemptIncome($this->supplierId, $year);
 
         $normalId = $this->insertPaidInvoice($year, 10000.0, 0);
         $exemptId = $this->insertPaidInvoice($year, 350000.0, 1);
 
-        $base1 = $this->repo->annualIncome($this->supplierId, $year, true);
-        $exempt1 = $this->repo->annualExemptIncome($this->supplierId, $year, true);
+        $base1 = $this->repo->annualIncome($this->supplierId, $year);
+        $exempt1 = $this->repo->annualExemptIncome($this->supplierId, $year);
 
         // Do příjmu vstoupila jen NEosvobozená faktura (10 000), osvobozená (350 000) ne.
         self::assertEqualsWithDelta($base0 + 10000.0, $base1, 0.01, 'Osvobozená faktura se nesmí započítat do příjmu.');
@@ -89,7 +89,7 @@ final class IncomeTaxExemptTest extends TestCase
 
         // sanity: bez příznaku by se 350 000 do příjmu započítalo
         $this->db->pdo()->prepare('UPDATE invoices SET income_tax_exempt = 0 WHERE id = ?')->execute([$exemptId]);
-        $base2 = $this->repo->annualIncome($this->supplierId, $year, true);
+        $base2 = $this->repo->annualIncome($this->supplierId, $year);
         self::assertEqualsWithDelta($base1 + 350000.0, $base2, 0.01, 'Po zrušení příznaku se částka musí do příjmu vrátit.');
 
         unset($normalId); // jen pro čitelnost — úklid řeší tearDown přes $this->created

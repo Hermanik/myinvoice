@@ -2353,6 +2353,35 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /api/v1/settings/vat-status:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+    get:
+      tags: [Settings]
+      summary: Plátcovství DPH k danému datu
+      description: |
+        Stav dodavatele k datu = záznam historie plátcovství s nejvyšším `valid_from` <= datum.
+        U dokladu rozhoduje jeho DUZP (`tax_date`), případně datum vystavení. Bez parametru `date` se použije dnešek.
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date: { type: string, format: date }
+                  status: { $ref: '#/components/schemas/VatStatusValue' }
+                  is_vat_payer: { type: boolean }
+                  is_identified: { type: boolean }
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+
   /api/v1/settings/supplier/invoice-counter:
     put:
       tags: [Settings]
@@ -7077,6 +7106,22 @@ components:
         matched_at: { type: [string, "null"], format: date-time }
         matched_by: { type: [integer, "null"], description: "User ID (u ručního párování)" }
 
+    VatStatusValue:
+      type: string
+      enum: [payer, non_payer, identified]
+      description: "payer = plátce DPH, non_payer = neplátce, identified = identifikovaná osoba."
+
+    VatStatusRow:
+      type: object
+      properties:
+        id: { type: integer }
+        valid_from: { type: string, format: date, description: "První den platnosti stavu" }
+        status: { $ref: '#/components/schemas/VatStatusValue' }
+        note: { type: [string, "null"] }
+        is_future: { type: boolean, description: "Záznam ještě nenastal (budoucí změna)" }
+        is_current: { type: boolean, description: "Záznam platí dnes" }
+        can_delete: { type: boolean, description: "Nejstarší záznam nelze smazat" }
+
     SupplierUpdate:
       type: object
       description: |
@@ -7093,7 +7138,13 @@ components:
         country_id: { type: integer }
         ic: { type: [string, "null"] }
         dic: { type: [string, "null"] }
-        is_vat_payer: { type: boolean }
+        is_vat_payer:
+          type: boolean
+          description: |
+            Zpětně kompatibilní zkratka: změna `is_vat_payer` / `is_identified` se **nepřepisuje do minulosti**,
+            ale uloží se jako NOVÝ záznam historie plátcovství platný od dneška (viz `GET /api/v1/settings/vat-status`).
+            Nastavení plátcovství k jinému datu (např. od 1. 1. 2027) dělej přes historii v UI.
+        is_identified: { type: boolean, description: "Viz `is_vat_payer` — stejná zkratka pro identifikovanou osobu." }
         email: { type: [string, "null"], format: email }
         phone: { type: [string, "null"] }
         web: { type: [string, "null"] }
@@ -7144,8 +7195,20 @@ components:
         country_iso: { type: string, description: "Odvozený ISO2 kód země" }
         ic: { type: [string, "null"] }
         dic: { type: [string, "null"] }
-        is_vat_payer: { type: boolean }
-        is_identified: { type: boolean, description: "Identifikovaná osoba (§ 6g–6l ZDPH, issue #94) — neplátce v tuzemsku s přeshraničními povinnostmi (RC faktury do EU, SHV, samovyměření bez odpočtu). Nelze kombinovat s is_vat_payer=true." }
+        is_vat_payer: { type: boolean, description: "Plátce DPH DNES (podle historie plátcovství; sloupec je jen cache)" }
+        is_identified: { type: boolean, description: "Identifikovaná osoba DNES (§ 6g–6l ZDPH, issue #94) — neplátce v tuzemsku s přeshraničními povinnostmi (RC faktury do EU, SHV, samovyměření bez odpočtu). Nelze kombinovat s is_vat_payer=true." }
+        vat_status: { $ref: '#/components/schemas/VatStatusValue' }
+        vat_history:
+          type: array
+          description: Historie plátcovství DPH, od nejstaršího záznamu.
+          items: { $ref: '#/components/schemas/VatStatusRow' }
+        vat_next_change:
+          type: [object, "null"]
+          description: Nejbližší naplánovaná změna stavu (budoucí záznam), jinak null.
+          properties:
+            valid_from: { type: string, format: date }
+            status: { $ref: '#/components/schemas/VatStatusValue' }
+        vat_flat_tax_conflict_year: { type: [integer, "null"], description: "Rok, v němž je dodavatel plátcem, ač platí paušální daň (§ 7a ZDP) — upozornění, jinak null." }
         commercial_register: { type: [string, "null"], description: "Spisová značka u rejstříkového soudu (doplňuje ARES enricher)" }
         email: { type: [string, "null"], format: email }
         phone: { type: [string, "null"] }

@@ -9,6 +9,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Crm\CrmAggregationService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use MyInvoice\Tests\Support\VatStatusFixture;
 
 /**
  * Daňové termíny v dashboard "Akce pro tebe" respektují periodicitu DPH dodavatele
@@ -27,7 +28,8 @@ final class CrmTaxDeadlineTest extends TestCase
     private Connection $db;
     private CrmAggregationService $crm;
     private int $supplierId = 0;
-    private int $origVatPayer = 0;
+    /** @var list<array{valid_from: string, status: string, note: ?string}> */
+    private array $origVatHistory = [];
     private ?string $origTaxpayerType = null;
     private ?string $origVatPeriod = null;
 
@@ -49,9 +51,9 @@ final class CrmTaxDeadlineTest extends TestCase
         if ($this->supplierId === 0) {
             $this->markTestSkipped('Chybí supplier.');
         }
-        $row = $pdo->query("SELECT is_vat_payer, taxpayer_type, vat_period FROM supplier WHERE id = {$this->supplierId}")
+        $row = $pdo->query("SELECT taxpayer_type, vat_period FROM supplier WHERE id = {$this->supplierId}")
             ->fetch(\PDO::FETCH_ASSOC) ?: [];
-        $this->origVatPayer = (int) ($row['is_vat_payer'] ?? 0);
+        $this->origVatHistory = VatStatusFixture::snapshot($pdo, $this->supplierId);
         $this->origTaxpayerType = $row['taxpayer_type'] ?? null;
         $this->origVatPeriod = $row['vat_period'] ?? null;
     }
@@ -59,19 +61,17 @@ final class CrmTaxDeadlineTest extends TestCase
     protected function tearDown(): void
     {
         if (isset($this->db) && $this->supplierId > 0) {
-            $stmt = $this->db->pdo()->prepare(
-                'UPDATE supplier SET is_vat_payer = ?, taxpayer_type = ?, vat_period = ? WHERE id = ?'
-            );
-            $stmt->execute([$this->origVatPayer, $this->origTaxpayerType, $this->origVatPeriod, $this->supplierId]);
+            $stmt = $this->db->pdo()->prepare('UPDATE supplier SET taxpayer_type = ?, vat_period = ? WHERE id = ?');
+            $stmt->execute([$this->origTaxpayerType, $this->origVatPeriod, $this->supplierId]);
+            VatStatusFixture::restore($this->db->pdo(), $this->supplierId, $this->origVatHistory);
         }
     }
 
     private function configure(string $vatPeriod, string $taxpayerType): void
     {
-        $stmt = $this->db->pdo()->prepare(
-            'UPDATE supplier SET is_vat_payer = 1, vat_period = ?, taxpayer_type = ? WHERE id = ?'
-        );
+        $stmt = $this->db->pdo()->prepare('UPDATE supplier SET vat_period = ?, taxpayer_type = ? WHERE id = ?');
         $stmt->execute([$vatPeriod, $taxpayerType, $this->supplierId]);
+        VatStatusFixture::set($this->db->pdo(), $this->supplierId, true);
     }
 
     /** @return array<string, array<string,mixed>> položky daňových termínů klíčované typem */

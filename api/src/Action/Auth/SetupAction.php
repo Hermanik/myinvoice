@@ -18,6 +18,7 @@ use MyInvoice\Service\Ares\SupplierRegistryEnricher;
 use MyInvoice\Service\Auth\SessionManager;
 use MyInvoice\Service\Config\CfgLocalWriter;
 use MyInvoice\Service\IpMatcher;
+use MyInvoice\Service\Vat\VatStatusService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -35,6 +36,7 @@ final class SetupAction
         private readonly Config $config,
         private readonly SupplierRegistryEnricher $enricher,
         private readonly SessionCookieFactory $sessionCookies,
+        private readonly VatStatusService $vatStatus,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -273,6 +275,8 @@ final class SetupAction
             (string) ($supplier['default_hourly_rate'] ?? '1500.00'),
         ]);
         $supplierId = (int) $pdo->lastInsertId();
+        // First row of the dated VAT status history (the wizard has no identified-person option).
+        $this->vatStatus->seedInitialRow($supplierId, !empty($supplier['is_vat_payer']), false);
 
         // Seed default currencies (CZK + EUR) pro tohoto supplier
         $bank = isset($supplier['bank_account']) && is_array($supplier['bank_account']) ? $supplier['bank_account'] : null;

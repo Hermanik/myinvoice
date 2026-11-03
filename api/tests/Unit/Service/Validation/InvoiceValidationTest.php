@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Unit\Service\Validation;
 
 use MyInvoice\Service\Validation\InvoiceValidation;
+use MyInvoice\Service\Vat\VatStatus;
 use PHPUnit\Framework\TestCase;
 
 final class InvoiceValidationTest extends TestCase
@@ -240,5 +241,56 @@ final class InvoiceValidationTest extends TestCase
                 'oss_original_period' => '2026Q2',
             ]],
         ];
+    }
+
+    // ── supplier VAT status on the DUZP ──────────────────────────────
+
+    /** @return array<string,mixed> */
+    private function invoiceWithRate(int $rateId, array $extra = []): array
+    {
+        return $extra + [
+            'invoice_type' => 'invoice',
+            'client_id'    => 1,
+            'currency_id'  => 1,
+            'issue_date'   => '2027-01-05',
+            'tax_date'     => '2026-12-31',
+            'items' => [
+                ['description' => 'Konzultace', 'quantity' => 1, 'unit_price_without_vat' => 1000, 'vat_rate_id' => $rateId],
+            ],
+        ];
+    }
+
+    public function testNonPayerAtDuzpMustNotChargeVat(): void
+    {
+        $rates = [1 => 21.0, 3 => 0.0];
+
+        $err = InvoiceValidation::invoice($this->invoiceWithRate(1), $rates, null, VatStatus::NON_PAYER);
+        self::assertArrayHasKey('items.0.vat_rate_id', $err);
+        self::assertStringContainsString('31. 12. 2026', $err['items.0.vat_rate_id'][0], 'the message names the DUZP');
+
+        self::assertSame([], InvoiceValidation::invoice($this->invoiceWithRate(3), $rates, null, VatStatus::NON_PAYER));
+    }
+
+    public function testPayerAtDuzpMayUseAnyRate(): void
+    {
+        $rates = [1 => 21.0, 3 => 0.0];
+        $data = $this->invoiceWithRate(1, ['tax_date' => '2027-01-31']);
+
+        self::assertSame([], InvoiceValidation::invoice($data, $rates, null, VatStatus::PAYER));
+        self::assertSame([], InvoiceValidation::invoice($this->invoiceWithRate(3, ['tax_date' => '2027-01-31']), $rates, null, VatStatus::PAYER));
+    }
+
+    public function testIdentifiedPersonIsANonPayerForRatesButMayReverseCharge(): void
+    {
+        $rates = [1 => 21.0];
+
+        self::assertArrayHasKey('items.0.vat_rate_id', InvoiceValidation::invoice($this->invoiceWithRate(1), $rates, null, VatStatus::IDENTIFIED));
+        // Reverse charge zeroes the tax whatever nominal rate the line carries.
+        self::assertSame([], InvoiceValidation::invoice($this->invoiceWithRate(1, ['reverse_charge' => 1]), $rates, null, VatStatus::IDENTIFIED));
+    }
+
+    public function testStatusCheckIsSkippedWhenNoStatusIsGiven(): void
+    {
+        self::assertSame([], InvoiceValidation::invoice($this->invoiceWithRate(1), [1 => 21.0]));
     }
 }

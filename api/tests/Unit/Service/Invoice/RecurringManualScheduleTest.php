@@ -109,6 +109,7 @@ final class RecurringManualScheduleTest extends TestCase
                 RecurringTemplateRepository::class => $repo,
                 InvoiceRepository::class => $invoices,
                 RecurringPriceListService::class => $priceList,
+                \MyInvoice\Service\Vat\VatStatusService::class => \MyInvoice\Service\Vat\VatStatusService::forConnection($db),
                 default => $this->createStub($type),
             };
         }

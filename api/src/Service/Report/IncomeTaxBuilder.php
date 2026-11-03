@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Report;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Vat\VatStatusService;
+use MyInvoice\Service\Vat\VatStatusSql;
 
 /**
  * Builder XML pro DPFO (Daň z příjmů FO, formulář DPFDP5) a DPPO (PO, formulář DPPDP9).
@@ -46,8 +48,11 @@ final class IncomeTaxBuilder
         $warnings[] = '⚠ Tento výkaz je POUZE foundation — chybí účetní data (odpisy, ' .
                       'mzdy, vedlejší výdaje). Doplňte ve spolupráci s účetní/poradcem.';
 
-        $isVatPayer = (bool) ($supplier['is_vat_payer'] ?? false);
-        $totals = $this->loadYearTotals($supplierId, $year, $isVatPayer);
+        // Informational flag: payer on at least one day of the year (dated history). The amounts
+        // themselves are decided per document by the status on its DUZP (see loadYearTotals).
+        $isVatPayer = VatStatusService::forConnection($this->db)->history($supplierId)
+            ->hasPayerTimeBetween("$year-01-01", "$year-12-31");
+        $totals = $this->loadYearTotals($supplierId, $year);
 
         $dom = new \DOMDocument('1.0', 'UTF-8');
         $dom->preserveWhiteSpace = false;
@@ -120,7 +125,7 @@ final class IncomeTaxBuilder
                     new \DateTimeImmutable(sprintf('%04d-04-01', $year + 1))
                 )->format('Y-m-d'),
                 'currency'          => 'CZK',
-                'is_vat_payer'      => $isVatPayer,  // true → částky bez DPH, false → vč. DPH
+                'is_vat_payer'      => $isVatPayer,  // payer for any part of the year; amounts are per document (excl. VAT for a payer, incl. VAT for a non-payer)
             ],
             'warnings' => $warnings,
         ];
@@ -129,24 +134,25 @@ final class IncomeTaxBuilder
     /**
      * Tržby a náklady za rok pro orientační hospodářský výsledek.
      *
-     * Pro plátce DPH (is_vat_payer) je DPH průběžná položka vypořádaná zvlášť
-     * přiznáním k DPH — do základu daně z příjmů nevstupuje, proto bereme částky
-     * bez DPH (`total_without_vat`). Pro neplátce je DPH součástí ceny a odečíst
-     * ji nelze, proto bereme částky včetně DPH (`total_with_vat`). Stejný vzor jako
-     * StatsRecomputer / migrace 0023_revenue_vat_aware.
+     * For a VAT payer's document VAT is a pass-through item settled separately by the VAT return —
+     * it is not part of the income tax base, so we take amounts without VAT (`total_without_vat`).
+     * For a non-payer's document VAT is part of the price and cannot be deducted, so we take amounts including
+     * VAT (`total_with_vat`). The status on EACH document's DUZP decides (see
+     * {@see VatStatusSql::amount()}), so a year in which the status changed comes out right.
      *
      * @return array{revenue: float, costs: float, exempt_revenue: float}
      */
-    private function loadYearTotals(int $supplierId, int $year, bool $isVatPayer): array
+    private function loadYearTotals(int $supplierId, int $year): array
     {
         $start = sprintf('%04d-01-01', $year);
         $end   = sprintf('%04d-12-31', $year);
 
-        $amount = $isVatPayer ? 'total_without_vat' : 'total_with_vat';
+        $revAmount  = VatStatusSql::amount('i');
+        $costAmount = VatStatusSql::amount('pi');
 
         // Revenue z vydaných (CZK only — pro DPFO/DPPO výkazy)
         $stmt = $this->db->pdo()->prepare(
-            "SELECT SUM(COALESCE(i.{$amount}, 0)) AS total
+            "SELECT SUM(COALESCE({$revAmount}, 0)) AS total
                FROM invoices i
           LEFT JOIN currencies c ON c.id = i.currency_id
               WHERE i.supplier_id = ?
@@ -164,7 +170,7 @@ final class IncomeTaxBuilder
         // Z toho vyloučeno ze základu daně z příjmů (§4 osvobození / přefakturace) —
         // pro transparentní řádek „z toho vyloučeno" ve výkazu. Do revenue NEvstupuje.
         $stmt = $this->db->pdo()->prepare(
-            "SELECT SUM(COALESCE(i.{$amount}, 0)) AS total
+            "SELECT SUM(COALESCE({$revAmount}, 0)) AS total
                FROM invoices i
           LEFT JOIN currencies c ON c.id = i.currency_id
               WHERE i.supplier_id = ?
@@ -182,8 +188,8 @@ final class IncomeTaxBuilder
         // pořízení/AI, kladné z části importů) — viz VatLedgerService::fetchPurchases.
         $stmt = $this->db->pdo()->prepare(
             "SELECT SUM(CASE WHEN pi.document_kind = 'credit_note'
-                             THEN -ABS(COALESCE(pi.{$amount}, 0))
-                             ELSE COALESCE(pi.{$amount}, 0) END) AS total
+                             THEN -ABS(COALESCE({$costAmount}, 0))
+                             ELSE COALESCE({$costAmount}, 0) END) AS total
                FROM purchase_invoices pi
           LEFT JOIN currencies c ON c.id = pi.currency_id
               WHERE pi.supplier_id = ?
@@ -224,7 +230,7 @@ final class IncomeTaxBuilder
         $stmt = $this->db->pdo()->prepare(
             "SELECT s.id, s.company_name, s.street, s.city, s.zip,
                     COALESCE(c.iso2, 'CZ') AS country_iso2,
-                    s.ic, s.dic, s.taxpayer_type, s.is_vat_payer, s.financial_office_code,
+                    s.ic, s.dic, s.taxpayer_type, s.financial_office_code,
                     s.workplace_code, s.data_box_id
                FROM supplier s
           LEFT JOIN countries c ON c.id = s.country_id

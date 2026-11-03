@@ -9,6 +9,7 @@ use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
+use MyInvoice\Service\Vat\VatStatusService;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Report\DphPriznaniBuilder;
 use MyInvoice\Service\Report\VatClassificationMapper;
@@ -37,6 +38,7 @@ final class DphPriznaniAction
         private readonly \MyInvoice\Service\Report\EpoIdentityValidator $epoValidator,
         // Sazby pro dopočet EPO propustné chyby 49 (ř. 40/41) — per rok období.
         private readonly \MyInvoice\Repository\TaxConstantsRepository $taxConstants,
+        private readonly \MyInvoice\Service\Vat\VatStatusService $vatStatus,
     ) {}
 
     /**
@@ -63,15 +65,17 @@ final class DphPriznaniAction
         }
         $supplierId = SupplierGuard::currentId($request);
         $stmt = $this->db->pdo()->prepare(
-            'SELECT vat_period, is_vat_payer, is_identified, taxpayer_type, financial_office_code FROM supplier WHERE id = ?'
+            'SELECT vat_period, taxpayer_type, financial_office_code FROM supplier WHERE id = ?'
         );
         $stmt->execute([$supplierId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-        $isIdentified = !((bool) ($row['is_vat_payer'] ?? false)) && (bool) ($row['is_identified'] ?? false);
+        // Status TODAY from the dated history (the supplier columns are only a cache of it).
+        $vat = $this->vatStatus->flagsAt($supplierId, VatStatusService::today());
+        $isIdentified = $vat['is_identified'];
         return Json::ok($response, [
             // Identifikovaná osoba podává vždy měsíčně — UI nedostane kvartální volbu.
             'vat_period'            => $isIdentified ? 'monthly' : ($row['vat_period'] ?? null),
-            'is_vat_payer'          => (bool) ($row['is_vat_payer'] ?? false),
+            'is_vat_payer'          => $vat['is_vat_payer'],
             'is_identified'         => $isIdentified,
             'taxpayer_type'         => $row['taxpayer_type'] ?? null,
             'has_financial_office'  => !empty($row['financial_office_code']),
@@ -258,6 +262,17 @@ final class DphPriznaniAction
         );
         if ($fp['error'] !== null) {
             return Json::error($response, 'validation_failed', $fp['error'], 400);
+        }
+        try {
+            // Without an explicit period the builder falls back to supplier.vat_period.
+            if ($period === null) {
+                $stmt = $this->db->pdo()->prepare('SELECT vat_period FROM supplier WHERE id = ?');
+                $stmt->execute([$supplierId]);
+                $period = DphPriznaniBuilder::normalizePeriod(null, $stmt->fetchColumn() ?: null);
+            }
+            $this->vatStatus->assertVatDutiesInReportPeriod($supplierId, $year, $month, $period);
+        } catch (\MyInvoice\Service\Vat\VatStatusException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
         }
         try {
             $result = $this->builder->build($supplierId, $year, $month, $period, $fp['form'], $fp['d_zjist']);

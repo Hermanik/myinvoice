@@ -7,6 +7,7 @@ namespace MyInvoice\Tests\Integration\Crm;
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Crm\CrmAggregationService;
+use MyInvoice\Tests\Support\VatStatusFixture;
 use PDO;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -27,7 +28,8 @@ final class CrmVatBasisTest extends TestCase
     private int $clientId = 0;
     private int $currencyId = 0;
     private int $userId = 0;
-    private int $origVatPayer = 0;
+    /** @var list<array{valid_from: string, status: string, note: ?string}> */
+    private array $origVatHistory = [];
     /** @var int[] */
     private array $createdInvoices = [];
     /** @var int[] */
@@ -59,7 +61,7 @@ final class CrmVatBasisTest extends TestCase
         if ($this->clientId === 0 || $this->currencyId === 0 || $this->userId === 0) {
             $this->markTestSkipped('Chybí client/CZK currency/user.');
         }
-        $this->origVatPayer = (int) ($pdo->query("SELECT is_vat_payer FROM supplier WHERE id = {$this->supplierId}")->fetchColumn() ?: 0);
+        $this->origVatHistory = VatStatusFixture::snapshot($pdo, $this->supplierId);
         $this->cleanup();
     }
 
@@ -67,7 +69,7 @@ final class CrmVatBasisTest extends TestCase
     {
         if (isset($this->db)) {
             $this->cleanup();
-            $this->db->pdo()->exec("UPDATE supplier SET is_vat_payer = {$this->origVatPayer} WHERE id = {$this->supplierId}");
+            VatStatusFixture::restore($this->db->pdo(), $this->supplierId, $this->origVatHistory);
         }
     }
 
@@ -86,7 +88,7 @@ final class CrmVatBasisTest extends TestCase
 
     private function setVatPayer(bool $payer): void
     {
-        $this->db->pdo()->exec("UPDATE supplier SET is_vat_payer = " . ($payer ? 1 : 0) . " WHERE id = {$this->supplierId}");
+        VatStatusFixture::set($this->db->pdo(), $this->supplierId, $payer);
     }
 
     private function insertInvoice(float $net, float $gross): void

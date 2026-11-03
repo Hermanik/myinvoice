@@ -41,8 +41,9 @@ už budou s DPH.
 
 Třetí daňový status mezi plátcem a neplátcem — typicky freelancer, který
 fakturuje služby do EU (a/nebo nakupuje zahraniční služby typu reklamy či
-SaaS), ale v tuzemsku plátcem není. V `Nastavení → Dodavatel` nech **Plátce
-DPH vypnutý** a zaškrtni **Identifikovaná osoba**.
+SaaS), ale v tuzemsku plátcem není. V `Nastavení → Plátcovství DPH` přidej
+záznam se stavem **Identifikovaná osoba** a datem, od kdy platí (viz
+[§ 35.5.7](35_Multi_supplier.md#3557-platcovstvi-dph-historie-podle-data)).
 
 Co se tím změní (vše ostatní zůstává jako u neplátce):
 

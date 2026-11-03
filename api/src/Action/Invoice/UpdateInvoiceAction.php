@@ -19,6 +19,7 @@ use MyInvoice\Service\Pdf\InvoicePdfRenderer;
 use MyInvoice\Service\Report\VatClassificationDefaulter;
 use MyInvoice\Service\Stats\StatsRecomputer;
 use MyInvoice\Service\Validation\InvoiceValidation;
+use MyInvoice\Service\Vat\VatStatusService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -38,6 +39,7 @@ final class UpdateInvoiceAction
         private readonly VatClassificationDefaulter $vatDefaulter,
         private readonly VarsymbolGenerator $varsymbol,
         private readonly Connection $db,
+        private readonly VatStatusService $vatStatus,
     ) {}
 
     public function __invoke(Request $request, Response $response, array $args): Response
@@ -152,7 +154,8 @@ final class UpdateInvoiceAction
             return Json::error($response, 'integrity_violation', $e->getMessage(), 400);
         }
 
-        $errors = InvoiceValidation::invoice($body, $this->repo->vatRateMap(), $this->repo->vatRateCountryMap());
+        $vatStatus = $this->vatStatus->statusForDocument((int) $existing['supplier_id'], $body['tax_date'] ?? null, $body['issue_date'] ?? null);
+        $errors = InvoiceValidation::invoice($body, $this->repo->vatRateMap(), $this->repo->vatRateCountryMap(), $vatStatus);
         if (!empty($errors)) {
             return Json::error($response, 'validation_failed', 'Validace selhala', 400, ['fields' => $errors]);
         }

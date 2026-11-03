@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Invoice;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\InvoiceRepository;
 use PDO;
+use MyInvoice\Service\Vat\VatStatusService;
 
 /**
  * Daňový doklad k přijaté platbě (§ 28 odst. 2 písm. d ZDPH) k platbě zálohové faktury.
@@ -34,6 +35,7 @@ final class PaymentTaxDocumentCreator
         private readonly Connection $db,
         private readonly InvoiceRepository $repo,
         private readonly InvoiceCalculator $calc,
+        private readonly VatStatusService $vatStatus,
     ) {}
 
     /**
@@ -141,9 +143,9 @@ final class PaymentTaxDocumentCreator
             );
         }
 
-        $sup = $pdo->prepare('SELECT is_vat_payer FROM supplier WHERE id = ?');
-        $sup->execute([(int) $proforma['supplier_id']]);
-        if (!(bool) $sup->fetchColumn()) {
+        // The tax point of a payment received is the payment date: only a supplier that was a
+        // VAT payer THEN issues the document (not the live flag, which may have changed since).
+        if (!$this->vatStatus->isPayerAt((int) $proforma['supplier_id'], (string) $payment['paid_on'])) {
             throw new \RuntimeException('Daňový doklad k přijaté platbě vystavuje jen plátce DPH.');
         }
 

@@ -12,6 +12,7 @@ use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Repository\WorkReportRepository;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Invoice\SnapshotBuilder;
+use MyInvoice\Service\Vat\VatStatusService;
 use MyInvoice\Service\Invoice\VarsymbolGenerator;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
@@ -138,6 +139,7 @@ final class IssueInvoiceAction
                 (int) $invoice['currency_id'],
                 $supplierId,
                 isset($invoice['branding_profile_id']) ? (int) $invoice['branding_profile_id'] : null,
+                VatStatusService::documentDateOf($invoice),
             );
         } catch (\RuntimeException $e) {
             return Json::error($response, 'snapshot_failed', $e->getMessage(), 500);

@@ -5,15 +5,18 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Validation;
 
 use MyInvoice\Service\Oss\OssPeriod;
+use MyInvoice\Service\Vat\VatStatus;
 
 final class InvoiceValidation
 {
     /**
      * @param array<int, float>|null $vatRates
      * @param array<int, string>|null $vatRateCountries sazba → stát, pro kontrolu zahraničních sazeb mimo OSS
+     * @param string|null $supplierVatStatus VatStatus of the supplier on the document's DUZP
+     *        (issue date when there is none); null = not checked. A non-payer must not charge VAT.
      * @return array<string, string[]>
      */
-    public static function invoice(array $data, ?array $vatRates = null, ?array $vatRateCountries = null): array
+    public static function invoice(array $data, ?array $vatRates = null, ?array $vatRateCountries = null, ?string $supplierVatStatus = null): array
     {
         $err = [];
 
@@ -57,6 +60,19 @@ final class InvoiceValidation
                     continue;
                 }
                 $err = array_merge($err, InvoiceAmountPolicy::validateItem($item, $i));
+
+                // A supplier that is not a VAT payer on the DUZP invoices without VAT: only the 0 %
+                // treatment is allowed. Reverse charge zeroes the tax anyway and OSS lines carry the
+                // consumer country's VAT by design, so neither is rejected.
+                if ($supplierVatStatus !== null && !VatStatus::isPayer($supplierVatStatus)
+                    && $vatRates !== null && empty($item['oss_applicable']) && empty($data['reverse_charge'])
+                    && !empty($item['vat_rate_id']) && ($vatRates[(int) $item['vat_rate_id']] ?? 0.0) > 0.0
+                ) {
+                    $err["items.{$i}.vat_rate_id"][] = sprintf(
+                        'Dodavatel k datu zdanitelného plnění %s není plátcem DPH — sazba DPH musí být 0 %%.',
+                        self::czDate((string) ($data['tax_date'] ?? $data['issue_date'] ?? '')),
+                    );
+                }
 
                 // Zahraniční sazba smí být jen na OSS řádku. Bez téhle kontroly by řádek s cizí
                 // sazbou zůstal v tuzemské evidenci (VatLedgerService) a podle prahu roku by se
@@ -162,6 +178,12 @@ final class InvoiceValidation
         }
 
         return $err;
+    }
+
+    private static function czDate(string $date): string
+    {
+        $d = \DateTimeImmutable::createFromFormat('Y-m-d', substr($date, 0, 10));
+        return $d !== false ? $d->format('j. n. Y') : date('j. n. Y');
     }
 
     private static function isValidDate(string $date): bool

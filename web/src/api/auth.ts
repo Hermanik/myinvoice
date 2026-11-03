@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { VatHistoryRow } from '@/utils/vatStatus'
 
 export interface User {
   id: number
@@ -24,6 +25,8 @@ export interface SupplierBrief {
   /** Identifikovaná osoba (§ 6g–6l ZDPH, issue #94) — neplátce v tuzemsku
    *  s přeshraničními povinnostmi (RC faktury do EU, SHV, samovyměření). */
   is_identified: boolean
+  /** VAT status history (oldest entry first) — the invoice editor resolves the status on the DUZP from it. */
+  vat_history: VatHistoryRow[]
   /** Dodavatel je registrovaný v režimu One Stop Shop. */
   oss_enabled: boolean
   /** 'fo' = OSVČ (fyzická osoba), 'po' = s.r.o. (právnická osoba), null = nenastaveno. */
