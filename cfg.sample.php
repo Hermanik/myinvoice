@@ -293,6 +293,11 @@ return [
         'approval_per_min_per_ip'   => 30,           // veřejné schvalování výkazu /api/public/approval/* (anon DoS)
         'invoice_public_per_min_per_ip' => 60,       // veřejná web faktura /api/public/invoice/* (anon DoS: náhled + PDF + přílohy)
     ],
+    'mcp' => [
+        // Extra Origin header values accepted by the MCP endpoint (/api/mcp), e.g. ['http://localhost:6274'] for
+        // a browser-based MCP Inspector. The origin of app.url is always accepted; native clients send no Origin.
+        'allowed_origins' => [],
+    ],
     'brute_force' => [
         // Progresivní obrana login formuláře. Počítá selhání per (email, IP) v posuvných oknech.
         'captcha_after'   => 5,                      // selhání / 5 min  → vyžadovat CAPTCHA

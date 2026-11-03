@@ -180,6 +180,34 @@ final class ApiScopeMiddlewareTest extends TestCase
         }
     }
 
+    public function testReadScopeTokenReachesMcpGatewayWithPost(): void
+    {
+        // MCP is always POST, also for read tools; scope is enforced per tool and on the
+        // internal request to the real endpoint, so the gateway itself must not demand read_write.
+        $r = $this->middleware()->process(
+            $this->bearer('POST', '/api/mcp', 'read'),
+            $this->okHandler(),
+        );
+        self::assertSame(204, $r->getStatusCode());
+    }
+
+    public function testMcpGatewayAcceptsGetAndDeleteForTheTransportToAnswer405(): void
+    {
+        foreach (['GET', 'DELETE'] as $method) {
+            $r = $this->middleware()->process($this->bearer($method, '/api/mcp', 'read'), $this->okHandler());
+            self::assertSame(204, $r->getStatusCode(), $method);
+        }
+    }
+
+    public function testMcpAllowlistEntryDoesNotOpenSiblingPaths(): void
+    {
+        foreach (['/api/mcp/sessions', '/api/mcpx', '/api/admin/mcp'] as $path) {
+            $r = $this->middleware()->process($this->bearer('POST', $path, 'read_write'), $this->okHandler());
+            self::assertSame(403, $r->getStatusCode(), $path);
+            self::assertSame('token_endpoint_forbidden', $this->errorCode($r), $path);
+        }
+    }
+
     private function middleware(): ApiScopeMiddleware
     {
         return new ApiScopeMiddleware(new ResponseFactory());
