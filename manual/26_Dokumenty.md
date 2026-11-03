@@ -43,7 +43,8 @@ Přepínač **Soubory ZIP** určuje, co se stane s nahraným `.zip`:
 ### ZFO — datové zprávy ze schránky
 
 Když nahraješ **ZFO** (stažená nebo odeslaná datová zpráva), aplikace ji
-**automaticky rozbalí**:
+**automaticky rozbalí** (zprávy ze svých datových schránek si aplikace umí stáhnout
+sama, viz [Datové schránky](42_Datove_schranky.md)):
 
 - uloží se **veškerá metadata zprávy** — ID zprávy, odesílatel, příjemce,
   předmět, datum dodání i odeslání (zobrazí se v detailu v panelu *Datová zpráva*),

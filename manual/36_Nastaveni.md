@@ -337,6 +337,12 @@ Aktuální konfigurace už není jeden certifikát dodavatele, ale sada
 podpisových profilů a mapování pro jednotlivé výstupy. Detailní postup je v
 [kapitole 28. Elektronické podpisy](38_Elektronicke_podpisy.md).
 
+## Datové schránky
+
+Sekce **Datové schránky** na stránce Nastavení spravuje připojené schránky (FO / PFO),
+jejich přihlášení a zjištěná práva. Kompletní návod včetně založení přístupu v portálu
+ISDS je v kapitole [Datové schránky](42_Datove_schranky.md).
+
 ## 36.7 Odesílací e-mailové profily
 
 **Systém → E-maily → záložka Odesílací profily** definuje identitu, pod kterou

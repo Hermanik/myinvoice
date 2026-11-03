@@ -174,6 +174,15 @@ Pole sestavitele jsou relevantní jen pokud **přiznání za tebe podává jiná
 6. Pokud validace projde, potvrď **Odeslat**.
 7. **Stáhni si potvrzení** (PDF nebo e-mail). To je tvůj doklad o podání.
 
+### Odeslání datovou schránkou
+
+Archivované XML podání lze místo EPO portálu odeslat i **datovou schránkou přímo
+z aplikace**: v **Daně → Archiv podání** klikni u výkazu na **Odeslat datovou
+schránkou**. Příjemce (datová schránka finančního úřadu) se předvyplní podle kódu
+`c_ufo` v XML, odeslání vždy výslovně potvrdíš a doručenka se uloží k podání.
+Podání odeslané ze **své** datové schránky nepotřebuje elektronický podpis. Postup,
+podmínky a nastavení přístupů jsou v kapitole [Datové schránky](42_Datove_schranky.md).
+
 > [!TIP]
 > XML soubor lze ručně doupravit v textovém editoru — struktura musí zůstat
 > zachovaná, ale hodnoty atributů můžeš editovat. Užitečné pro hotfix bez
