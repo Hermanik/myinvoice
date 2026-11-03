@@ -10,11 +10,13 @@ import { vatClassificationsApi, type VatClassification } from '@/api/vatClassifi
 import { taxConstantsApi, type TaxConstantsYear } from '@/api/taxConstants'
 import type { TaxConstantsData } from '@/api/tax'
 import { clientsApi } from '@/api/clients'
+import { repoRatesApi, type RepoRateSnapshot } from '@/api/repoRates'
+import { apiErrorMessage } from '@/api/errors'
 import { useSupplierStore } from '@/stores/supplier'
 import { useAuthStore } from '@/stores/auth'
 import { useHotkey } from '@/composables/useHotkey'
 import { useToast } from '@/composables/useToast'
-import { formatMonth } from '@/composables/useFormat'
+import { formatMonth, formatDate } from '@/composables/useFormat'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -22,7 +24,7 @@ const toast = useToast()
 const supplierStore = useSupplierStore()
 const auth = useAuthStore()
 
-type Tab = 'suppliers' | 'currencies' | 'vat' | 'countries' | 'units' | 'expense_categories' | 'revenue_categories' | 'vat_classifications' | 'tax_constants'
+type Tab = 'suppliers' | 'currencies' | 'vat' | 'countries' | 'units' | 'expense_categories' | 'revenue_categories' | 'vat_classifications' | 'tax_constants' | 'repo_rates'
 const tab = ref<Tab>('suppliers')
 const vatRates   = ref<VatRate[]>([])
 const countries  = ref<Country[]>([])
@@ -712,7 +714,58 @@ watch(tab, (newTab) => {
   if (newTab === 'revenue_categories') loadRevenueCategories()
   if (newTab === 'vat_classifications') loadVatClassifications()
   if (newTab === 'tax_constants') loadTaxConstants()
+  if (newTab === 'repo_rates' && !repoSnapshot.value) loadRepoRates()
 })
+
+// ─── CNB repo rate (late-payment interest) ────────────────────────────────
+const repoSnapshot = ref<RepoRateSnapshot | null>(null)
+const repoBusy = ref(false)
+const repoNew = reactive({ valid_from: '', rate_percent: null as number | null })
+
+async function loadRepoRates() {
+  try {
+    repoSnapshot.value = await repoRatesApi.list()
+  } catch (e) {
+    toast.error(apiErrorMessage(e))
+  }
+}
+
+async function fetchRepoRates() {
+  repoBusy.value = true
+  try {
+    const r = await repoRatesApi.fetchFromCnb()
+    repoSnapshot.value = r
+    toast.success(t('codebooks.repo_fetched', { count: r.fetch.added.length }))
+    if (r.fetch.conflicts.length > 0) {
+      toast.error(t('codebooks.repo_conflicts', { count: r.fetch.conflicts.length }))
+    }
+  } catch (e) {
+    toast.error(apiErrorMessage(e))
+  } finally { repoBusy.value = false }
+}
+
+async function addRepoRate() {
+  if (!repoNew.valid_from || typeof repoNew.rate_percent !== 'number') return
+  repoBusy.value = true
+  try {
+    repoSnapshot.value = await repoRatesApi.create({ valid_from: repoNew.valid_from, rate_percent: repoNew.rate_percent })
+    repoNew.valid_from = ''
+    repoNew.rate_percent = null
+    toast.success(t('codebooks.repo_added'))
+  } catch (e) {
+    toast.error(apiErrorMessage(e))
+  } finally { repoBusy.value = false }
+}
+
+async function removeRepoRate(validFrom: string) {
+  if (!confirm(t('codebooks.repo_delete_confirm', { date: formatDate(validFrom) }))) return
+  repoBusy.value = true
+  try {
+    repoSnapshot.value = await repoRatesApi.remove(validFrom)
+  } catch (e) {
+    toast.error(apiErrorMessage(e))
+  } finally { repoBusy.value = false }
+}
 </script>
 
 <template>
@@ -724,7 +777,7 @@ watch(tab, (newTab) => {
 
     <!-- Tabs — Dodavatelé jako první volba (multi-tenant firmy embed do Codebooks) -->
     <div class="border-b border-neutral-200 mb-4 flex gap-1 overflow-x-auto">
-      <button v-for="tt in (['suppliers', 'vat', 'vat_classifications', 'expense_categories', 'revenue_categories', 'countries', 'units', 'tax_constants'] as const)" :key="tt"
+      <button v-for="tt in (['suppliers', 'vat', 'vat_classifications', 'expense_categories', 'revenue_categories', 'countries', 'units', 'tax_constants', 'repo_rates'] as const)" :key="tt"
         @click="tab = tt"
         class="cursor-pointer px-4 py-2 text-sm border-b-2 transition whitespace-nowrap"
         :class="tab === tt
@@ -737,7 +790,8 @@ watch(tab, (newTab) => {
           : tt === 'revenue_categories' ? t('codebooks.tab_revenue_categories')
           : tt === 'countries' ? t('codebooks.tab_countries')
           : tt === 'units' ? t('codebooks.tab_units')
-          : t('codebooks.tab_tax_constants') }}
+          : tt === 'tax_constants' ? t('codebooks.tab_tax_constants')
+          : t('codebooks.tab_repo_rates') }}
       </button>
     </div>
 
@@ -1209,6 +1263,68 @@ watch(tab, (newTab) => {
           </tbody>
         </table>
       </div>
+    </section>
+
+    <!-- ====== CNB REPO RATE (late-payment interest) ====== -->
+    <section v-else-if="tab === 'repo_rates'">
+      <div class="flex flex-wrap items-center gap-3 mb-3">
+        <p class="text-sm text-neutral-500 max-w-3xl">{{ t('codebooks.repo_hint') }}</p>
+        <button v-if="auth.isAdmin" @click="fetchRepoRates" :disabled="repoBusy" type="button"
+          class="cursor-pointer ml-auto h-9 px-3 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-md disabled:opacity-50">
+          {{ repoBusy ? '…' : t('codebooks.repo_fetch') }}
+        </button>
+      </div>
+
+      <div v-if="repoSnapshot" class="mb-3 text-sm rounded-md px-3 py-2 border"
+        :class="!repoSnapshot.is_current ? 'bg-warning-50 border-warning-500/40 text-warning-700' : 'bg-success-50 border-success-500/40 text-success-700'">
+        <template v-if="repoSnapshot.verified_on">{{ t('codebooks.repo_verified_on', { date: formatDate(repoSnapshot.verified_on) }) }}</template>
+        <template v-else>{{ t('codebooks.repo_never_verified') }}</template>
+        <template v-if="!repoSnapshot.is_current"> — {{ t('codebooks.repo_stale') }}</template>
+      </div>
+
+      <div v-if="!repoSnapshot" class="text-center text-neutral-500 py-8 text-sm">{{ t('common.loading') }}</div>
+      <div v-else class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-neutral-50 text-xs text-neutral-500 uppercase tracking-wide">
+            <tr>
+              <th class="px-3 py-2 text-left font-medium">{{ t('codebooks.repo_valid_from') }}</th>
+              <th class="px-3 py-2 text-right font-medium">{{ t('codebooks.repo_rate') }}</th>
+              <th class="px-3 py-2 text-left font-medium">{{ t('codebooks.repo_source') }}</th>
+              <th v-if="auth.isAdmin" class="px-3 py-2 w-24"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-neutral-100">
+            <tr v-for="r in repoSnapshot.rates" :key="r.valid_from" class="hover:bg-neutral-50">
+              <td class="px-3 py-2">{{ formatDate(r.valid_from) }}</td>
+              <td class="px-3 py-2 text-right font-mono">{{ r.rate_percent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }} %</td>
+              <td class="px-3 py-2">
+                <span class="text-xs px-1.5 py-0.5 rounded"
+                  :class="r.source === 'manual' ? 'bg-warning-50 text-warning-600' : r.source === 'cnb' ? 'bg-primary-50 text-primary-700' : 'bg-neutral-100 text-neutral-500'">
+                  {{ t('codebooks.repo_source_' + r.source) }}
+                </span>
+              </td>
+              <td v-if="auth.isAdmin" class="px-3 py-2 text-right text-xs">
+                <button v-if="r.source === 'manual'" @click="removeRepoRate(r.valid_from)" :disabled="repoBusy" type="button"
+                  class="cursor-pointer text-danger-500 hover:text-danger-600 disabled:opacity-50">{{ t('common.delete') }}</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <form v-if="auth.isAdmin" @submit.prevent="addRepoRate" class="mt-4 flex flex-wrap items-end gap-3">
+        <div>
+          <label class="block text-xs text-neutral-500 mb-1">{{ t('codebooks.repo_valid_from') }}</label>
+          <input v-model="repoNew.valid_from" type="date" required class="h-9 px-3 border border-neutral-300 rounded-md text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs text-neutral-500 mb-1">{{ t('codebooks.repo_rate') }}</label>
+          <input v-model.number="repoNew.rate_percent" type="number" step="0.01" min="0" required class="w-28 h-9 px-3 border border-neutral-300 rounded-md text-sm font-mono" />
+        </div>
+        <button type="submit" :disabled="repoBusy"
+          class="cursor-pointer h-9 px-3 text-sm border border-primary-300 text-primary-700 rounded-md hover:bg-primary-50 disabled:opacity-50">{{ t('codebooks.repo_add') }}</button>
+        <p class="text-xs text-neutral-500 basis-full">{{ t('codebooks.repo_add_hint') }}</p>
+      </form>
     </section>
 
     <!-- ====== TAX CONSTANTS (roční daňové konstanty) ====== -->

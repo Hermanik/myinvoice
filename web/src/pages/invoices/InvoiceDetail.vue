@@ -21,6 +21,7 @@ import { documentVatDate } from '@/utils/vatStatus'
 import { useHotkey } from '@/composables/useHotkey'
 import { useToast } from '@/composables/useToast'
 import WorkReportModal from '@/components/modals/WorkReportModal.vue'
+import LateInterestCard from '@/components/invoices/LateInterestCard.vue'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 
 const { t, te, locale } = useI18n()
@@ -1106,6 +1107,20 @@ const canSendReminder = computed(() => {
   return overdueDays(invoice.value.due_date) > 0
 })
 
+// Late-payment interest card: regular invoices past their due date (also when paid late).
+const showLateInterest = computed(() => {
+  const inv = invoice.value
+  if (!inv || inv.invoice_type !== 'invoice') return false
+  if (!['issued', 'sent', 'reminded', 'paid'].includes(inv.status)) return false
+  // Paid invoices only when they were settled after the due date; unpaid ones while overdue.
+  if (inv.status === 'paid') return !!inv.paid_at && inv.paid_at > inv.due_date
+  return overdueDays(inv.due_date) > 0
+})
+const lateInterestRefreshKey = computed(() => {
+  const inv = invoice.value
+  return inv ? [inv.status, inv.paid_total, inv.paid_at].join('|') : ''
+})
+
 const daysOverdue = computed(() => {
   if (!invoice.value) return 0
   return overdueDays(invoice.value.due_date)
@@ -1725,6 +1740,8 @@ const invoiceActions = computed<ActionItem[]>(() => {
         </div>
       </div>
     </div>
+
+    <LateInterestCard v-if="showLateInterest" :invoice-id="invoice.id" :refresh-key="lateInterestRefreshKey" />
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div class="bg-surface border border-neutral-200 rounded-lg p-5 shadow-sm">

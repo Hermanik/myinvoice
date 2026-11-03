@@ -340,6 +340,9 @@ async function saveSupplier() {
       default_prices_include_vat: supplier.value.default_prices_include_vat,
       default_hourly_rate: supplier.value.default_hourly_rate,
       auto_send_reminders: supplier.value.auto_send_reminders,
+      late_interest_enabled: supplier.value.late_interest_enabled,
+      late_interest_in_reminders: supplier.value.late_interest_in_reminders,
+      late_interest_claim_fixed_cost: supplier.value.late_interest_claim_fixed_cost,
       reminder_days_after_due: supplier.value.reminder_days_after_due,
       payment_thanks_enabled: supplier.value.payment_thanks_enabled,
       payment_thanks_auto_send: supplier.value.payment_thanks_auto_send,
@@ -593,6 +596,33 @@ async function removeLogo() {
               </template>
             </div>
             <p class="text-xs text-neutral-500 mt-1">{{ t('settings.reminder_days_after_due_hint') }}</p>
+          </div>
+          <div class="md:col-span-2 border-t border-neutral-200 pt-3">
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="supplier.late_interest_enabled" type="checkbox" class="rounded border-neutral-300 text-primary-600" />
+              <span class="font-medium">{{ t('settings.late_interest_enabled') }}</span>
+            </label>
+            <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.late_interest_enabled_hint') }}</p>
+            <div v-if="supplier.late_interest_enabled" class="ml-6 mt-2 space-y-2">
+              <div>
+                <label class="flex items-center gap-2 text-sm">
+                  <input v-model="supplier.late_interest_in_reminders" type="checkbox" class="rounded border-neutral-300 text-primary-600" />
+                  {{ t('settings.late_interest_in_reminders') }}
+                </label>
+                <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.late_interest_in_reminders_hint') }}</p>
+              </div>
+              <div>
+                <label class="flex items-center gap-2 text-sm">
+                  <input v-model="supplier.late_interest_claim_fixed_cost" type="checkbox" class="rounded border-neutral-300 text-primary-600" />
+                  {{ t('settings.late_interest_claim_fixed_cost') }}
+                </label>
+                <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.late_interest_claim_fixed_cost_hint') }}</p>
+              </div>
+              <p class="text-xs text-neutral-500">
+                {{ t('settings.late_interest_legal') }}
+                <RouterLink to="/admin/codebooks" class="text-primary-600 hover:underline">{{ t('settings.late_interest_codebook_link') }}</RouterLink>
+              </p>
+            </div>
           </div>
           <div class="md:col-span-2 border-t border-neutral-200 pt-3">
             <label class="flex items-center gap-2 text-sm">
