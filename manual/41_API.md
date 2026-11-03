@@ -261,7 +261,136 @@ curl -H "Authorization: Bearer $TOKEN" -OJ \
 - **Sleduj `last_used_at`** v UI — token, který se 3 měsíce nepoužil, asi nepotřebuješ.
 - **Při ztrátě/podezření** — okamžitě **Zrušit** v UI. Revokace je instantní (žádný cache).
 
-## 41.12 Co API nepokrývá
+## 41.12 Připojení AI asistentů přes MCP
+
+**MCP** (Model Context Protocol) je otevřený protokol, kterým se AI asistent
+(Claude Code, Claude Desktop) připojí k aplikaci a může jí klást dotazy nebo
+v ní připravovat doklady. MyInvoice.cz nabízí MCP server na adrese
+**`POST /api/mcp`** (stejně funguje `/api/v1/mcp`). Asistent tak odpoví např. na
+„kdo mi dluží a kolik dní po splatnosti?“, „jaké byly tržby po měsících za
+2026?“ nebo „připrav koncept faktury pro klienta X“ — bez vlastních skriptů.
+
+Server používá **stejné API tokeny** jako REST API (41.1). Samostatný přístup
+ani heslo asistent nepotřebuje a přihlášení přes cookie/session na MCP nefunguje.
+
+### Připojení
+
+V **Profil → API tokeny** je nad seznamem tokenů box **Připojení přes MCP**
+s adresou endpointu a hotovými kopírovatelnými příkazy.
+
+1. Vytvoř token (41.1). Pro dotazy stačí rozsah `read`; pro přípravu a vystavení
+   faktur `read & write`. Má-li účet víc firem, použij token vázaný na firmu.
+2. **Claude Code** — v terminálu:
+
+```bash
+claude mcp add --transport http myinvoice https://mojefirma.example/api/mcp \
+  --header "Authorization: Bearer mi_pat_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+```
+
+3. **Claude Desktop** — do `claude_desktop_config.json` (Nastavení → Vývojář →
+   Upravit konfiguraci) přidej server přes most `mcp-remote` (vyžaduje Node.js)
+   a Claude Desktop restartuj:
+
+```json
+{
+  "mcpServers": {
+    "myinvoice": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mojefirma.example/api/mcp", "--header", "Authorization:${MYINVOICE_AUTH}"],
+      "env": { "MYINVOICE_AUTH": "Bearer mi_pat_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" }
+    }
+  }
+}
+```
+
+Token uložený v konfiguraci asistenta zacházej jako s heslem (41.11). Token
+nezávislý na firmě vybere firmu hlavičkou `X-Supplier-Id` — v Claude Code ji
+přidej druhým `--header "X-Supplier-Id: 2"`.
+
+### Nástroje
+
+| Nástroj | Rozsah | K čemu slouží |
+|---|---|---|
+| `list_invoices` | read | Vydané faktury podle stavu, typu, klienta, období nebo textu (číslo, klient); stránkované |
+| `get_invoice` | read | Detail faktury (podle `invoice_id` nebo čísla) s položkami, rozpisem DPH, stavem úhrady a platbami |
+| `list_unpaid_invoices` | read | Pohledávky — po splatnosti nahoře, dny po splatnosti, součty po měnách |
+| `list_clients`, `get_client` | read | Klienti a dodavatelé, detail s obratem a nezaplacenými doklady |
+| `revenue_summary` | read | Tržby za rok po měsících bez DPH, DPH a s DPH, volitelně po klientech |
+| `list_purchase_invoices` | read | Přijaté faktury podle stavu, dodavatele, období, nezaplacené / po splatnosti |
+| `list_recurring_templates` | read | Pravidelné fakturace — frekvence, příští běh, částka, poslední chyba |
+| `get_supplier_settings` | read | Údaje o firmě, výchozí hodnoty, číslování, měny a platné sazby DPH (bez tajných údajů) |
+| `create_draft_invoice` | read & write | Vytvoří **koncept** faktury (stejná pole jako `POST /api/v1/invoices`); nikdy ji nevystaví a automatické upomínky má vypnuté |
+| `issue_invoice` | read & write | Vystaví koncept (přidělí číslo) — vyžaduje potvrzení (`confirm: true` + `confirmation_token`) |
+| `mark_invoice_paid` | read & write | Zapíše úhradu (celou nebo částečnou, s datem) — vyžaduje potvrzení; chrání před přeplatkem a duplicitou |
+
+Nástroje s rozsahem `read & write` vidí jen token s tímto rozsahem a uživatel
+s rolí admin nebo účetní. Částky jsou v měně dokladu, datumy ve formátu
+`RRRR-MM-DD`.
+
+### Co hlídá server
+
+- **Žádná vlastní logika dotazů.** Každý nástroj volá existující endpoint
+  `/api/v1/...` s tokenem volajícího, takže validace, oprávnění podle role,
+  vazba tokenu na firmu a rozsah tokenu platí stejně jako při přímém volání API.
+  Chyby se vrací jako chybový výsledek nástroje s českou hláškou aplikace.
+- **Dvoukrokové potvrzení zápisu.** `issue_invoice` a `mark_invoice_paid` bez
+  potvrzení nic nezmění: první volání vrátí náhled dokladu a krátkodobý
+  `confirmation_token` (běžný výsledek, ne chybu). Změnu provede až opakované
+  volání se **stejnými argumenty**, `confirm: true` a tímto tokenem. Token je
+  podepsaný (HMAC klíčem odvozeným z `app.pepper`), platí 10 minut a je vázaný na
+  API token, nástroj, přesné argumenty i stav dokladu, který jsi viděl v náhledu
+  (u úhrady co už je zaplaceno, u vystavení poslední úprava konceptu). Jiný
+  argument, jiný doklad, vypršení nebo změna dokladu mezi náhledem a potvrzením
+  znamená znovu jen náhled; opakování už provedené úhrady tak nic nezapíše.
+  To zabrání „slepému“ `confirm: true` a donutí asistenta ukázat náhled, ale
+  není to jediná pojistka: token dostává stejný model, který volá nástroj.
+  Skutečnou lidskou kontrolu dává potvrzení v klientovi — oba nástroje jsou
+  označeny jako „destruktivní“ (`destructiveHint`), takže se Claude Code
+  i Claude Desktop před jejich spuštěním ptají tebe. **Tato potvrzení
+  nepovoluj trvale („vždy povolit“).** Žádný nástroj neodesílá e-maily.
+- **Ochrana plateb.** Částečná úhrada (`amount`) se zapíše jen u vystavené,
+  odeslané nebo upomínané faktury či zálohy a jen do výše zbývající částky
+  (tolerance 0,05); přeplatek se odmítne. Platba se stejnou částkou a datem, jaká
+  u faktury už je, se odmítne jako duplicita, pokud asistent výslovně neuvede
+  `allow_duplicate: true`. Úhrada celého zbytku (bez `amount`) jde přes běžné
+  „Označit jako zaplacené“. Kontrola se provádí před zápisem a není uzamčená:
+  dvě současná potvrzená volání by teoreticky mohla projít obě.
+- **Upomínky.** Koncepty vytvořené přes MCP mají automatické upomínky
+  (`auto_send_reminders`) vypnuté, dokud je asistent výslovně nezapne — jinak by
+  mohl cron upomínek později poslat klientovi e-mail k faktuře, kterou vystavil
+  asistent. Před vystavením náhled ukazuje, zda jsou upomínky zapnuté.
+- **Meze konceptu.** Koncept má nejvýše 200 položek, množství nejvýše 1 000 000,
+  cenu nejvýše 1 000 000 000 a součet řádků nejvýše 1 000 000 000. Požadavek mimo
+  meze se odmítne ještě před založením, takže přetečení číselných sloupců
+  nezanechá koncept bez položek.
+- **Nedůvěryhodný text.** Názvy klientů a dodavatelů, poznámky a texty položek
+  pocházejí od třetích stran. Server i popisy nástrojů asistentovi říkají, že jde
+  o data, nikoli pokyny.
+- **Žádná tajemství.** Nástroje vracejí jen vybraná pole; tokeny (včetně
+  veřejných a schvalovacích odkazů faktur), hesla, SMTP/IMAP přístupy a klíče
+  integrací se nevrací nikdy.
+- **Audit.** Změny provedené přes MCP jsou v aktivitě dokladu (**Systém → Log**)
+  označeny User-Agentem `MyInvoice-MCP (…)`; použití tokenu vidíš ve sloupci
+  „Naposledy“.
+- **Limity.** Platí limit tokenu z 41.4. Volání nástroje se počítá jako jeden
+  požadavek na MCP plus jeden požadavek za každé interní volání API (součty
+  tržeb a pohledávek procházejí seznamy po stránkách).
+
+### Technické poznámky
+
+- Přenos: Streamable HTTP s odpověďmi `application/json` (bez SSE a bez sezení);
+  `GET` a `DELETE` vrací `405`. Podporované revize protokolu: `2026-07-28`
+  (každý požadavek nese verzi v `_meta`) a `2025-11-25`, `2025-06-18`,
+  `2025-03-26` (handshake `initialize`).
+- Hlavička `Origin` se kontroluje proti `app.url`. Klienti jako Claude Code
+  a Claude Desktop ji neposílají. `mcp.allowed_origins` v `cfg.php` povolí jen
+  další hodnoty `Origin` u **nebrowserových** klientů a proxy, které hlavičku
+  posílají; aplikace nevysílá CORS hlavičky, takže prohlížečová aplikace z jiného
+  původu endpoint stejně nezavolá.
+- Za reverzní proxy stačí běžné předávání `/api/*` aplikaci a hlavičky
+  `Authorization`; žádné buffering ani timeouty pro streamy se nenastavují.
+
+## 41.13 Co API nepokrývá
 
 - **Admin a settings endpointy** (`/api/admin/*` a `/api/settings/*` mimo
   veřejný subset — supplier, číselníky) nejsou v `openapi.yaml` - jsou určené

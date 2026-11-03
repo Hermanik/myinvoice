@@ -23,6 +23,8 @@ use Slim\Psr7\Factory\ResponseFactory;
  *      GET / HEAD                 → vyžaduje `read` (každý token splňuje)
  *      POST / PUT / PATCH / DELETE → vyžaduje `read_write`
  *
+ * Exception: `/api/mcp` skips the per-method scope (see process()).
+ *
  * Session auth (browser SPA) tímto MW není dotčen — uživatel má plná práva své role.
  *
  * Běží AŽ PO AuthMiddleware (potřebuje načtený api_token attribute).
@@ -51,6 +53,8 @@ final class ApiScopeMiddleware implements MiddlewareInterface
         '#^/api/reference$#',
         '#^/api/scalar$#',
         '#^/api/auth/api-me$#',
+        // MCP server for AI assistants.
+        '#^/api/mcp$#',
         // Byznys zdroje
         '#^/api/clients(/|$)#',
         '#^/api/projects(/|$)#',
@@ -112,6 +116,13 @@ final class ApiScopeMiddleware implements MiddlewareInterface
                 'API token má přístup pouze k veřejnému API (/api/v1). Tento endpoint je dostupný jen z webového rozhraní.',
                 403,
             );
+        }
+
+        // MCP is always POST, even for read tools, so the per-method scope below does not fit. McpServer
+        // checks the scope per tool, and every tool call passes through this layer again as an internal
+        // request to the real endpoint (a write without `read_write` gets 403 there).
+        if ($path === '/api/mcp') {
+            return $handler->handle($request);
         }
 
         // 2) Scope

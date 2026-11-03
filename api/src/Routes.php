@@ -192,6 +192,11 @@ final class Routes
         $app->get('/api/reference',    [OpenApiAction::class, 'reference']);  // Redoc (pretty static)
         $app->get('/api/scalar',       [OpenApiAction::class, 'scalar']);     // Scalar (moderní reference)
 
+        // MCP server (Streamable HTTP, bearer tokens only): AI assistants on top of the public API
+        $app->post  ('/api/mcp', \MyInvoice\Action\Mcp\McpAction::class);
+        $app->get   ('/api/mcp', [\MyInvoice\Action\Mcp\McpAction::class, 'notAllowed']);
+        $app->delete('/api/mcp', [\MyInvoice\Action\Mcp\McpAction::class, 'notAllowed']);
+
         // Admin — kontrola a upgrade nové verze (M9, issue „Kontrola a upgrade")
         $app->get  ('/api/admin/update/status',  [UpdateAction::class, 'status']);
         $app->get  ('/api/admin/update/preflight', [UpdateAction::class, 'preflight']);

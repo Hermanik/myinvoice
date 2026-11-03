@@ -146,6 +146,9 @@ final class RoleMiddleware implements MiddlewareInterface
         'GET #^/api/auth/(me|api-me|tokens)(/|$)#',
         'GET #^/api/auth/totp/status$#',
         '* #^/api/auth/webauthn/credentials/[0-9]+$#',
+        // MCP: the gateway is always a POST. The role is enforced per tool instead: each tool calls the
+        // real endpoint, which passes through this layer with its own path and method.
+        '* #^/api/mcp$#',
         // Byznys data
         'GET #^/api/clients(/|$)#',
         'GET #^/api/projects(/|$)#',

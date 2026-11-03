@@ -20,7 +20,8 @@ info:
     nový.
 
     Token má:
-    - **scope** — `read` (pouze GET) nebo `read_write` (všechny operace).
+    - **scope** — `read` (pouze GET) nebo `read_write` (všechny operace). Výjimka je
+      MCP endpoint (`POST /api/v1/mcp`), kde se scope vynucuje per nástroj.
     - **supplier** — pokud je token bound na konkrétního supplier-a, všechny operace
       se odehrávají v jeho kontextu. Pokud je `supplier` `null`, klient může
       přepínat přes hlavičku `X-Supplier-Id: <id>`.
@@ -103,6 +104,8 @@ tags:
     description: Daňový optimalizátor (srovnání režimů, predikce ročních limitů)
   - name: Logbook
     description: Kniha jízd — vozidla, jízdy, tankování a daňové souhrny
+  - name: MCP
+    description: Model Context Protocol server pro AI asistenty (Claude Code, Claude Desktop) nad stejným API tokenem
 
 paths:
   /api/v1/branding-profiles:
@@ -187,6 +190,100 @@ paths:
               schema: { $ref: '#/components/schemas/ApiMe' }
         '401':
           $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/mcp:
+    post:
+      tags: [MCP]
+      summary: MCP server (Streamable HTTP, JSON-RPC 2.0)
+      description: |
+        Model Context Protocol endpoint pro AI asistenty. Autentizace jen bearer tokenem
+        (session/cookie nefunguje). Odpovědi jsou `application/json`, bez SSE a bez sezení;
+        `GET` a `DELETE` vrací `405`. Podporované revize protokolu: `2026-07-28`
+        (každý požadavek nese verzi v `params._meta` a hlavičky `MCP-Protocol-Version`, `Mcp-Method`,
+        u `tools/call` i `Mcp-Name`) a `2025-11-25`, `2025-06-18`, `2025-03-26` (handshake `initialize`).
+
+        Metody: `initialize`, `notifications/initialized`, `ping`, `server/discover`, `tools/list`, `tools/call`.
+        Notifikace (zpráva bez `id`) dostane `202` bez těla.
+
+        Každý nástroj volá existující endpoint tohoto API s tokenem volajícího, takže validace,
+        role, vazba tokenu na firmu a rate limit platí stejně jako při přímém volání. Rozsah tokenu se
+        vynucuje per nástroj (čtecí nástroje stačí `read`, zápisové vyžadují `read_write` a roli admin / účetní).
+        Hlavička `X-Supplier-Id` platí i zde (pro token nevázaný na firmu).
+
+        Nástroje: `list_invoices`, `get_invoice`, `list_unpaid_invoices`, `list_clients`, `get_client`,
+        `revenue_summary`, `list_purchase_invoices`, `list_recurring_templates`, `get_supplier_settings`
+        (čtení) a `create_draft_invoice`, `issue_invoice`, `mark_invoice_paid` (zápis). Poslední dva jsou
+        dvoukrokové: první volání vrátí náhled a `confirmation_token` jako běžný výsledek (HMAC, platí 10 minut,
+        vázaný na token, nástroj, argumenty a stav dokladu), změnu provede až volání se stejnými argumenty,
+        `confirm: true` a tímto tokenem.
+        Chyby nástrojů se vrací jako výsledek s `isError: true`.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+        - in: header
+          name: MCP-Protocol-Version
+          description: Revize protokolu. U `2026-07-28` povinná a musí odpovídat `params._meta`.
+          schema: { type: string, example: "2026-07-28" }
+        - in: header
+          name: Mcp-Method
+          description: Zrcadlí `method` z těla; povinná u revize `2026-07-28`.
+          schema: { type: string, example: "tools/call" }
+        - in: header
+          name: Mcp-Name
+          description: Zrcadlí `params.name` u `tools/call`; povinná u revize `2026-07-28`.
+          schema: { type: string, example: "list_invoices" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/McpRequest' }
+            examples:
+              toolsCall:
+                summary: Zavolání nástroje
+                value:
+                  jsonrpc: "2.0"
+                  id: 1
+                  method: tools/call
+                  params:
+                    name: list_unpaid_invoices
+                    arguments: { limit: 10 }
+      responses:
+        '200':
+          description: JSON-RPC odpověď (výsledek, nebo chyba protokolu v poli `error`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/McpResponse' }
+        '202':
+          description: Notifikace přijata (bez těla).
+        '400':
+          description: Neplatný JSON-RPC požadavek, nepodporovaná verze protokolu (`-32022`) nebo neshoda hlaviček a těla (`-32020`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/McpResponse' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Nepovolený `Origin` nebo token bez přístupu k veřejnému API.
+        '404':
+          description: Metoda není podporována (revize `2026-07-28`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/McpResponse' }
+        '413':
+          description: Tělo požadavku je větší než 1 MiB.
+        '429':
+          $ref: '#/components/responses/RateLimited'
+    get:
+      tags: [MCP]
+      summary: Není podporováno (žádný SSE stream)
+      responses:
+        '405':
+          description: "Použij POST (hlavička `Allow: POST`)."
+    delete:
+      tags: [MCP]
+      summary: Není podporováno (žádná sezení)
+      responses:
+        '405':
+          description: "Použij POST (hlavička `Allow: POST`)."
 
   /api/v1/clients:
     get:
@@ -5800,6 +5897,42 @@ components:
             links: { type: array, items: { $ref: '#/components/schemas/DocumentLink' } }
             attachments: { type: array, items: { $ref: '#/components/schemas/Document' } }
             dms_message: { $ref: '#/components/schemas/DocumentDmsMessage' }
+    McpRequest:
+      type: object
+      required: [jsonrpc, method]
+      description: JSON-RPC 2.0 zpráva. Bez `id` jde o notifikaci. Dávky (pole) se nepodporují.
+      properties:
+        jsonrpc: { type: string, enum: ["2.0"] }
+        id: { type: [string, integer], description: "Povinné u požadavků, nesmí být null." }
+        method:
+          type: string
+          enum: [initialize, notifications/initialized, ping, server/discover, tools/list, tools/call]
+        params:
+          type: object
+          description: Parametry metody; `tools/call` bere `name` a `arguments`, revize `2026-07-28` navíc `_meta`.
+          properties:
+            name: { type: string, description: "Název nástroje (`tools/call`)." }
+            arguments: { type: object, description: "Argumenty nástroje dle jeho `inputSchema` z `tools/list`." }
+
+    McpResponse:
+      type: object
+      required: [jsonrpc]
+      properties:
+        jsonrpc: { type: string, enum: ["2.0"] }
+        id: { type: [string, integer, "null"] }
+        result:
+          type: object
+          description: |
+            U `tools/call`: `content` (text s JSON), `structuredContent` (totéž jako objekt) a `isError`.
+            U `tools/list`: `tools` s `name`, `description`, `inputSchema` a `annotations`.
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: integer, description: "-32700, -32600, -32601, -32602, -32020 (neshoda hlaviček), -32022 (nepodporovaná verze)." }
+            message: { type: string }
+            data: {}
+
     Error:
       type: object
       required: [error]

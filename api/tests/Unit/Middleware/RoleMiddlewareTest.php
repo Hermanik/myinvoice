@@ -116,6 +116,34 @@ final class RoleMiddlewareTest extends TestCase
         }
     }
 
+    /**
+     * MCP gateway is always a POST, even for read-only tools; per-tool RBAC happens on the internal
+     * requests to the real endpoints, so every role must get through the gateway itself.
+     */
+    public function testAllRolesReachTheMcpGateway(): void
+    {
+        foreach (['readonly', 'accountant', 'admin'] as $role) {
+            foreach (['POST', 'GET', 'DELETE'] as $method) {
+                $response = $this->middleware()->process(
+                    $this->request($method, '/api/mcp', $role),
+                    $this->okHandler(),
+                );
+                self::assertSame(204, $response->getStatusCode(), "$role $method /api/mcp");
+            }
+        }
+    }
+
+    public function testMcpRuleDoesNotOpenSiblingPaths(): void
+    {
+        foreach (['/api/mcp/extra', '/api/mcpx', '/api/admin/mcp'] as $path) {
+            $response = $this->middleware()->process(
+                $this->request('POST', $path, 'readonly'),
+                $this->okHandler(),
+            );
+            self::assertSame(403, $response->getStatusCode(), "readonly POST $path");
+        }
+    }
+
     public function testReadonlyCannotMutateOutsideMonthlyExport(): void
     {
         // Pojistka, že nová pravidla neotevřela víc, než měla — sousední

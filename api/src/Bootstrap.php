@@ -147,6 +147,11 @@ final class Bootstrap
                 $c->get(\MyInvoice\Service\ActivityLogger::class),
             ),
 
+            // MCP tools call the app's own routes; the App itself is registered below, after it is built.
+            \MyInvoice\Service\Mcp\InternalApiClient::class => fn (ContainerInterface $c) => new \MyInvoice\Service\Mcp\InternalApiClient(
+                $c->get(App::class),
+            ),
+
             // IpMatcher má v konstruktoru volitelný `?Config $config = null`. Autowiring
             // takový parametr neresolvuje (dosadí default null), takže clientIpFromRequest()
             // by ignorovalo cfg.ip_allowlist.trusted_proxies a vždy vracelo REMOTE_ADDR.
@@ -179,6 +184,7 @@ final class Bootstrap
         AppFactory::setContainer($container);
 
         $app = AppFactory::create();
+        $container->set(App::class, $app);
 
         Routes::register($app);
 

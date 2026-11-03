@@ -1072,7 +1072,14 @@
     "created_warning": "The plain-text token is shown only once. Save it to a password manager — you won't see it again.",
     "created_confirm": "I've saved the token safely and understand I won't see it again.",
     "copy": "Copy",
-    "copied": "Copied"
+    "copied": "Copied",
+    "mcp_title": "Connect via MCP",
+    "mcp_intro": "AI assistants (Claude Code, Claude Desktop) connect to the MCP endpoint with the same API token. They can then look up invoices, clients and receivables, summarise revenue or prepare a draft invoice. Issuing an invoice and recording a payment always need your explicit approval.",
+    "mcp_endpoint": "MCP endpoint URL",
+    "mcp_claude_code": "Claude Code (terminal command)",
+    "mcp_claude_desktop": "Claude Desktop (claude_desktop_config.json)",
+    "mcp_token_hint": "Replace mi_pat_XXX… with your token. A token with the read scope only exposes the read tools; the write tools need read & write. If the account has several companies, use a token bound to one supplier.",
+    "mcp_desktop_hint": "Requires Node.js (the npx command). Restart Claude Desktop after editing the file."
   },
   "updates": {
     "myucto_promo_title": "Move to MyÚčto for free",
