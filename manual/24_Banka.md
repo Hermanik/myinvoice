@@ -241,6 +241,15 @@ finalizaci faktury).
 > 💡 **Tlačítko „Otevřít"** u spárované transakce přeskočí na navázanou fakturu
 > (vydanou i přijatou).
 
+### 24.4.5 Platba DPH finančnímu úřadu
+
+Odchozí platba v CZK na **účet finančního úřadu pro DPH** (`705-<matrika>/0710`), jejíž
+variabilní symbol je **DIČ** (bez `CZ`) a částka přesně odpovídá nezaplacenému
+**podanému přiznání k DPH**, se nenabízí jako nespárovaná. Aplikace ji označí jako
+*Ignorovanou* s poznámkou „Platba DPH za …" a přiznání v [Archivu podání](29_Vykazy_DPH.md#evidence-podání-platba-dph-a-kontroly-před-podáním)
+označí jako zaplacené. Funguje při importu GPC/PDF výpisu, e-mailového avíza i iDokladu.
+**Zrušit spárování** takové transakce platbu znovu otevře.
+
 ## 24.5 Reverse: zrušení spárování
 
 Pokud automatika spárovala chybně:

@@ -116,3 +116,29 @@ uvidíš na všech zařízeních, kde se přihlásíš. Každý uživatel má vl
 položka, ke které nemáš oprávnění (nebo se k firmě nehodí, např. Daňový
 optimalizátor u s.r.o.), se v Oblíbených nezobrazí. Oblíbené si může nastavit
 i uživatel s rolí *jen pro čtení*.
+
+## 8.10 Daňový kalendář a daňové akce
+
+Pod seznamem **Akce pro tebe** je **Daňový kalendář** — nejbližší daňové termíny
+dodavatele (dalších 60 dní a nedávno zmeškané). Každá položka má datum, počet dní do
+termínu, odkaz na příslušnou stránku a u výkazů štítek **Nepodáno / Podáno / Potvrzeno**
+podle [Archivu podání](29_Vykazy_DPH.md#evidence-podání-platba-dph-a-kontroly-před-podáním).
+Podaný výkaz po termínu z kalendáře zmizí.
+
+Termíny se odvozují z nastavení dodavatele:
+
+| Termín | Kdy se zobrazuje |
+|---|---|
+| **Přiznání k DPH** | měsíčně, nebo čtvrtletně podle periody plátce (identifikovaná osoba vždy měsíčně); 25. dne po skončení období |
+| **Kontrolní hlášení** | jen plátce; právnická osoba vždy měsíčně, fyzická osoba ve lhůtě přiznání (tedy podle periody DPH) |
+| **Souhrnné hlášení** | jen za období s EU plněními; dodání zboží měsíčně, kvartální plátce jen se službami čtvrtletně |
+| **Přiznání k dani z příjmů** | 1. dubna následujícího roku (DPFO / DPPO podle typu poplatníka) |
+| **Záloha na paušální daň** | 20. dne každého měsíce, **jen v roce, kdy máš pásmo paušální daně** (rok bez dnů plátce DPH) |
+
+Položky DPH se zobrazují **jen za období, kdy jsi měl povinnosti k DPH** (byl jsi plátce
+nebo identifikovaná osoba podle [historie plátcovství](35_Multi_supplier.md#3557-platcovstvi-dph-historie-podle-data)) — nový plátce
+od 1. 1. 2027 tedy první termín uvidí na přiznání za leden 2027.
+
+Stejné termíny (v okně −3 až +7 dní) se objevují i v **Akcích pro tebe** — až do chvíle,
+kdy je výkaz podaný. Podané přiznání k DPH s daňovou povinností tam navíc drží položku
+**Zaplaťte DPH**, dokud není zaplacené.

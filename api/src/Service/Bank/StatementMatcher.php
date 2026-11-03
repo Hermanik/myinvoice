@@ -10,6 +10,7 @@ use MyInvoice\Service\Invoice\FinalFromProformaCreator;
 use MyInvoice\Service\Invoice\InvoicePaymentService;
 use MyInvoice\Service\Invoice\PaymentTaxDocumentCreator;
 use MyInvoice\Service\Mail\PaymentThanksMailer;
+use MyInvoice\Service\Tax\VatPaymentRecognizer;
 use PDO;
 
 /**
@@ -69,6 +70,11 @@ final class StatementMatcher
         // avízo, cron, rematch jdou přes match(), takže ruční logging v Action vrstvě
         // je míjí). Nullable kvůli izolovaným konstrukcím v testech; Bootstrap injektuje.
         private readonly ?ActivityLogger $activityLogger = null,
+        // Payment of a filed DPH liability to the tax office's VAT account — an outgoing
+        // transaction to 705-matrika/0710 with the DIČ as variable symbol and the exact amount
+        // is consumed here instead of being offered as an unmatched payment. Nullable like the
+        // other collaborators (isolated constructions in tests); Bootstrap injects it.
+        private readonly ?VatPaymentRecognizer $vatPayments = null,
     ) {}
 
     /**
@@ -215,6 +221,11 @@ final class StatementMatcher
 
         // ── Outgoing → purchase_invoice (přijaté faktury) ────────────────
         if ($isOutgoing) {
+            // 0) Payment of a filed DPH return (tax office VAT account + DIČ variable symbol).
+            $vatPayment = $this->vatPayments?->recognize($supplierId, $row);
+            if ($vatPayment !== null) {
+                return $vatPayment;
+            }
             // Rematch bere i auto_partial. Částečnou shodu dle VS (confidence 70, status
             // faktury nemění) zahodíme a vyhodnotíme znovu, ať ji třeba nově započtené
             // zaokrouhlení povýší na přesnou. Fuzzy / částka+datum shody fakturu už

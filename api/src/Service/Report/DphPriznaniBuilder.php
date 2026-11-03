@@ -326,6 +326,10 @@ final class DphPriznaniBuilder
         }
 
         $vlastniDan = $totalDanZdanitelne - $totalDanOdpocitatelne;
+        // Rows 64 (own tax liability, `dano_da`) and 66 (excess deduction, `dano_no`) in whole CZK,
+        // written to Veta6 and to the summary alike (the VAT payment card reads the summary).
+        $line64 = $vlastniDan > 0 ? (int) round($vlastniDan) : 0;
+        $line66 = $vlastniDan < 0 ? (int) round(-$vlastniDan) : 0;
 
         // ── Veta6: rekapitulace (XSD pořadí Veta4 → Veta6 → VetaR) ───────
         // ř.62 dan_zocelk = daň na výstupu celkem, ř.63 odp_zocelk = odpočet celkem,
@@ -336,9 +340,9 @@ final class DphPriznaniBuilder
         $veta6->setAttribute('dan_zocelk', $this->formatAmount($totalDanZdanitelne));
         $veta6->setAttribute('odp_zocelk', $this->formatAmount($totalDanOdpocitatelne));
         if ($vlastniDan > 0) {
-            $veta6->setAttribute('dano_da', $this->formatAmount($vlastniDan));
+            $veta6->setAttribute('dano_da', (string) $line64);
         } elseif ($vlastniDan < 0) {
-            $veta6->setAttribute('dano_no', $this->formatAmount(-$vlastniDan));
+            $veta6->setAttribute('dano_no', (string) $line66);
         }
         $dphdp3->appendChild($veta6);
 
@@ -366,17 +370,8 @@ final class DphPriznaniBuilder
             || !empty($veta4Attrs) || !empty($veta5Attrs);
         $vetaD->setAttribute('trans', ($vlastniDan > 0 || $sectionCHasData) ? 'A' : 'N');
 
-        // Termín podání: 25. den následujícího měsíce po skončení období
-        $deadlineMonth = $quarter !== null ? ($quarter * 3 + 1) : ($month + 1);
-        $deadlineYear  = $year;
-        if ($deadlineMonth > 12) {
-            $deadlineMonth -= 12;
-            $deadlineYear += 1;
-        }
-        // § 33/4 daňového řádu: víkend/svátek → nejbližší následující pracovní den.
-        $deadline = CzechWorkingDays::shiftToWorkingDay(
-            new \DateTimeImmutable(sprintf('%04d-%02d-25', $deadlineYear, $deadlineMonth))
-        )->format('Y-m-d');
+        // Filing deadline: the 25th of the month after the period, moved to a working day (§ 33/4 DŘ).
+        $deadline = ReportPeriod::filingDeadline($year, $month, $period);
 
         $summary = [
             'period'                  => sprintf('%04d-%02d', $year, $month),
@@ -388,6 +383,8 @@ final class DphPriznaniBuilder
             'total_vat_output'        => round($totalDanZdanitelne, 2),
             'total_vat_input'         => round($totalDanOdpocitatelne, 2),
             'tax_due'                 => round($vlastniDan, 2),
+            'line_64_dano_da'         => $line64,
+            'line_66_dano_no'         => $line66,
             'is_excess_deduction'     => $vlastniDan < 0,
             'submission_deadline'     => $deadline,
             'supplier_vat_period'     => (string) ($supplier['vat_period'] ?? ''),

@@ -151,6 +151,9 @@ final class DeleteInvoiceAction
             'varsymbol'           => $existing['varsymbol'] ?? null,
             'type'                => $existing['invoice_type'] ?? null,
             'status_before'       => $status,
+            // Needed to place a deleted document into a VAT period afterwards ("changed after filing").
+            'tax_date'            => $existing['tax_date'] ?? null,
+            'issue_date'          => $existing['issue_date'] ?? null,
             'total'               => $existing['total_with_vat'] ?? null,
             'currency'            => $existing['currency'] ?? null,
             'cascade_deleted_ids' => array_column($childRows, 'id'),

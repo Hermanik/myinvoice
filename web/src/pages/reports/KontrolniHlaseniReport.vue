@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { reportsApi, type DphSettings } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
 import { useYearOptions } from '@/composables/useYearOptions'
+import VatPrecheckPanels from '@/components/reports/VatPrecheckPanels.vue'
 
 const { t, locale } = useI18n()
 
@@ -204,6 +205,9 @@ onMounted(async () => {
           <li v-for="w in preview.warnings" :key="w">{{ w }}</li>
         </ul>
       </div>
+
+      <!-- Kontrola souladu DPH ↔ KH ↔ SH, doklady změněné po podání -->
+      <VatPrecheckPanels form="dphkh1" :year="year" :month="month" :period="effectivePeriod" />
 
       <!-- Deadline card -->
       <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-5">

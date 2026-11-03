@@ -173,14 +173,8 @@ final class SouhrnneHlaseniBuilder
             $totalAmount += $r['amount'];
         }
 
-        // Termín podání: 25. dne měsíce následujícího po konci období
-        $deadlineMonth = $endMonth + 1;
-        $deadlineYear = $year;
-        if ($deadlineMonth > 12) { $deadlineMonth -= 12; $deadlineYear++; }
-        // § 33/4 daňového řádu: víkend/svátek → nejbližší následující pracovní den.
-        $deadline = CzechWorkingDays::shiftToWorkingDay(
-            new \DateTimeImmutable(sprintf('%04d-%02d-25', $deadlineYear, $deadlineMonth))
-        )->format('Y-m-d');
+        // Filing deadline: the 25th of the month after the period, moved to a working day (§ 33/4 DŘ).
+        $deadline = ReportPeriod::filingDeadline($year, $month, $period);
 
         return [
             'xml'     => $dom->saveXML() ?: '',
@@ -188,6 +182,7 @@ final class SouhrnneHlaseniBuilder
                 'period'              => $period === 'quarterly' && $quarter !== null
                     ? sprintf('%04d-Q%d', $year, $quarter)
                     : sprintf('%04d-%02d', $year, $month),
+                'form'                => 'R',
                 'rows_count'          => $totalRows,
                 'total_amount'        => round($totalAmount, 2),
                 'rows'                => $rows,
@@ -196,6 +191,32 @@ final class SouhrnneHlaseniBuilder
             'warnings' => $warnings,
             'missing_rates' => $missingRates,
         ];
+    }
+
+    /**
+     * Where a ledger row goes in the souhrnné hlášení: its k_pln_eu type and the customer's VAT ID
+     * without the country prefix. Null when the row is not part of the SH (not a sale, not an EU B2B
+     * supply of a reportable kind, or the customer has no VAT ID — an SH cannot be filed without it).
+     *
+     * @param array<string,mixed> $r a {@see VatLedgerService::rows()} row
+     * @return array{sh_type:string, vat_id:string}|null
+     */
+    public static function classifyRow(array $r): ?array
+    {
+        if ($r['source'] !== 'sale') {
+            return null;
+        }
+        $code = $r['code'];
+        if ($code === null || !isset(self::VAT_CODE_TO_SH_TYPE[$code])) {
+            return null;
+        }
+        if (!$r['country_is_eu'] || $r['country_iso2'] === 'CZ' || $r['country_iso2'] === null) {
+            return null;
+        }
+        // c_vat = VAT ID WITHOUT the country prefix (only the prefix of that country is stripped, not any two
+        // letters — FR has an alphanumeric national part; GR -> EL). Shared, VIES-verified normalisation from KH (#238).
+        $vatId = KontrolniHlaseniBuilder::cleanEuVatId((string) ($r['counterparty_dic'] ?? ''), (string) $r['country_iso2']);
+        return $vatId === '' ? null : ['sh_type' => self::VAT_CODE_TO_SH_TYPE[$code], 'vat_id' => $vatId];
     }
 
     /**
@@ -213,19 +234,9 @@ final class SouhrnneHlaseniBuilder
         $result = [];
         $missingSeen = [];
         foreach ($this->ledger->rows($supplierId, $start, $end, includeDrafts: false) as $r) {
-            if ($r['source'] !== 'sale') continue;
-            $code = $r['code'];
-            if ($code === null || !isset(self::VAT_CODE_TO_SH_TYPE[$code])) continue;
-            if (!$r['country_is_eu'] || $r['country_iso2'] === 'CZ' || $r['country_iso2'] === null) continue;
-
-            // c_vat = DIČ BEZ prefixu země (strhne jen prefix odpovídající zemi, ne
-            // libovolná 2 písmena — FR má alfanumerickou vnitrostátní část; GR→EL).
-            // Používáme sdílenou (a proti VIES ověřenou) normalizaci z KH. Issue #238.
-            $vatId = KontrolniHlaseniBuilder::cleanEuVatId(
-                (string) ($r['counterparty_dic'] ?? ''),
-                (string) $r['country_iso2'],
-            );
-            if ($vatId === '') continue; // bez DIČ nelze podat SH
+            $sh = self::classifyRow($r);
+            if ($sh === null) continue;
+            $vatId = $sh['vat_id'];
 
             // Daňová pojistka: EU dodávka v cizí měně bez zafixovaného kurzu by se
             // vykázala s náhradním kurzem 1.0 (EUR jako CZK). Sesbíráme ji do
@@ -246,7 +257,7 @@ final class SouhrnneHlaseniBuilder
                 }
             }
 
-            $shType = self::VAT_CODE_TO_SH_TYPE[$code];
+            $shType = $sh['sh_type'];
             $key = "{$r['country_iso2']}|{$vatId}|{$shType}";
             if (!isset($result[$key])) {
                 $result[$key] = [

@@ -67,9 +67,33 @@ odmítne nebo bude generovat formálně neúplný výkaz.
 
 | Pole v UI | XML atribut | Popis | Jak zjistit |
 |---|---|---|---|
-| **Kód finančního úřadu** | `c_ufo` | Číselný kód územního finančního orgánu | např. `451` Praha 1, `463` Jihomoravský kraj. Najdeš na posledním podaném přiznání nebo v EPO. |
+| **Kód finančního úřadu** | `c_ufo` | Číselný kód územního finančního orgánu (tabulka níže) | např. `451` Praha, `461` Jihomoravský kraj. Najdeš na posledním podaném přiznání nebo v EPO. Podle něj aplikace určí účet pro [platbu DPH](#evidence-podání-platba-dph-a-kontroly-před-podáním). |
 | **Kód územního pracoviště** | `c_pracufo` | Konkrétní pracoviště v rámci FÚ | např. `3203` pracoviště Brno III. Volitelné, ale EPO ho někdy vyžaduje. |
 | **CZ-NACE kód (`cz_nace_code`)** | `c_okec` | Hlavní podnikatelská činnost (NACE) | Vybírá se **našeptávačem** nad číselníkem ČINNOSTI Daňového portálu ([rozhraní číselníků](https://adisspr.mfcr.cz/pmd/dokumentace/ciselniky)) — hledej podle názvu činnosti („reklamní") nebo podle kódu (`73`, `73.11`, u sekcí 01–09 i `01.48`). Nabízejí se **jen kódy platné k dnešku**; uloží se kanonická podoba číselníku (`731100`, u sekcí 01–09 bez vodicí nuly, tedy `14800` = 01.48.00). Kód mimo číselník lze zvolit taky (poslední položka nabídky) — uloží se s upozorněním. Pozor: číselník přešel k 1. 1. 2026 na NACE rev. 2.1, takže klasifikace převzatá z ARES může být expirovaná (např. `620200`, dnes `622000`) — pole to hlásí hned při otevření Nastavení. Prázdné/neúplné → atribut se vynechá a EPO nahlásí propustnou chybu 30. |
+
+Kódy finančních úřadů (`c_ufo`) a čísla účtů pro platbu DPH (předčíslí `705`, banka `0710`):
+
+| `c_ufo` | Finanční úřad | Účet pro DPH |
+|---|---|---|
+| `451` | Finanční úřad pro hlavní město Prahu | `705-77628031/0710` |
+| `452` | Finanční úřad pro Středočeský kraj | `705-77628111/0710` |
+| `453` | Finanční úřad pro Jihočeský kraj | `705-77627231/0710` |
+| `454` | Finanční úřad pro Plzeňský kraj | `705-77627311/0710` |
+| `455` | Finanční úřad pro Karlovarský kraj | `705-77629341/0710` |
+| `456` | Finanční úřad pro Ústecký kraj | `705-77621411/0710` |
+| `457` | Finanční úřad pro Liberecký kraj | `705-77628461/0710` |
+| `458` | Finanční úřad pro Královéhradecký kraj | `705-77626511/0710` |
+| `459` | Finanční úřad pro Pardubický kraj | `705-77622561/0710` |
+| `460` | Finanční úřad pro Kraj Vysočina | `705-67626681/0710` |
+| `461` | Finanční úřad pro Jihomoravský kraj | `705-77628621/0710` |
+| `462` | Finanční úřad pro Olomoucký kraj | `705-47623811/0710` |
+| `463` | Finanční úřad pro Moravskoslezský kraj | `705-77621761/0710` |
+| `464` | Finanční úřad pro Zlínský kraj | `705-47620661/0710` |
+| `13` | Specializovaný finanční úřad | `705-77620021/0710` |
+
+Čísla účtů pocházejí z přehledu Finanční správy
+[Bankovní účty finančních úřadů](https://financnisprava.gov.cz/cs/dane/placeni-dani/bankovni-ucty-financnich-uradu)
+(stav k 1. 1. 2026). Účet s předčíslím `705` se **nesmí** použít pro DPH v režimu OSS.
 
 ### Typ plátce a perioda
 
@@ -173,6 +197,8 @@ Pole sestavitele jsou relevantní jen pokud **přiznání za tebe podává jiná
    strukturální chyby (chybějící povinné atributy, špatný formát data, ...).
 6. Pokud validace projde, potvrď **Odeslat**.
 7. **Stáhni si potvrzení** (PDF nebo e-mail). To je tvůj doklad o podání.
+8. **Vrať se do aplikace** a v **Daně → Archiv podání** podání označ jako podané
+   a nahraj potvrzení — viz [Evidence podání](#evidence-podání-platba-dph-a-kontroly-před-podáním).
 
 > [!TIP]
 > XML soubor lze ručně doupravit v textovém editoru — struktura musí zůstat
@@ -518,6 +544,105 @@ V `Systém → Číselníky → Klasifikace DPH` lze u vlastního kódu nastavit
 Hodnoty se přenesou do `VetaA4.kod_rezim_pl` a `VetaA4/VetaB2.zdph_44`.
 U vystaveného dobropisu, který snižuje daň, přiznání zároveň připomene ověření
 data doručení opravného daňového dokladu podle § 42 ZDPH.
+
+## Evidence podání, platba DPH a kontroly před podáním
+
+MyInvoice výkazy **nepodává** — XML stáhneš a podáš na portálu EPO nebo datovou
+schránkou. Aplikace ale hlídá, co už je podané a zaplacené, srovnává výkazy mezi
+sebou a upozorní, když se po podání změní doklad, který do výkazu patří.
+
+### Archiv podání: vygenerováno → podáno → potvrzeno
+
+Každé stažení XML (DPH, KH, SH, daň z příjmů, OSS) se uloží do **Daně → Archiv podání**.
+Záznam má stav:
+
+| Stav | Význam |
+|---|---|
+| **Vygenerováno** | XML je stažené a uložené, o podání zatím aplikace neví. |
+| **Podáno** | Označil jsi, že jsi výkaz podal: **datum a čas** (výchozí je „teď", lze upravit — nesmí být v budoucnosti), **způsob** (EPO / datová schránka / jiný) a volitelně **číslo podání**. |
+| **Potvrzeno** | K podanému výkazu jsi nahrál potvrzení: z EPO soubor `.p7s`, PDF, nebo zprávu z datové schránky `.zfo` (max 10 MiB). Aplikace uloží velikost a otisk SHA-256, potvrzení jde kdykoli stáhnout. |
+
+- **Označit jako podané**, **Nahrát potvrzení**, jeho nahrazení či odebrání a
+  **Zrušit označení podání** (vrátí záznam do stavu Vygenerováno a smaže i potvrzení —
+  pro případ omylu) může jen **admin**. Všechny tyto kroky se zapisují do auditního logu.
+- Za jednu kombinaci **typ výkazu + období + forma podání** (řádné B, opravné O,
+  následné N …) smí být podané nebo potvrzené **jen jedno** podání. Stáhneš-li XML
+  víckrát, vznikne víc záznamů; označit jako podané jde jen jeden z nich, druhý
+  pokus aplikace odmítne a napíše, které podání už je podané. Řádné a opravné přiznání
+  za stejné období jsou různé formy, takže obě podané být mohou — platí to pozdější.
+- Podané nebo potvrzené podání nejde z archivu smazat, dokud se označení nezruší.
+- **Detail** řádku ukáže údaje o potvrzení, kartu **Platba DPH** a **doklady změněné po podání**.
+
+### Platba DPH
+
+U přiznání k DPH s kladnou **vlastní daňovou povinností** (řádek 64) ukazuje karta
+**Platba DPH** — v archivu po rozkliknutí **Detailu** a na stránce *DPH přiznání*
+u období s podaným přiznáním:
+
+- **Částka** k úhradě v celých Kč.
+- **Splatnost** — 25. dne měsíce po období (u kvartálního po kvartálu); připadne-li
+  na víkend nebo svátek, na nejbližší pracovní den (§ 33 odst. 4 daňového řádu). Daň
+  je splatná ve stejný den jako lhůta pro podání (§ 98 odst. 1 ZDPH).
+- **Účet finančního úřadu** ve tvaru `705-<matrika>/0710`: předčíslí `705` je daň
+  z přidané hodnoty, matrika určuje úřad podle **kódu finančního úřadu** v Nastavení
+  (tabulka výše), `0710` je ČNB. Zobrazí se i IBAN.
+- **Variabilní symbol** — číselná část DIČ (bez `CZ`), u fyzické osoby tedy rodné číslo
+  bez lomítka. Specifický symbol se nepoužívá.
+- **QR platba** pro mobilní bankovnictví.
+
+Chybí-li kód finančního úřadu (nebo je neznámý) či české DIČ, karta to napíše
+a účet, symbol ani QR **nehádá**.
+
+U **nadměrného odpočtu** (řádek 66) karta ukáže **vrácení** — nic se neplatí, finanční
+úřad částku vrací.
+
+Je-li za období podané víc přiznání (řádné a opravné), platí pozdější; co jsi už
+zaplatil u nahrazeného, se od částky odečte.
+
+**Zaplaceno** se označí dvěma způsoby:
+
+- ručně tlačítkem **Označit jako zaplacené** (datum a částka, jen admin),
+- **automaticky z banky**: při importu výpisu (GPC, PDF), e-mailového avíza nebo iDokladu
+  se odchozí platba v CZK na účet finančního úřadu se správným variabilním symbolem a
+  přesnou částkou spáruje s podaným přiznáním. Transakce se ve výpisu zobrazí jako
+  *Ignorovaná* s poznámkou „Platba DPH za …" a přiznání je zaplacené. Částečnou platbu
+  aplikace nespáruje; stejnou platbu uvedenou dvakrát (avízo i výpis) rozpozná. Při více
+  nezaplacených obdobích se stejnou částkou se spáruje to nejstarší. **Zrušit spárování**
+  transakce platbu znovu otevře.
+
+Dokud je podané přiznání s daňovou povinností nezaplacené, ukazuje **Přehled → Akce pro
+tebe** položku **Zaplaťte DPH** (viz [Přehled](08_Prehled.md)).
+
+### Kontrola souladu
+
+Na stránkách *DPH přiznání*, *Kontrolní hlášení* a *Souhrnné hlášení* je nad náhledem
+panel **Kontrola souladu**, který před stažením XML porovná stejná plnění ve třech výstupech
+za totéž období:
+
+| Přiznání k DPH | porovnává se s |
+|---|---|
+| ř. 1, 2 (výstup 21 % / 12 %) | KH A.4 + A.5 |
+| ř. 25 (přenesená daňová povinnost, dodavatel) | KH A.1 |
+| ř. 10, 11 (přenesená daňová povinnost, odběratel) | KH B.1 |
+| ř. 40, 41 (odpočet 21 % / 12 %) | KH B.2 + B.3 |
+| ř. 3–6, 12, 13 (daň přiznává příjemce) | KH A.2 |
+| ř. 20, 21, 31 (plnění do EU) | souhrnné hlášení |
+
+U každé dvojice vidíš základ i daň na obou stranách a rozdíl. Rozdíl v rámci zaokrouhlení
+je **v souladu**, do 1 000 Kč je **drobný rozdíl** (upozornění), nad to **nesoulad**.
+U rozdílu panel vypíše **doklady, které ho způsobují** — např. doklad, jehož klasifikace
+ho v přiznání zařadí na jiný řádek, než kam jde v KH, nebo EU dodání odběrateli bez
+DIČ členského státu, které se do souhrnného hlášení nedostane. Identifikované osobě se
+nic neporovnává (nepodává kontrolní hlášení).
+
+### Doklady změněné po podání
+
+Je-li výkaz za období označený jako podaný, ukáže panel **Doklady změněné po podání**
+vystavené a přijaté doklady s DUZP v tomto období, které byly **po čase podání vytvořeny,
+vystaveny, upraveny, stornovány nebo smazány**. Zdrojem jsou data dokladů a auditní log
+(odeslání faktury nebo její úhrada se za změnu nepočítá). Smazaný doklad jde zařadit do
+období jen tehdy, když ho smazání zapsalo do logu s datem DUZP. Takový doklad může být
+důvod k **opravnému** (jen do konce lhůty) nebo **dodatečnému** podání.
 
 ## Změna VAT sazby v budoucnu (např. 21% → 20% v 2027)
 

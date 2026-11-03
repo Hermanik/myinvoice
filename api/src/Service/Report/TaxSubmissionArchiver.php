@@ -8,10 +8,10 @@ use MyInvoice\Repository\TaxSubmissionRepository;
 use MyInvoice\Service\Validation\XmlSchemaValidator;
 
 /**
- * Sjednocený archiving + XSD validation pipeline pro EPO XML.
+ * Unified archiving + XSD validation pipeline for EPO XML.
  *
- * Volaný z DphPriznani/KontrolniHlaseni/SouhrnneHlaseni/IncomeTax action `download()`
- * **před** posláním XML response. Vrátí ID archivovaného záznamu (pro odkaz v UI).
+ * Called from the DphPriznani/KontrolniHlaseni/SouhrnneHlaseni/IncomeTax/Oss action `download()`
+ * **before** the XML response is sent. Returns the id of the archived row (for the UI link).
  */
 final class TaxSubmissionArchiver
 {
@@ -21,7 +21,9 @@ final class TaxSubmissionArchiver
     ) {}
 
     /**
-     * Archivuje XML + spustí XSD validation (pokud schema existuje).
+     * Archives the XML and runs the XSD validation (when a schema exists).
+     *
+     * The filing form (B/O/N/E for DPH + KH, R for SH, B otherwise) is the `form` of the summary.
      *
      * @param array<string,mixed> $summary
      */
@@ -49,6 +51,7 @@ final class TaxSubmissionArchiver
             $validation['status'],
             $validation['errors'],
             $generatedBy,
+            strtoupper((string) ($summary['form'] ?? 'B')),
         );
 
         return [

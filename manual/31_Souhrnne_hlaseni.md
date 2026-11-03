@@ -43,3 +43,12 @@ Generuje DPHSHV verze 06.01. Per řádek VetaA1:
 U měsíčního podání je termín **25. den následujícího měsíce**. U povoleného
 kvartálního podání je termín 25. den měsíce následujícího po konci kvartálu
 (např. za Q2 dne 25. července).
+
+### Kontrola souladu a stav podání
+
+Nad náhledem je panel **Kontrola souladu**: součty za dodání zboží (`k_pln_eu` 0),
+třístranný obchod (2) a služby (3) se porovnají s řádky 20, 31 a 21 přiznání k DPH.
+Rozdíl obvykle způsobí EU dodání odběrateli bez DIČ členského státu — takový doklad je
+v přiznání, ale do souhrnného hlášení se nedostane; panel ho vypíše. Podané hlášení
+se eviduje v **Daně → Archiv podání** a po podání se u něj hlídají
+**doklady změněné po podání** — viz [Evidence podání](29_Vykazy_DPH.md#evidence-podání-platba-dph-a-kontroly-před-podáním).

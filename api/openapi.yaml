@@ -4015,6 +4015,10 @@ paths:
     get:
       tags: [Reports]
       summary: Historie všech generovaných EPO XML výkazů
+      description: |
+        Každý záznam nese stav podání (`filing_status`: `generated` → `filed` → `confirmed`),
+        formu podání (`submission_form`: B/O/N/E, SH `R`) a u přiznání k DPH s daňovou
+        povinností nebo nadměrným odpočtem kartu `payment` (bez QR).
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
       responses:
@@ -4022,7 +4026,7 @@ paths:
           description: List archived submissions
           content:
             application/json:
-              schema: { type: array, items: { type: object } }
+              schema: { type: array, items: { $ref: '#/components/schemas/TaxSubmission' } }
 
   /api/v1/reports/submissions/{id}:
     get:
@@ -4037,12 +4041,14 @@ paths:
     delete:
       tags: [Reports]
       summary: Smaže archivovaný záznam (jen admin)
+      description: Podané nebo potvrzené podání nelze smazat — nejdřív se zruší označení podání (`/unfile`).
       parameters:
         - { in: path, name: id, required: true, schema: { type: integer } }
         - $ref: '#/components/parameters/SupplierIdHeader'
       responses:
         '200': { description: Deleted }
         '403': { description: Pouze admin }
+        '409': { description: 'Záznam je podaný/potvrzený (`filed_submission`)' }
 
   /api/v1/reports/submissions/{id}/xml:
     get:
@@ -4056,6 +4062,249 @@ paths:
           description: XML download
           content:
             application/xml: {}
+
+  /api/v1/reports/submissions/{id}/file:
+    post:
+      tags: [Reports]
+      summary: Označí podání jako podané (jen admin)
+      description: |
+        Stav `generated` → `filed`. Za jednu kombinaci dodavatel + typ výkazu + období + forma
+        podání smí být podané/potvrzené jen jedno podání — druhé skončí `409 duplicate_filing`
+        (v `error.conflict` je id a čas podání toho, které už je podané). Změna se zapisuje do auditního logu.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel]
+              properties:
+                filed_at: { type: string, example: '2027-02-24 09:15', description: 'Datum a čas podání (výchozí: teď, nesmí být v budoucnosti)' }
+                channel: { type: string, enum: [epo, data_box, other] }
+                reference: { type: string, maxLength: 100, description: Číslo podání (nepovinné) }
+      responses:
+        '200':
+          description: Aktualizovaný záznam
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxSubmission' }
+        '400': { description: Neplatný čas nebo způsob podání }
+        '403': { description: Pouze admin }
+        '404': { description: Not found }
+        '409': { description: 'Už je podané (`already_filed`) nebo podání téhož výkazu už existuje (`duplicate_filing`)' }
+
+  /api/v1/reports/submissions/{id}/unfile:
+    post:
+      tags: [Reports]
+      summary: Zruší označení podání (jen admin)
+      description: Vrátí podané/potvrzené podání do stavu `generated`; nahrané potvrzení se smaže.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: Aktualizovaný záznam
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxSubmission' }
+        '403': { description: Pouze admin }
+        '404': { description: Not found }
+        '409': { description: Podání není označené jako podané (`not_filed`) }
+
+  /api/v1/reports/submissions/{id}/receipt:
+    post:
+      tags: [Reports]
+      summary: Nahraje potvrzení o podání (jen admin)
+      description: |
+        Potvrzení z EPO (`.p7s`), PDF nebo zpráva z datové schránky (`.zfo`), max 10 MiB. Uloží se
+        s velikostí a SHA-256 a podání přejde do stavu `confirmed` (u potvrzeného se potvrzení nahradí).
+        Nahrát lze až k podání ve stavu `filed`.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: Aktualizovaný záznam
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxSubmission' }
+        '400': { description: 'Chybí soubor, nepovolená přípona nebo obsah (`no_file`, `invalid_extension`, `invalid_pdf`, `invalid_receipt`, `empty_file`)' }
+        '403': { description: Pouze admin }
+        '409': { description: Podání ještě není označené jako podané (`not_filed`) }
+        '413': { description: Soubor je větší než 10 MiB }
+    get:
+      tags: [Reports]
+      summary: Stáhne potvrzení o podání
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: 'Soubor potvrzení (hlavička `Content-Disposition` je `attachment`)'
+          content:
+            application/pdf: {}
+            application/pkcs7-signature: {}
+            application/octet-stream: {}
+        '404': { description: Potvrzení není nahrané }
+    delete:
+      tags: [Reports]
+      summary: Odebere nahrané potvrzení (jen admin)
+      description: Stav `confirmed` → `filed`.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: Aktualizovaný záznam
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxSubmission' }
+        '403': { description: Pouze admin }
+        '409': { description: Žádné potvrzení není nahrané (`no_receipt`) }
+
+  /api/v1/reports/submissions/{id}/payment:
+    get:
+      tags: [Reports]
+      summary: Karta „Platba DPH" přiznání k DPH
+      description: |
+        Částka k úhradě (ř. 64, vlastní daňová povinnost), splatnost (25. dne měsíce po období, při
+        víkendu/svátku nejbližší pracovní den), účet FÚ (předčíslí 705, matrika podle kódu FÚ dodavatele,
+        banka 0710), variabilní symbol (číselná část DIČ) a QR platba. U nadměrného odpočtu (ř. 66)
+        `kind: refund` — nic se neplatí. Odchozí platba na tento účet se stejným VS a částkou se při importu
+        výpisu nebo e-mailového avíza označí jako zaplacená sama.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: Platební karta
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VatPayment' }
+        '404': { description: Not found }
+
+  /api/v1/reports/submissions/{id}/payment/paid:
+    post:
+      tags: [Reports]
+      summary: Označí platbu DPH jako zaplacenou (jen admin)
+      description: Jen u podaného přiznání, které platbu vyžaduje (`409 not_payable` / `already_paid` jinak).
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paid_at: { type: string, format: date, description: 'Výchozí: dnes' }
+                amount: { type: number, description: 'Výchozí: zbývající částka' }
+      responses:
+        '200':
+          description: Aktualizovaná karta
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VatPayment' }
+        '400': { description: Neplatné datum nebo částka }
+        '403': { description: Pouze admin }
+        '409': { description: 'Není co platit (`not_payable`) nebo už zaplaceno (`already_paid`)' }
+    delete:
+      tags: [Reports]
+      summary: Zruší označení platby DPH (jen admin)
+      description: Pokud platbu rozpoznala banka, transakce se vrátí mezi nespárované.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: Aktualizovaná karta
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VatPayment' }
+        '403': { description: Pouze admin }
+        '409': { description: Platba není označená (`not_paid`) }
+
+  /api/v1/reports/submissions/{id}/changes:
+    get:
+      tags: [Reports]
+      summary: Doklady změněné po podání
+      description: |
+        Vystavené a přijaté doklady s DUZP v období podaného výkazu (DPH, KH, SH), které byly po
+        čase podání vytvořeny, vystaveny, upraveny, stornovány nebo smazány. Zdrojem je `created_at` /
+        `cancelled_at` dokladů a auditní log. Může být důvod k opravnému (jen do konce lhůty) nebo
+        dodatečnému podání.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: Změněné doklady
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChangesAfterFiling' }
+        '404': { description: Not found }
+
+  /api/v1/reports/vat-checks:
+    get:
+      tags: [Reports]
+      summary: Kontrola souladu + stav podání + doklady změněné po podání (DPH / KH / SH)
+      description: |
+        Podklady pro stránky DPH přiznání, kontrolního a souhrnného hlášení před stažením XML.
+        `cross_check` porovnává stejná plnění ve třech výstupech (ř. 1/2 ↔ KH A.4+A.5, ř. 25 ↔ A.1,
+        ř. 10/11 ↔ B.1, ř. 40/41 ↔ B.2+B.3, ř. 3–6, 12, 13 ↔ A.2, ř. 20/21/31 ↔ SH), rozdíl ukáže
+        v částkách i s doklady, které ho způsobují. `filing` / `changed_after_filing` / `payment`
+        jsou vyplněné, jen když je výkaz za období podaný.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+        - { in: query, name: form, schema: { type: string, enum: [dphdp3, dphkh1, dphshv], default: dphdp3 } }
+        - { in: query, name: year, required: true, schema: { type: integer, minimum: 2020, maximum: 2050 } }
+        - { in: query, name: month, required: true, schema: { type: integer, minimum: 1, maximum: 12 }, description: 'U kvartálu libovolný měsíc kvartálu' }
+        - { in: query, name: period, schema: { type: string, enum: [monthly, quarterly] }, description: 'Výchozí: perioda dodavatele' }
+      responses:
+        '200':
+          description: Kontroly
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VatChecks' }
+        '400': { description: Neplatný formulář, rok nebo měsíc }
+
+  /api/v1/dashboard/tax-calendar:
+    get:
+      tags: [Dashboard]
+      summary: Daňový kalendář — nejbližší daňové termíny dodavatele
+      description: |
+        Termíny odvozené z nastavení: přiznání k DPH a kontrolní hlášení (měsíčně nebo čtvrtletně dle
+        periody dodavatele, KH u právnické osoby vždy měsíčně), souhrnné hlášení jen při EU plněních,
+        přiznání k dani z příjmů (1. 4.) a záloha na paušální daň (20. dne měsíce) jen v roce s pásmem
+        paušálu. DPH položky jen za období, kdy dodavatel měl povinnosti k DPH. U výkazů je `filing.status`
+        `unfiled` / `filed` / `confirmed`; podaný výkaz po termínu z kalendáře zmizí.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+        - { in: query, name: days, schema: { type: integer, minimum: 7, maximum: 180, default: 60 }, description: 'Kolik dní dopředu' }
+      responses:
+        '200':
+          description: Termíny
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  today: { type: string, format: date }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/TaxCalendarItem' }
 
   # ── Codebooks: cnb-rate + expense-categories + vat-classifications ──────
   /api/v1/codebooks/cnb-rate:
@@ -4457,9 +4706,13 @@ paths:
       summary: Daily TODO (overdue, bank unmatched, recurring due, payables, purchase drafts, tax/SHV deadlines, churn)
       description: |
         Vrací položky `items[]` (typ `type`: `overdue_invoices`, `bank_unmatched`,
-        `recurring_due`, `overdue_payables`, `purchase_drafts`, `tax_deadline`,
-        `shv_deadline`, `churn_risk`), každá s `severity`, `title`, `hint`, `link`
+        `recurring_due`, `overdue_payables`, `purchase_drafts`, `tax_deadline`, `kh_deadline`,
+        `shv_deadline`, `vat_payment`, `churn_risk`), každá s `severity`, `title`, `hint`, `link`
         a volitelně `count`/`days`. Plus `total` a `dismissed_count`.
+
+        Daňové termíny (`tax_deadline`, `kh_deadline`, `shv_deadline`) vznikají ze stejného
+        kalendáře jako `/dashboard/tax-calendar` a mizí, jakmile je výkaz podaný. `vat_payment`
+        („Zaplaťte DPH") se zobrazuje, dokud není podané přiznání s daňovou povinností zaplacené.
       parameters: [{ $ref: '#/components/parameters/SupplierIdHeader' }]
       responses: { '200': { description: 'items + total + dismissed_count' } }
 
@@ -5732,6 +5985,187 @@ components:
         invoices_count:
           type: integer
           description: Počet vydaných faktur v této kategorii (jen v listu)
+    TaxSubmission:
+      type: object
+      description: Archivovaný EPO výkaz s uživatelsky vedeným stavem podání
+      properties:
+        id: { type: integer }
+        form_code: { type: string, enum: [dphdp3, dphkh1, dphshv, ossei1, dpfdp5, dppdp9] }
+        submission_form: { type: string, description: 'Forma podání: B/O (DPH), B/O/N/E (KH), R (SH), jinak B' }
+        period_year: { type: integer }
+        period_month: { type: integer, nullable: true }
+        period_quarter: { type: integer, nullable: true }
+        xml_size_bytes: { type: integer }
+        xml_sha256: { type: string }
+        validation_status: { type: string, enum: [passed, failed, skipped] }
+        validation_errors: { type: array, items: { type: string } }
+        summary: { type: object, nullable: true }
+        generated_at: { type: string }
+        notes: { type: string, nullable: true }
+        filing_status: { type: string, enum: [generated, filed, confirmed] }
+        filed_at: { type: string, nullable: true, description: Datum a čas podání }
+        filing_channel: { type: string, enum: [epo, data_box, other], nullable: true }
+        filing_reference: { type: string, nullable: true, description: Číslo podání }
+        confirmed_at: { type: string, nullable: true }
+        has_receipt: { type: boolean }
+        receipt_name: { type: string, nullable: true }
+        receipt_size_bytes: { type: integer, nullable: true }
+        receipt_sha256: { type: string, nullable: true }
+        paid_at: { type: string, format: date, nullable: true }
+        paid_amount: { type: number, nullable: true }
+        paid_source: { type: string, enum: [manual, bank], nullable: true }
+        paid_bank_transaction_id: { type: integer, nullable: true }
+        payment:
+          description: Jen u přiznání k DPH s daňovou povinností nebo nadměrným odpočtem
+          nullable: true
+          allOf: [ { $ref: '#/components/schemas/VatPayment' } ]
+    VatPayment:
+      type: object
+      description: Karta „Platba DPH"
+      properties:
+        submission_id: { type: integer }
+        kind: { type: string, enum: [payment, refund, none] }
+        amount: { type: integer, description: 'Vlastní daňová povinnost (ř. 64) nebo nadměrný odpočet (ř. 66), celé Kč' }
+        amount_due: { type: integer, description: 'Zbývá uhradit (po odečtení plateb u nahrazených přiznání téhož období)' }
+        period_label: { type: string, example: '2027-01' }
+        due_date: { type: string, format: date }
+        state: { type: string, enum: [none, not_filed, unpaid, paid, superseded, refund] }
+        payable: { type: boolean }
+        account:
+          nullable: true
+          type: object
+          properties:
+            office_code: { type: string, example: '451' }
+            office_name: { type: string }
+            prefix: { type: string, example: '705' }
+            number: { type: string, example: '77628031' }
+            bank_code: { type: string, example: '0710' }
+            display: { type: string, example: '705-77628031/0710' }
+            iban: { type: string }
+        office:
+          nullable: true
+          type: object
+          properties: { code: { type: string }, name: { type: string } }
+        variable_symbol: { type: string, nullable: true, description: Číselná část DIČ }
+        qr: { type: string, nullable: true, description: 'PNG data URI (SPD QR platba); jen u `/payment`' }
+        paid:
+          nullable: true
+          type: object
+          properties:
+            at: { type: string, format: date }
+            amount: { type: number }
+            source: { type: string, enum: [manual, bank] }
+            bank_transaction_id: { type: integer, nullable: true }
+        warnings:
+          type: array
+          items:
+            type: object
+            properties: { code: { type: string, enum: [office_unknown, dic_missing] }, message: { type: string } }
+    ChangesAfterFiling:
+      type: object
+      properties:
+        filed_at: { type: string, nullable: true }
+        period_start: { type: string, format: date }
+        period_end: { type: string, format: date }
+        count: { type: integer }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              source: { type: string, enum: [sale, purchase] }
+              id: { type: integer }
+              doc_number: { type: string, nullable: true }
+              kind: { type: string, nullable: true }
+              status: { type: string, nullable: true }
+              tax_date: { type: string, format: date, nullable: true }
+              counterparty: { type: string, nullable: true }
+              total_with_vat: { type: number, nullable: true }
+              currency: { type: string, nullable: true }
+              deleted: { type: boolean }
+              changes:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type: { type: string, enum: [created, issued, edited, cancelled, deleted, booked] }
+                    at: { type: string }
+                    user_id: { type: integer, nullable: true }
+    VatChecks:
+      type: object
+      properties:
+        cross_check:
+          type: object
+          properties:
+            applicable: { type: boolean }
+            reason: { type: string, nullable: true, enum: [identified_person, not_vat_payer_in_period, build_failed] }
+            status: { type: string, enum: [ok, warning, error] }
+            tolerance: { type: number, description: 'Rozdíl nad toleranci (Kč) je nesoulad' }
+            checks:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string, enum: [output_21, output_12, rc_supplier, rc_recipient_21, rc_recipient_12, input_21, input_12, a2, eu_goods, eu_services, eu_triangular] }
+                  dph:
+                    type: object
+                    properties: { lines: { type: array, items: { type: string } }, base: { type: number }, vat: { type: number, nullable: true } }
+                  other:
+                    type: object
+                    properties: { document: { type: string, enum: [KH, SH] }, section: { type: string }, base: { type: number }, vat: { type: number, nullable: true } }
+                  diff:
+                    type: object
+                    properties: { base: { type: number }, vat: { type: number, nullable: true } }
+                  status: { type: string, enum: [ok, warning, error] }
+            documents:
+              type: array
+              items:
+                type: object
+                properties:
+                  source: { type: string, enum: [sale, purchase] }
+                  invoice_id: { type: integer }
+                  doc_number: { type: string, nullable: true }
+                  tax_date: { type: string, nullable: true }
+                  counterparty: { type: string, nullable: true }
+                  problem: { type: string, enum: [missing_in_kh, extra_in_kh, missing_in_sh] }
+                  dph_line: { type: string, nullable: true }
+                  kh_section: { type: string, nullable: true }
+                  base_czk: { type: number }
+                  checks: { type: array, items: { type: string } }
+            documents_truncated: { type: boolean }
+        filing:
+          nullable: true
+          allOf: [ { $ref: '#/components/schemas/TaxSubmission' } ]
+        changed_after_filing:
+          nullable: true
+          allOf: [ { $ref: '#/components/schemas/ChangesAfterFiling' } ]
+        payment:
+          nullable: true
+          allOf: [ { $ref: '#/components/schemas/VatPayment' } ]
+    TaxCalendarItem:
+      type: object
+      properties:
+        type: { type: string, enum: [dph, kh, sh, income_tax, pausal] }
+        key: { type: string, example: 'dph:2027-01' }
+        year: { type: integer }
+        month: { type: integer, nullable: true }
+        quarter: { type: integer, nullable: true }
+        period: { type: string, enum: [monthly, quarterly, yearly] }
+        period_label: { type: string }
+        form_code: { type: string, nullable: true }
+        due_date: { type: string, format: date }
+        days_left: { type: integer, description: 'Záporné = po termínu' }
+        link: { type: string, description: Stránka aplikace }
+        filing:
+          nullable: true
+          type: object
+          description: Stav podání v archivu; u zálohy na paušál (`pausal`) není
+          properties:
+            status: { type: string, enum: [unfiled, filed, confirmed] }
+            submission_id: { type: integer, nullable: true }
+            filed_at: { type: string, nullable: true }
+        band: { type: string, description: 'Jen `pausal`: pásmo paušálu' }
+        amount: { type: number, description: 'Jen `pausal`: měsíční záloha' }
     ExpenseCategory:
       type: object
       properties:

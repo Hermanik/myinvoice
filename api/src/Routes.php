@@ -489,6 +489,7 @@ final class Routes
         // Dashboard
         $app->get ('/api/dashboard/summary',          SummaryAction::class);
         $app->get ('/api/dashboard/purchase-summary', PurchaseSummaryAction::class);
+        $app->get ('/api/dashboard/tax-calendar',     \MyInvoice\Action\Dashboard\TaxCalendarAction::class);
 
         // Admin (M6)
         $app->get    ('/api/admin/activity-log',    ListActivityLogAction::class);
@@ -581,6 +582,18 @@ final class Routes
         $app->get    ('/api/reports/submissions/{id:[0-9]+}',     [\MyInvoice\Action\Report\TaxSubmissionAction::class, 'detail']);
         $app->get    ('/api/reports/submissions/{id:[0-9]+}/xml', [\MyInvoice\Action\Report\TaxSubmissionAction::class, 'downloadXml']);
         $app->delete ('/api/reports/submissions/{id:[0-9]+}',     [\MyInvoice\Action\Report\TaxSubmissionAction::class, 'delete']);
+        // Filing lifecycle (generated -> filed -> confirmed), receipt, DPH payment, changes after filing
+        $app->post   ('/api/reports/submissions/{id:[0-9]+}/file',    [\MyInvoice\Action\Report\TaxSubmissionFilingAction::class, 'markFiled']);
+        $app->post   ('/api/reports/submissions/{id:[0-9]+}/unfile',  [\MyInvoice\Action\Report\TaxSubmissionFilingAction::class, 'unfile']);
+        $app->post   ('/api/reports/submissions/{id:[0-9]+}/receipt', [\MyInvoice\Action\Report\TaxSubmissionFilingAction::class, 'uploadReceipt']);
+        $app->get    ('/api/reports/submissions/{id:[0-9]+}/receipt', [\MyInvoice\Action\Report\TaxSubmissionFilingAction::class, 'downloadReceipt']);
+        $app->delete ('/api/reports/submissions/{id:[0-9]+}/receipt', [\MyInvoice\Action\Report\TaxSubmissionFilingAction::class, 'removeReceipt']);
+        $app->get    ('/api/reports/submissions/{id:[0-9]+}/payment', [\MyInvoice\Action\Report\TaxSubmissionFilingAction::class, 'payment']);
+        $app->post   ('/api/reports/submissions/{id:[0-9]+}/payment/paid', [\MyInvoice\Action\Report\TaxSubmissionFilingAction::class, 'markPaid']);
+        $app->delete ('/api/reports/submissions/{id:[0-9]+}/payment/paid', [\MyInvoice\Action\Report\TaxSubmissionFilingAction::class, 'clearPaid']);
+        $app->get    ('/api/reports/submissions/{id:[0-9]+}/changes', [\MyInvoice\Action\Report\TaxSubmissionFilingAction::class, 'changes']);
+        // Pre-export checks on the DPH / KH / SH pages (cross-check, changes after filing, payment card)
+        $app->get    ('/api/reports/vat-checks',                  \MyInvoice\Action\Report\VatChecksAction::class);
 
         $app->get    ('/api/admin/imports/{id:[0-9]+}',         ImportJobStatusAction::class);
         $app->post   ('/api/admin/imports/{id:[0-9]+}/cancel',  CancelImportJobAction::class);

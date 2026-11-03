@@ -6,6 +6,7 @@ import { reportsApi, type DphPriznaniPreview, type DphSettings, type DphTrendRow
 import { apiErrorMessage } from '@/api/errors'
 import { formatMoney } from '@/composables/useFormat'
 import { useYearOptions } from '@/composables/useYearOptions'
+import VatPrecheckPanels from '@/components/reports/VatPrecheckPanels.vue'
 
 const { t, locale } = useI18n()
 
@@ -241,6 +242,9 @@ onMounted(loadAll)
           <li v-for="w in preview.warnings" :key="w">{{ w }}</li>
         </ul>
       </div>
+
+      <!-- Kontrola souladu DPH ↔ KH ↔ SH, doklady změněné po podání, Platba DPH -->
+      <VatPrecheckPanels form="dphdp3" :year="year" :month="month" :period="effectivePeriod" />
 
       <!-- Rekapitulace KPI cards (4 — přidán Termín) -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
