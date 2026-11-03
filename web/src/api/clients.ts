@@ -46,6 +46,8 @@ export interface Client {
   /** Dodavatel je benzínka — pro automatické rozpoznávání tankování v knize jízd. */
   is_fuel_station?: boolean
   auto_send_reminders: boolean
+  /** Late-payment interest override: null = inherit from supplier. */
+  late_interest: boolean | null
   payment_due_default?: number | null
   payment_due_unit?: 'days' | 'month' | null
   hourly_rate: number
@@ -207,6 +209,8 @@ export interface ClientPayload {
   /** Dodavatel je benzínka — pro automatické rozpoznávání tankování v knize jízd. */
   is_fuel_station?: boolean
   auto_send_reminders: boolean
+  /** Late-payment interest override: null = inherit from supplier. */
+  late_interest: boolean | null
   payment_due_default?: number | null
   payment_due_unit?: 'days' | 'month' | null
   hourly_rate?: number

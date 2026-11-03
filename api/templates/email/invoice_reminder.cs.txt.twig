@@ -13,7 +13,14 @@ Variabilní symbol: {{ invoice.varsymbol }}
 Datum vystavení:   {{ invoice.issue_date|date('j.n.Y') }}
 Splatnost:         {{ invoice.due_date|date('j.n.Y') }}
 Po splatnosti:     {{ days_overdue }} {% if days_overdue == 1 %}den{% elseif days_overdue < 5 %}dny{% else %}dní{% endif %}
-K úhradě:          {{ amount_to_pay|number_format(2, ',', ' ') }} {{ invoice.currency }}
+K úhradě:          {{ amount_to_pay|number_format(2, ',', ' ') }} {{ invoice.currency }}{% if late_interest %}
+
+
+Úrok z prodlení ke dni {{ late_interest.as_of|date('j.n.Y') }}{% if late_interest.billed_interest > 0 %} – dosud nevyúčtovaný{% endif %}: {{ late_interest.interest|number_format(2, ',', ' ') }} {{ invoice.currency }}
+{% if late_interest.billed_interest > 0 %}Již vyúčtováno samostatným dokladem do {{ late_interest.billed_through|date('j.n.Y') }}: {{ late_interest.billed_interest|number_format(2, ',', ' ') }} {{ invoice.currency }}
+{% endif %}{% if late_interest.fixed_cost.claimable %}Paušální náhrada nákladů spojených s uplatněním pohledávky: {{ late_interest.fixed_cost.amount_czk|number_format(2, ',', ' ') }} Kč
+{% endif %}Uplatňujeme úrok z prodlení od {{ late_interest.delay_from|date('j.n.Y') }}: roční sazba {{ late_interest.annual_rate_percent|number_format(2, ',', ' ') }} % = repo sazba ČNB {{ late_interest.repo.rate_percent|number_format(2, ',', ' ') }} % platná k {{ late_interest.repo.half_year_start|date('j.n.Y') }} + 8 procentních bodů (§ 1970 občanského zákoníku, § 2 nařízení vlády č. 351/2013 Sb.).{% endif %}
+
 
 Faktura v PDF je v příloze tohoto emailu.
 Pokud byla platba odeslána v posledních dnech, považujte prosím tuto upomínku za bezpředmětnou.

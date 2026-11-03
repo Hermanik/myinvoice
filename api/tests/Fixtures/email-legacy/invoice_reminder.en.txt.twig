@@ -1,0 +1,22 @@
+{% extends '_layout.txt.twig' %}
+
+{% block content %}
+REMINDER — unpaid invoice
+================================
+
+Hello,
+
+this is a friendly reminder that invoice no. {{ invoice.varsymbol }}
+is {{ days_overdue }} day{% if days_overdue != 1 %}s{% endif %} overdue and has not been paid yet.
+
+Variable symbol: {{ invoice.varsymbol }}
+Issue date:      {{ invoice.issue_date|date('M j, Y') }}
+Due date:        {{ invoice.due_date|date('M j, Y') }}
+Days overdue:    {{ days_overdue }}
+Amount due:      {{ amount_to_pay|number_format(2, '.', ',') }} {{ invoice.currency }}
+
+The invoice PDF is attached.
+If payment was sent in the past few days, please disregard this reminder.
+
+Thank you.
+{% endblock %}

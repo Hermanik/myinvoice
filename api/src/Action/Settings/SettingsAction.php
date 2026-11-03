@@ -313,6 +313,8 @@ final class SettingsAction
             'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf',
             // Kopie odchozích e-mailů dodavateli (migrace 0102) — JSON, validace níže
             'self_copy',
+            // Statutory late-payment interest (migration 9005): global opt-in, show in reminders, fixed cost of claiming
+            'late_interest_enabled', 'late_interest_in_reminders', 'late_interest_claim_fixed_cost',
         ];
 
         // Legacy flags (old API clients, scripts): translated into a NEW history row valid
@@ -512,7 +514,7 @@ final class SettingsAction
         foreach ($allowed as $f) {
             if (array_key_exists($f, $body)) {
                 $sets[] = "$f = ?";
-                $params[] = in_array($f, ['oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf'], true)
+                $params[] = in_array($f, ['oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf', 'late_interest_enabled', 'late_interest_in_reminders', 'late_interest_claim_fixed_cost'], true)
                     ? ((int) (bool) $body[$f])
                     : $body[$f];
             }
@@ -678,6 +680,9 @@ final class SettingsAction
         $row['payment_thanks_auto_send']      = (bool) ($row['payment_thanks_auto_send'] ?? false);
         $row['payment_thanks_default_checked']= (bool) ($row['payment_thanks_default_checked'] ?? false);
         $row['payment_thanks_attach_paid_pdf']= (bool) ($row['payment_thanks_attach_paid_pdf'] ?? false);
+        $row['late_interest_enabled']         = (bool) ($row['late_interest_enabled'] ?? false);
+        $row['late_interest_in_reminders']    = (bool) ($row['late_interest_in_reminders'] ?? true);
+        $row['late_interest_claim_fixed_cost']= (bool) ($row['late_interest_claim_fixed_cost'] ?? false);
         // Kopie odchozích e-mailů dodavateli (migrace 0102) — parsed objekt nebo null.
         $sc = $row['self_copy'] !== null ? json_decode((string) $row['self_copy'], true) : null;
         $row['self_copy'] = is_array($sc) && $sc !== [] ? $sc : null;

@@ -147,6 +147,17 @@ final class CronCatalog
                 'critical' => false,
             ],
             [
+                // Appends new CNB repo rates (append-only) so statutory late-payment interest keeps working
+                // after the start of a half-year; max age = one month + slack.
+                'script' => 'cron-refresh-repo-rates',
+                'recommended' => 'monthly_0710',
+                'linux_cron' => '10 7 1 * *',
+                'windows_schtasks' => '/sc monthly /d 1 /st 07:10',
+                'max_age_hours' => 800,
+                'weekdays_only' => false,
+                'critical' => false,
+            ],
+            [
                 'script' => 'cron-version-check',
                 'recommended' => 'daily_0600',
                 'linux_cron' => '0 6 * * *',

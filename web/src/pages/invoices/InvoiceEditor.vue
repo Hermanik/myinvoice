@@ -267,6 +267,8 @@ const zeroRatedPayerWarning = computed(() => {
   const f = form.value
   if (editedStatus.value !== 'draft' || f.invoice_type === 'credit_note' || f.reverse_charge || !supplierIsVatPayer.value || f.items.length === 0) return false
   if (clients.value.find(c => c.id === f.client_id)?.country_iso2 !== 'CZ') return false
+  // Classified "outside the scope of VAT" (e.g. a late-interest invoice): a deliberate 0 %, not a forgotten rate.
+  if (f.vat_classification_code === 'MPD') return false
   return f.items.every((it) => {
     const rate = vatRates.value.find(v => v.id === it.vat_rate_id)
     return !it.oss_applicable && rate !== undefined && Number(rate.rate_percent) === 0

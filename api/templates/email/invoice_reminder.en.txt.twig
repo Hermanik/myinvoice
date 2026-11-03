@@ -13,7 +13,14 @@ Variable symbol: {{ invoice.varsymbol }}
 Issue date:      {{ invoice.issue_date|date('M j, Y') }}
 Due date:        {{ invoice.due_date|date('M j, Y') }}
 Days overdue:    {{ days_overdue }}
-Amount due:      {{ amount_to_pay|number_format(2, '.', ',') }} {{ invoice.currency }}
+Amount due:      {{ amount_to_pay|number_format(2, '.', ',') }} {{ invoice.currency }}{% if late_interest %}
+
+
+Late-payment interest as of {{ late_interest.as_of|date('M j, Y') }}{% if late_interest.billed_interest > 0 %} – not yet invoiced{% endif %}: {{ late_interest.interest|number_format(2, '.', ',') }} {{ invoice.currency }}
+{% if late_interest.billed_interest > 0 %}Already invoiced separately up to {{ late_interest.billed_through|date('M j, Y') }}: {{ late_interest.billed_interest|number_format(2, '.', ',') }} {{ invoice.currency }}
+{% endif %}{% if late_interest.fixed_cost.claimable %}Fixed compensation of the costs of claiming the receivable: CZK {{ late_interest.fixed_cost.amount_czk|number_format(2, '.', ',') }}
+{% endif %}We claim late-payment interest from {{ late_interest.delay_from|date('M j, Y') }}: annual rate {{ late_interest.annual_rate_percent|number_format(2, '.', ',') }} % = CNB two-week repo rate {{ late_interest.repo.rate_percent|number_format(2, '.', ',') }} % valid on {{ late_interest.repo.half_year_start|date('M j, Y') }} + 8 percentage points (section 1970 of the Czech Civil Code, section 2 of Government Regulation No. 351/2013 Sb.).{% endif %}
+
 
 The invoice PDF is attached.
 If payment was sent in the past few days, please disregard this reminder.

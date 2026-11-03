@@ -242,11 +242,11 @@ final class ClientRepository
             (supplier_id, company_name, first_name, last_name, ic, dic, tax_number, street, city, zip, country_id,
              main_email, phone, language, currency_default_id, reverse_charge, is_vat_payer,
              is_customer, is_vendor, is_fuel_station,
-             auto_send_reminders, payment_due_default, payment_due_unit, hourly_rate, note,
+             auto_send_reminders, late_interest, payment_due_default, payment_due_unit, hourly_rate, note,
              default_expense_category_id, default_revenue_category_id,
              invoice_number_format, proforma_number_format, credit_note_number_format, invoice_number_period,
              default_branding_profile_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
         $stmt = $this->db->pdo()->prepare($sql);
         $stmt->execute([
             $supplierId,
@@ -274,6 +274,7 @@ final class ClientRepository
             $isVendor,
             array_key_exists('is_fuel_station', $data) ? ((int) (bool) $data['is_fuel_station']) : 0,
             array_key_exists('auto_send_reminders', $data) ? ((int) (bool) $data['auto_send_reminders']) : 1,
+            self::nullableFlag($data['late_interest'] ?? null),
             isset($data['payment_due_default']) ? (int) $data['payment_due_default'] : null,
             $this->nullablePaymentDueUnit($data, 'payment_due_unit'),
             (float) ($data['hourly_rate'] ?? 0),
@@ -366,7 +367,7 @@ final class ClientRepository
         $pdo = $this->db->pdo();
 
         // Klient nemůže měnit supplier — odvodíme z aktuálního DB záznamu pro currency lookup
-        $stmt = $pdo->prepare('SELECT supplier_id, is_customer, is_vendor, default_expense_category_id, default_revenue_category_id, default_branding_profile_id FROM clients WHERE id = ?');
+        $stmt = $pdo->prepare('SELECT supplier_id, is_customer, is_vendor, default_expense_category_id, default_revenue_category_id, default_branding_profile_id, late_interest FROM clients WHERE id = ?');
         $stmt->execute([$id]);
         $current = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($current === false) {
@@ -434,7 +435,7 @@ final class ClientRepository
                 main_email = ?, phone = ?, language = ?, currency_default_id = ?,
                 reverse_charge = ?, is_vat_payer = COALESCE(?, is_vat_payer), is_customer = ?, is_vendor = ?,
                 is_fuel_station = COALESCE(?, is_fuel_station),
-                auto_send_reminders = ?, payment_due_default = ?, payment_due_unit = ?,
+                auto_send_reminders = ?, late_interest = ?, payment_due_default = ?, payment_due_unit = ?,
                 hourly_rate = ?, note = ?, default_expense_category_id = ?, default_revenue_category_id = ?,
                 invoice_number_format = ?, proforma_number_format = ?,
                 credit_note_number_format = ?, invoice_number_period = ?, default_branding_profile_id = ?
@@ -462,6 +463,8 @@ final class ClientRepository
             $newIsVendor,
             array_key_exists('is_fuel_station', $data) ? ((int) (bool) $data['is_fuel_station']) : null,
             array_key_exists('auto_send_reminders', $data) ? ((int) (bool) $data['auto_send_reminders']) : 1,
+            // Absent key keeps the stored override; an explicit null clears it (= inherit).
+            self::nullableFlag(array_key_exists('late_interest', $data) ? $data['late_interest'] : $current['late_interest']),
             isset($data['payment_due_default']) ? (int) $data['payment_due_default'] : null,
             $this->nullablePaymentDueUnit($data, 'payment_due_unit'),
             (float) ($data['hourly_rate'] ?? 0),
@@ -651,6 +654,10 @@ final class ClientRepository
         if (array_key_exists('auto_send_reminders', $row)) {
             $row['auto_send_reminders'] = (bool) $row['auto_send_reminders'];
         }
+        // Tri-state override of the late-interest opt-in: null = inherit from the supplier.
+        if (array_key_exists('late_interest', $row)) {
+            $row['late_interest'] = $row['late_interest'] === null ? null : (bool) $row['late_interest'];
+        }
         if (array_key_exists('active_projects_count', $row)) {
             $row['active_projects_count'] = (int) $row['active_projects_count'];
         }
@@ -683,6 +690,12 @@ final class ClientRepository
             throw new \InvalidArgumentException("Brandingový profil #$id nenalezen.");
         }
         return $id;
+    }
+
+    /** Tri-state flag column: null / '' = inherit, otherwise 0 or 1. */
+    private static function nullableFlag(mixed $v): ?int
+    {
+        return $v === null || $v === '' ? null : (int) (bool) $v;
     }
 
     private function nullable(array $data, string $key): ?string

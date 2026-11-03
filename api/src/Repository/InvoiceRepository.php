@@ -222,6 +222,14 @@ final class InvoiceRepository
         return $row;
     }
 
+    /** Per-invoice override of the late-interest opt-in: null = inherit from client / supplier. */
+    public function setLateInterest(int $id, ?bool $value): void
+    {
+        $this->db->pdo()
+            ->prepare('UPDATE invoices SET late_interest = ? WHERE id = ?')
+            ->execute([$value === null ? null : (int) $value, $id]);
+    }
+
     /**
      * Zafixuje exchange_rate + exchange_rate_date na faktuře (CZK / 1 jednotka cizí
      * měny + den, ke kterému kurz patří — viz fallback logiku CnbExchangeRateClient).
@@ -1331,6 +1339,10 @@ final class InvoiceRepository
         }
         if (array_key_exists('auto_send_reminders', $row)) {
             $row['auto_send_reminders'] = (bool) $row['auto_send_reminders'];
+        }
+        // Tri-state override of the late-interest opt-in: null = inherit from client / supplier.
+        if (array_key_exists('late_interest', $row)) {
+            $row['late_interest'] = $row['late_interest'] === null ? null : (bool) $row['late_interest'];
         }
         foreach (['total_without_vat', 'total_vat', 'total_with_vat', 'rounding', 'advance_paid_amount', 'amount_to_pay', 'paid_total', 'discount_percent'] as $f) {
             if (array_key_exists($f, $row) && $row[$f] !== null) $row[$f] = (float) $row[$f];

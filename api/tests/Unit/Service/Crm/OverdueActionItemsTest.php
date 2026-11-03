@@ -6,6 +6,7 @@ namespace MyInvoice\Tests\Unit\Service\Crm;
 
 use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\RepoRateRepository;
 use MyInvoice\Repository\TaxConstantsRepository;
 use MyInvoice\Repository\SupplierVatStatusRepository;
 use MyInvoice\Repository\TaxSubmissionRepository;
@@ -61,6 +62,7 @@ final class OverdueActionItemsTest extends TestCase
             new OverduePolicy(new Config(['invoices' => ['overdue_includes_today' => $includesToday]])),
             new TaxCalendarService($db, VatStatusService::forConnection($db), $submissions, new TaxConstantsRepository($db), new SupplierVatStatusRepository($db)),
             new VatPaymentService($submissions, $db, $this->createStub(QrPaymentGenerator::class), new ActivityLogger($db)),
+            new RepoRateRepository($db),
         );
 
         $result = $service->actionItems(7);

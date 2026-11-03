@@ -1,0 +1,72 @@
+{% extends '_layout.html.twig' %}
+
+{% block content %}
+<h1 style="margin:0 0 16px;font-size:22px;font-weight:600;color:#15131D;">
+  Upomínka — neuhrazená faktura
+</h1>
+
+<p style="margin:0 0 12px;">Dobrý den,</p>
+
+<p style="margin:0 0 16px;">
+  dovolujeme si Vás upozornit, že faktura <strong>č. {{ invoice.varsymbol }}</strong>
+  je <strong style="color:#C2410C;">{{ days_overdue }} {% if days_overdue == 1 %}den{% elseif days_overdue < 5 %}dny{% else %}dní{% endif %}
+  po splatnosti</strong> a nebyla dosud uhrazena.
+</p>
+
+<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;background:#FEF3E7;border:1px solid #FBC78A;border-radius:8px;margin:16px 0;">
+  <tr>
+    <td style="padding:16px 20px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:14px;color:#403B52;">
+        <tr>
+          <td style="padding:4px 0;color:#7A748C;width:42%;">Variabilní symbol</td>
+          <td style="padding:4px 0;font-family:monospace;font-weight:600;color:#15131D;">{{ invoice.varsymbol }}</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 0;color:#7A748C;">Datum vystavení</td>
+          <td style="padding:4px 0;">{{ invoice.issue_date|date('j.n.Y') }}</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 0;color:#7A748C;">Splatnost</td>
+          <td style="padding:4px 0;font-weight:600;color:#C2410C;">{{ invoice.due_date|date('j.n.Y') }}</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 0;color:#7A748C;">Po splatnosti</td>
+          <td style="padding:4px 0;font-weight:600;color:#C2410C;">{{ days_overdue }} {% if days_overdue == 1 %}den{% elseif days_overdue < 5 %}dny{% else %}dní{% endif %}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 0 0;color:#7A748C;border-top:1px solid #FBC78A;">K úhradě</td>
+          <td style="padding:8px 0 0;border-top:1px solid #FBC78A;font-size:18px;font-weight:700;color:{{ accent }};font-family:monospace;">
+            {{ amount_to_pay|number_format(2, ',', ' ') }} {{ invoice.currency }}
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+{% if qr_data_uri %}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:32px 0 8px;">
+  <tr>
+    <td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;">
+        <tr>
+          <td style="text-align:center;padding:12px;background:#fff;border:1px solid #E7E3EE;border-radius:8px;">
+            <img src="{{ qr_data_uri }}" alt="QR platba" width="180" height="180" style="display:block;margin:0 auto;">
+            <div style="font-size:11px;color:#7A748C;letter-spacing:1px;margin-top:6px;text-transform:uppercase;">QR pro platbu</div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+<p style="margin:16px 0 8px;font-size:14px;color:#5A5470;">
+  Faktura v PDF je v příloze tohoto emailu{% if qr_data_uri %}, platbu lze provést naskenováním QR kódu výše{% endif %}.
+  Pokud byla platba odeslána v posledních dnech, považujte prosím tuto upomínku za bezpředmětnou.
+</p>
+
+<p style="margin:24px 0 0;font-size:13px;color:#7A748C;">
+  Děkujeme za vyřízení.
+</p>
+{% endblock %}

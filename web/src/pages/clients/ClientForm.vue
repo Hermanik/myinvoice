@@ -108,6 +108,7 @@ const form = ref<ClientPayload>({
   is_vendor: route.query.role === 'vendor',
   is_fuel_station: false,
   auto_send_reminders: true,
+  late_interest: null,
   payment_due_default: null,
   payment_due_unit: null,
   hourly_rate: 0,
@@ -281,6 +282,7 @@ function sanitize(c: Client): Partial<ClientPayload> {
     is_vendor:   c.is_vendor   === true,
     is_fuel_station: c.is_fuel_station === true,
     auto_send_reminders: c.auto_send_reminders ?? true,
+    late_interest: c.late_interest ?? null,
     payment_due_default: c.payment_due_default ?? null,
     payment_due_unit: c.payment_due_unit ?? null,
     hourly_rate: c.hourly_rate ?? 0,
@@ -378,6 +380,12 @@ async function checkVies() {
     viesLoading.value = false
   }
 }
+
+// Tri-state select <-> boolean | null (null must survive a round trip).
+const lateInterestChoice = computed<'inherit' | 'on' | 'off'>({
+  get: () => (form.value.late_interest === null ? 'inherit' : form.value.late_interest ? 'on' : 'off'),
+  set: (v) => { form.value.late_interest = v === 'inherit' ? null : v === 'on' },
+})
 
 async function submit() {
   submitting.value = true
@@ -746,6 +754,15 @@ async function submit() {
               <span>{{ t('client.auto_send_reminders') }}</span>
             </label>
             <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('client.auto_send_reminders_hint') }}</p>
+          </div>
+          <div>
+            <label class="block text-sm mb-1">{{ t('client.late_interest') }}</label>
+            <select v-model="lateInterestChoice" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+              <option value="inherit">{{ t('client.late_interest_inherit') }}</option>
+              <option value="on">{{ t('client.late_interest_on') }}</option>
+              <option value="off">{{ t('client.late_interest_off') }}</option>
+            </select>
+            <p class="text-xs text-neutral-500 mt-1">{{ t('client.late_interest_hint') }}</p>
           </div>
         </div>
 

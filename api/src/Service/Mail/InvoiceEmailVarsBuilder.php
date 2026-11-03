@@ -22,11 +22,14 @@ final class InvoiceEmailVarsBuilder
     ) {}
 
     /**
-     * Variables pro `invoice_reminder.{locale}.{html,txt}.twig` resp.
-     * `proforma_reminder.{locale}.{html,txt}.twig` (podle invoice_type).
-     * Stejný shape jako build() + extra `days_overdue` pro template.
+     * Variables for `invoice_reminder.{locale}.{html,txt}.twig` or
+     * `proforma_reminder.{locale}.{html,txt}.twig` (by invoice_type).
+     * Same shape as build() plus an extra `days_overdue` for the template.
+     *
+     * @param array<string,mixed>|null $lateInterest accrued statutory interest block (LateInterestService::forReminder);
+     *        null (feature off / nothing to show) leaves the rendered reminder untouched
      */
-    public function buildReminder(array $invoice, int $daysOverdue, string $locale): array
+    public function buildReminder(array $invoice, int $daysOverdue, string $locale, ?array $lateInterest = null): array
     {
         $varsymbol = (string) ($invoice['varsymbol'] ?? '');
         $supplier = $this->resolveSupplierName($invoice, false);
@@ -55,6 +58,7 @@ final class InvoiceEmailVarsBuilder
                 2,
             ),
             'days_overdue'   => $daysOverdue,
+            'late_interest'  => $lateInterest,
             'subject'        => $subject,
             'qr_data_uri'    => $this->paymentQrDataUri($invoice),
             'supplier'       => $this->loadSupplierFooter($invoice),

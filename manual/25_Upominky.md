@@ -133,6 +133,7 @@ Můžeš editovat:
 | `{{ supplier_name }}` | Jméno dodavatele |
 | `{{ payment_link }}` | (volitelné) odkaz na platební bránu |
 | `{{ reminder_count }}` | Počet již odeslaných upomínek (1 = první, 2 = druhá, …) |
+| `{{ late_interest }}` | Naběhlý zákonný úrok z prodlení (viz [§ 25.9](#259-zakonny-urok-z-prodleni)); prázdné, dokud je funkce vypnutá. Položky: `interest`, `as_of`, `delay_from`, `annual_rate_percent`, `repo.rate_percent`, `repo.half_year_start`, `fixed_cost.claimable`, `fixed_cost.amount_czk` |
 
 ### 25.5.2 Multi-jazyčnost
 
@@ -201,3 +202,161 @@ zkratka **Neodesláno: N** umožní rychle najít, co je potřeba poslat znovu.
 > do schránky (odmítnutí mailserverem příjemce / spam filtr aplikace netrackuje).
 > Pokud cron upomínku **přeskočí** kvůli předpokladům z § 25.1 (např. klient nemá
 > e-mail), nejde o „selhání odeslání" a v přehledu se jako chyba neobjeví.
+
+## 25.9 Zákonný úrok z prodlení
+
+Aplikace umí spočítat zákonný úrok z prodlení u faktur po splatnosti, uvést ho
+v upomínce a vyúčtovat ho **samostatným dokladem**. Funkce je **ve výchozím
+stavu vypnutá** — musíš ji zapnout sám.
+
+### 25.9.1 Zapnutí a přepsání
+
+Platí první nastavená hodnota v pořadí **faktura → klient → dodavatel**:
+
+| Úroveň | Kde | Hodnoty |
+|---|---|---|
+| Dodavatel | **Nastavení → Dodavatel → Počítat úrok z prodlení** (vedle automatických upomínek) | zapnuto / vypnuto (výchozí) |
+| Klient | Úprava klienta, volba **Úrok z prodlení** | podle dodavatele / zapnuto / vypnuto |
+| Faktura | Detail faktury po splatnosti, karta **Úrok z prodlení**, volba **Úrok z prodlení u této faktury** | podle klienta a dodavatele / zapnout / vypnout |
+
+Díky tomu můžeš úrok zapnout jen pro jednoho klienta nebo jedinou fakturu, i když
+je globálně vypnutý, a naopak.
+
+Po zapnutí u dodavatele nabídne nastavení ještě dvě volby:
+
+- **Uvádět naběhlý úrok v upomínkách** (výchozí zapnuto),
+- **Uplatnit i paušální náklady spojené s uplatněním pohledávky** (výchozí vypnuto,
+  viz [§ 25.9.5](#2595-pausalni-naklady-spojene-s-uplatnenim-pohledavky)).
+
+Úrok se počítá jen u běžné faktury (ne u zálohové faktury, dobropisu ani stornovacího
+dokladu) ve stavu vystavená, odeslaná, upomenutá nebo zaplacená. **Z dokladu na úrok
+z prodlení se další úrok nepočítá** — úrok z úroků lze požadovat jen tehdy, když to bylo
+ujednáno (§ 1806 občanského zákoníku).
+
+### 25.9.2 Jak se úrok počítá
+
+Podkladem je § 1970 občanského zákoníku a § 2 nařízení vlády č. 351/2013 Sb.
+
+- **Roční sazba** = dvoutýdenní repo sazba ČNB platná **první den kalendářního
+  pololetí, ve kterém prodlení vzniklo**, zvýšená o **8 procentních bodů**.
+- Prodlení vzniká **dnem následujícím po splatnosti**. Sazba se určí jednou a platí
+  **po celou dobu prodlení** — nemění se ani s další změnou sazby ČNB, ani přechodem do
+  dalšího pololetí.
+- Úrok se počítá **z dosud neuhrazené částky** za skutečný počet dní. Každý den se
+  počítá z částky, která byla nezaplacená na jeho začátku: den platby se ještě počítá
+  ze zůstatku před platbou, od dalšího dne se úrok počítá z nižšího zůstatku. Nezaplacená
+  faktura tak narůstá o stejný počet dní, jaký ukazuje upomínka jako „po splatnosti“.
+- Roční sazba se dělí **skutečným počtem dní kalendářního roku (365, v přestupném roce
+  366)**. Prodlení přes Nový rok se na hranici roku rozdělí. Nařízení vlády způsob přepočtu
+  na dny nestanoví; jde o obvyklou praxi.
+- Úhrady snižují **jen jistinu** (částku faktury). Podle § 1932 odst. 1 občanského zákoníku by se
+  úhrada u podnikatele započítala nejdřív na náklady, pak na úrok z prodlení a až potom na jistinu,
+  takže by déle zůstávala vyšší jistina a úrok by narůstal rychleji. Aplikace to záměrně zjednodušuje ve prospěch dlužníka
+  (u spotřebitele se podle § 1932 odst. 2 započítává na jistinu před úrokem stejně).
+- Úrok se počítá **v měně faktury**, bez přepočtu. Každý úsek (stejný zůstatek v jednom
+  roce) se zaokrouhlí na haléře a celkový úrok je součet úseků.
+- Výpočet funguje pro prodlení vzniklé od 1. 1. 2014 (od tohoto dne platí nařízení vlády
+  č. 351/2013 Sb.).
+
+Příklad: faktura 10 000 Kč, splatná 15. 9. 2026. Prodlení vzniklo 16. 9. 2026, v pololetí
+od 1. 7. 2026 platí repo sazba 3,75 %, roční sazba je tedy 11,75 %. Ke 3. 11. 2026 (49 dní)
+je úrok 10 000 × 11,75 % × 49 / 365 = **157,74 Kč**.
+
+Naběhlý úrok vidíš na kartě **Úrok z prodlení** v detailu faktury po splatnosti: částku,
+dny prodlení, složení sazby, rozpis po úsecích a už vyúčtované období.
+
+### 25.9.3 Upomínky s úrokem
+
+Je-li úrok zapnutý a volba **Uvádět naběhlý úrok v upomínkách** také, upomínka (e-mail
+v češtině i angličtině) uvede:
+
+- naběhlý úrok ke dni odeslání — **jen dosud nevyúčtovanou část**. Byl-li už úrok vyúčtován
+  samostatným dokladem (viz § 25.9.4), uvede upomínka zvlášť řádek „Již vyúčtováno samostatným
+  dokladem do …“, aby klient nepochopil, že dluží úrok dvakrát. Není-li co nového uplatnit, blok
+  se v upomínce nezobrazí,
+- roční sazbu, repo sazbu ČNB, den, ke kterému platí, a právní základ,
+- případně paušální náklady (viz § 25.9.5).
+
+Částka **K úhradě** a QR platba zůstávají beze změny — úrok se uvádí zvlášť. Příloha
+upomínky je původní faktura v PDF, ta se nemění.
+
+Je-li funkce vypnutá (u dodavatele, klienta nebo faktury), je upomínka **přesně stejná
+jako dřív**. Upravil-li jsi šablonu upomínky v **Systém → E-mail šablony**, úrok se v ní
+neobjeví, dokud do ní nepřidáš blok s proměnnou `late_interest` (viz § 25.5.1).
+
+Pokud číselník repo sazeb není aktuální (viz § 25.9.6), upomínka úrok neuvede. Případná chyba při
+výpočtu úroku upomínku nikdy nezablokuje ani nezmění — upomínka odejde bez bloku s úrokem a chyba se
+zapíše do logu.
+
+### 25.9.4 Vyúčtování úroku z prodlení
+
+1. Otevři detail faktury po splatnosti (nebo faktury zaplacené po splatnosti).
+2. Na kartě **Úrok z prodlení** zkontroluj částku a rozpis.
+3. Klikni na **Vyúčtovat úrok z prodlení** a potvrď.
+
+**Jak poznáš, že je hotovo:** otevře se **koncept** nové faktury stejnému klientovi.
+Má řádek (u více úseků více řádků) s úrokem a případně samostatný řádek s paušálními
+náklady. Doklad **se sám nikdy nevystaví ani neodešle** — zkontroluj ho, vystav a odešli
+jako každou jinou fakturu.
+
+- V poznámkách je číslo původní faktury, období, roční sazba a právní základ.
+- Opakované vyúčtování počítá jen **dny po dříve vyúčtovaném období**; paušální náklady se
+  účtují jen jednou. Smažeš-li koncept nebo doklad stornuješ, období se uvolní. Dva souběžné
+  požadavky na tutéž fakturu se řadí za sebou, takže stejné dny nelze vyúčtovat dvakrát.
+- U faktury v cizí měně je doklad ve stejné měně a paušální náklady (1 200 Kč) se
+  přepočtou kurzem ČNB platným v den vytvoření.
+
+### 25.9.5 Paušální náklady spojené s uplatněním pohledávky
+
+Mezi podnikateli má věřitel podle § 3 nařízení vlády č. 351/2013 Sb. a § 1972 občanského
+zákoníku vedle úroku nárok na **minimálně 1 200 Kč za každou pohledávku**. Aplikace je
+účtuje, jen když:
+
+- je zapnuto **Uplatnit i paušální náklady** v nastavení,
+- má klient vyplněné **IČO, DIČ nebo daňové číslo** (soukromá osoba je nemá a paušál se jí
+  neúčtuje),
+- nebyly pro danou fakturu už vyúčtovány.
+
+Jde o minimální částku; vyšší prokázané náklady aplikace neřeší.
+
+### 25.9.6 Číselník repo sazby ČNB
+
+Sazby jsou v **Systém → Číselníky → Repo sazba ČNB**. Číselník obsahuje historii od
+roku 2012 a je **jen k přidávání**: existující řádky se nikdy nepřepisují, aby bylo možné
+dřívější výpočty zopakovat.
+
+- Nové sazby doplňuje automaticky měsíční úloha `cron-refresh-repo-rates` (1. den v měsíci
+  v 07:10, viz [§ 5.5](05_Po_instalaci.md#55-cron-skripty)); jen přidává, nic nepřepisuje. Selže-li
+  a číselník přitom přestane být aktuální, zapíše se chyba do logu a v **Systém → Plánované úlohy**
+  a administrátor uvidí na přehledu upozornění (jen když je úrok z prodlení zapnutý).
+- **Načíst z ČNB** (jen administrátor) provede totéž ručně. Rozcházející se starší řádky nepřepíše,
+  jen na ně upozorní.
+- Novou sazbu lze zadat i ručně — musí platit od data pozdějšího než poslední řádek. Smazat
+  lze jen ručně zadané řádky.
+- Číselník si pamatuje, **k jakému dni je ověřený**. Začalo-li prodlení v pololetí, které
+  začalo až po tomto dni, nelze sazbě věřit: upomínky úrok neuvedou a vyúčtování se
+  zablokuje, dokud číselník nenačteš z ČNB.
+
+Bez měsíční úlohy číselník po každém zasedání bankovní rady ČNB, které změní sazbu, aktualizuj ručně.
+
+### 25.9.7 DPH a daně
+
+Úrok z prodlení a náhrada nákladů spojených s uplatněním pohledávky nejsou úplatou za
+zdanitelné plnění, proto jsou **mimo předmět DPH** (§ 2 zákona o DPH). Doklad na úrok
+proto:
+
+- má všechny řádky se sazbou 0 % a klasifikací **Mimo předmět daně**, takže se nedostane
+  do Knihy DPH, přiznání ani kontrolního hlášení a nevyvolá upozornění na neklasifikovaný
+  řádek ani na nulovou sazbu u plátce,
+- obsahuje v poznámce pod položkami větu, že jde o plnění mimo předmět DPH a že doklad není
+  daňovým dokladem,
+- je takový, i když je dodavatel plátcem DPH.
+
+Zdanění přijatého úroku v daních z příjmů aplikace neřeší.
+
+### 25.9.8 Co funkce nedělá
+
+- Nepočítá smluvní úrok z prodlení ani smluvní pokuty — jen zákonný úrok.
+- Nehlídá zánik práva na další úrok, když úroky dosáhnou výše jistiny a věřitel bez
+  rozumného důvodu otálel s uplatněním pohledávky (§ 1805 odst. 2 občanského zákoníku).
+- Nepočítá prodlení vzniklé před 1. 1. 2014.

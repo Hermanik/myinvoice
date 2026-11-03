@@ -152,6 +152,8 @@ export interface Invoice {
   discount_percent: number
   payment_method: PaymentMethod
   auto_send_reminders: boolean
+  /** Per-invoice late-interest override (null = inherit); set via the late-interest endpoint only. */
+  late_interest?: boolean | null
   amount_to_pay: number
   /** Suma evidovaných plateb (#89); zbývá k úhradě = amount_to_pay - paid_total. */
   paid_total: number
@@ -370,7 +372,84 @@ export interface InvoiceListMeta {
   pages?: number
 }
 
+export type LateInterestReason =
+  | 'disabled' | 'invalid_type' | 'invalid_state' | 'no_amount'
+  | 'interest_invoice' | 'not_overdue' | 'unsupported'
+
+export interface LateInterestSegment {
+  from: string
+  to: string
+  days: number
+  balance: number
+  year_days: number
+  interest: number
+}
+
+export interface LateInterestSummary {
+  as_of: string
+  currency: string
+  principal: number
+  due_date: string
+  delay_from: string
+  days: number
+  interest: number
+  outstanding: number
+  settled_on: string | null
+  annual_rate_percent: number
+  repo: { rate_percent: number; valid_from: string; half_year_start: string }
+  segments: LateInterestSegment[]
+  /** false = the repo-rate codebook is not known to be current. */
+  rate_verified: boolean
+  billed_through: string | null
+  billed_interest: number
+  billable: {
+    from: string | null
+    to: string | null
+    days: number
+    interest: number
+    segments: LateInterestSegment[]
+  }
+  fixed_cost: {
+    amount_czk: number
+    business_client: boolean
+    already_claimed: boolean
+    claimable: boolean
+  }
+}
+
+export interface LateInterestClaim {
+  invoice_id: number
+  varsymbol: string | null
+  status: InvoiceStatus
+  period_from: string
+  period_to: string
+  interest_amount: number
+  fixed_cost_amount: number | null
+}
+
+export interface LateInterestInfo {
+  invoice_id: number
+  as_of: string
+  enabled: boolean
+  enabled_source: 'invoice' | 'client' | 'supplier'
+  invoice_override: boolean | null
+  client_override: boolean | null
+  supplier_enabled: boolean
+  reason: LateInterestReason | null
+  message: string | null
+  summary: LateInterestSummary | null
+  settings: { enabled: boolean; in_reminders: boolean; claim_fixed_cost: boolean }
+  claims: LateInterestClaim[]
+}
+
 export const invoicesApi = {
+  getLateInterest: (id: number, asOf?: string) =>
+    api.get<LateInterestInfo>(`/invoices/${id}/late-interest`, { params: asOf ? { as_of: asOf } : {} }).then(r => r.data),
+  setLateInterest: (id: number, value: boolean | null) =>
+    api.put<LateInterestInfo>(`/invoices/${id}/late-interest`, { late_interest: value }).then(r => r.data),
+  createLateInterestInvoice: (id: number, body: { as_of?: string; include_fixed_cost?: boolean } = {}) =>
+    api.post<{ invoice: Invoice; warnings: string[] }>(`/invoices/${id}/late-interest-invoice`, body).then(r => r.data),
+
   listGrouped: (filters: ListFilters = {}) => {
     const params: Record<string, string | number> = {}
     if (filters.q) params.q = filters.q
