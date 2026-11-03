@@ -1072,7 +1072,14 @@
     "created_warning": "Plain-text token se zobrazí pouze jednou. Ulož si ho do password manageru — později už ho nezískáš.",
     "created_confirm": "Token jsem si bezpečně uložil/a a rozumím tomu, že ho znovu neuvidím.",
     "copy": "Kopírovat",
-    "copied": "Zkopírováno"
+    "copied": "Zkopírováno",
+    "mcp_title": "Připojení přes MCP",
+    "mcp_intro": "AI asistenti (Claude Code, Claude Desktop) se připojí na MCP endpoint stejným API tokenem. Pak umí vyhledávat faktury, klienty a pohledávky, sestavit přehled tržeb nebo připravit koncept faktury. Vystavení faktury a zápis úhrady vždy vyžadují tvůj výslovný souhlas.",
+    "mcp_endpoint": "Adresa MCP endpointu",
+    "mcp_claude_code": "Claude Code (příkaz v terminálu)",
+    "mcp_claude_desktop": "Claude Desktop (soubor claude_desktop_config.json)",
+    "mcp_token_hint": "Místo mi_pat_XXX… vlož svůj token. Token s rozsahem read zpřístupní jen čtecí nástroje; nástroje pro zápis vyžadují read & write. Má-li účet víc firem, použij token vázaný na konkrétního dodavatele.",
+    "mcp_desktop_hint": "Vyžaduje Node.js (příkaz npx). Po úpravě souboru Claude Desktop restartuj."
   },
   "updates": {
     "myucto_promo_title": "Přejděte zdarma na MyÚčto",

@@ -7,6 +7,7 @@ import { useSupplierStore } from '@/stores/supplier'
 import { useToast } from '@/composables/useToast'
 import { authApi } from '@/api/auth'
 import { getCredential, isWebAuthnAvailable, webAuthnErrorKey } from '@/security/webauthn'
+import { claudeCodeCommand, claudeDesktopConfig, mcpEndpoint } from '@/utils/mcpConnect'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -27,11 +28,20 @@ const passkeySupported = isWebAuthnAvailable()
 const form = ref({
   name: '',
   supplier_id: null as number | null,
-  // Default least-privilege — sladěno s backendem (CreateTokenAction).
+  // Default to least privilege, matching the backend (CreateTokenAction).
   scope: 'read' as 'read' | 'read_write',
   expires_at: '' as string,
   totp_code: '',
 })
+
+// MCP connection help (the endpoint lives on the same origin as this page)
+const mcpUrl = mcpEndpoint(window.location.origin)
+const mcpSnippets: { key: string; label: string; text: string; hint?: string }[] = [
+  { key: 'url', label: 'api_tokens.mcp_endpoint', text: mcpUrl },
+  { key: 'claude_code', label: 'api_tokens.mcp_claude_code', text: claudeCodeCommand(mcpUrl) },
+  { key: 'claude_desktop', label: 'api_tokens.mcp_claude_desktop', text: claudeDesktopConfig(mcpUrl), hint: 'api_tokens.mcp_desktop_hint' },
+]
+const copiedSnippet = ref('')
 
 // Created token reveal modal
 const revealed = ref<CreateTokenResult | null>(null)
@@ -130,9 +140,10 @@ async function submitCreate() {
     copied.value = false
     await load()
   } catch (e: any) {
-    // Server validuje supplier_id i expires_at ještě před spotřebou jednorázového
-    // proofu, takže po jiné než step-up chybě zůstává passkey ověření platné —
-    // nenutíme uživatele znovu sahat na klíč. TOTP kód je spotřebovaný vždy.
+    // The server validates supplier_id and expires_at before it consumes the one-time
+    // proof, so after any error other than a step-up one the passkey verification is
+    // still valid and the user does not have to touch the key again. A TOTP code is
+    // always consumed.
     if (e?.response?.data?.error?.code === 'step_up_proof_invalid') {
       passkeyStepUpToken.value = ''
     }
@@ -143,15 +154,27 @@ async function submitCreate() {
   }
 }
 
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success(t('api_tokens.copied'))
+    return true
+  } catch {
+    return false // ignore — user can copy manually
+  }
+}
+
 async function copyToken() {
   if (!revealed.value) return
-  try {
-    await navigator.clipboard.writeText(revealed.value.token)
-    copied.value = true
-    toast.success(t('api_tokens.copied'))
-  } catch {
-    /* ignore — user can copy manually */
-  }
+  copied.value = await copyText(revealed.value.token)
+}
+
+async function copySnippet(key: string, text: string) {
+  if (!(await copyText(text))) return
+  copiedSnippet.value = key
+  setTimeout(() => {
+    if (copiedSnippet.value === key) copiedSnippet.value = ''
+  }, 1500)
 }
 
 function closeReveal() {
@@ -213,6 +236,25 @@ onMounted(load)
         <a href="/api/docs" target="_blank" class="text-primary-600 hover:underline">{{ t('api_tokens.docs_link') }}</a>
       </p>
     </div>
+
+    <section class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-4 mb-4 text-sm text-neutral-700" data-testid="mcp-help">
+      <h2 class="text-base font-semibold text-neutral-900">{{ t('api_tokens.mcp_title') }}</h2>
+      <p class="mt-1">{{ t('api_tokens.mcp_intro') }}</p>
+
+      <div v-for="snippet in mcpSnippets" :key="snippet.key" class="mt-3">
+        <div class="flex items-center justify-between gap-2">
+          <div class="font-medium">{{ t(snippet.label) }}</div>
+          <button type="button" @click="copySnippet(snippet.key, snippet.text)"
+            class="cursor-pointer shrink-0 h-8 px-3 border border-neutral-300 rounded-md text-neutral-700 hover:bg-neutral-50">
+            {{ copiedSnippet === snippet.key ? '✓ ' + t('api_tokens.copied') : t('api_tokens.copy') }}
+          </button>
+        </div>
+        <pre class="mt-1 bg-neutral-900 text-neutral-100 rounded-md px-3 py-2 font-mono text-xs whitespace-pre-wrap break-all select-all">{{ snippet.text }}</pre>
+        <p v-if="snippet.hint" class="text-xs text-neutral-500 mt-1">{{ t(snippet.hint) }}</p>
+      </div>
+
+      <p class="text-xs text-neutral-500 mt-3">{{ t('api_tokens.mcp_token_hint') }}</p>
+    </section>
 
     <div v-if="error" class="rounded-md bg-danger-50 border border-danger-500/40 px-3 py-2 mb-3 text-sm text-danger-500">
       {{ error }}
