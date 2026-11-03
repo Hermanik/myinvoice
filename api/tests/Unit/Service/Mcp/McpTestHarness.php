@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use MyInvoice\Service\Mcp\InternalApiClient;
+use MyInvoice\Service\Mcp\McpConfirmation;
 use MyInvoice\Service\Mcp\McpResponse;
 use MyInvoice\Service\Mcp\McpServer;
 use MyInvoice\Service\Mcp\McpToolRegistry;
@@ -26,20 +27,24 @@ trait McpTestHarness
 {
     protected FakeApi $api;
 
+    protected FakeClock $clock;
+
     /** @var array<string,mixed> Extra config merged over the test defaults */
     protected array $config = [];
 
     protected function server(): McpServer
     {
         $this->api ??= new FakeApi();
+        $this->clock ??= new FakeClock();
 
         $version = $this->createStub(VersionService::class);
         $version->method('getCurrentVersion')->willReturn('9.9.9');
-        $config = new Config($this->config + ['app' => ['url' => 'https://faktury.example.test']]);
+        $config = new Config($this->config + ['app' => ['url' => 'https://faktury.example.test', 'pepper' => 'test-pepper-0123456789abcdef']]);
 
         return new McpServer(
             new McpToolRegistry(new InvoiceTools(new OverduePolicy($config)), new ClientTools(), new PurchaseInvoiceTools(), new RevenueTools(), new CompanyTools()),
             new InternalApiClient($this->api),
+            new McpConfirmation($config, $this->clock),
             $version,
             $config,
             new NullLogger(),
@@ -75,6 +80,44 @@ trait McpTestHarness
             'method' => 'tools/call',
             'params' => ['name' => $tool, 'arguments' => $arguments],
         ]));
+    }
+
+    /**
+     * Runs the two-step flow of a guarded write tool: an unconfirmed call to obtain the confirmation token,
+     * then the confirmed call with the same arguments. Returns the result of the confirmed call.
+     *
+     * @param array<string,mixed> $arguments
+     * @return array<string,mixed>
+     */
+    protected function confirmedCall(string $tool, array $arguments, ?ServerRequestInterface $request = null): array
+    {
+        $preview = $this->call($tool, $arguments, $request);
+        self::assertTrue($preview['structuredContent']['requires_confirmation'] ?? false, json_encode($preview));
+
+        return $this->call($tool, $arguments + ['confirm' => true, 'confirmation_token' => $preview['structuredContent']['confirmation_token']], $request);
+    }
+
+    /** @return array<string,array<string,mixed>> The advertised tools by name, as the default caller sees them */
+    protected function toolsByName(): array
+    {
+        return array_column($this->ok($this->server()->handle($this->request(), ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list']))['tools'], null, 'name');
+    }
+
+    /**
+     * @param list<array<string,mixed>> $payments
+     */
+    protected function stubPayments(int $invoiceId = 7, array $payments = [], float $remaining = 1210.0): void
+    {
+        $this->api->on('GET /api/invoices/' . $invoiceId . '/payments', [200, ['payments' => $payments, 'remaining' => $remaining]]);
+    }
+
+    /**
+     * @param array<string,mixed> $overrides
+     * @return array<string,mixed>
+     */
+    protected function draftLine(array $overrides = []): array
+    {
+        return $overrides + ['description' => 'x', 'quantity' => 1, 'unit_price_without_vat' => 1, 'vat_rate_id' => 1];
     }
 
     /** @return array<string,mixed> The JSON-RPC `result` of a successful response */

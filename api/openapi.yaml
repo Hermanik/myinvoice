@@ -212,8 +212,11 @@ paths:
 
         Nástroje: `list_invoices`, `get_invoice`, `list_unpaid_invoices`, `list_clients`, `get_client`,
         `revenue_summary`, `list_purchase_invoices`, `list_recurring_templates`, `get_supplier_settings`
-        (čtení) a `create_draft_invoice`, `issue_invoice`, `mark_invoice_paid` (zápis; poslední dva vyžadují
-        argument `confirm: true`). Chyby nástrojů se vrací jako výsledek s `isError: true`.
+        (čtení) a `create_draft_invoice`, `issue_invoice`, `mark_invoice_paid` (zápis). Poslední dva jsou
+        dvoukrokové: první volání vrátí náhled a `confirmation_token` jako běžný výsledek (HMAC, platí 10 minut,
+        vázaný na token, nástroj, argumenty a stav dokladu), změnu provede až volání se stejnými argumenty,
+        `confirm: true` a tímto tokenem.
+        Chyby nástrojů se vrací jako výsledek s `isError: true`.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - in: header

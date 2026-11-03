@@ -12,7 +12,8 @@ namespace MyInvoice\Service\Mcp;
  */
 final class McpFormat
 {
-    private const UNPAID_STATUSES = ['issued', 'sent', 'reminded'];
+    /** Statuses of an issued invoice that is still open for payment. */
+    public const UNPAID_STATUSES = ['issued', 'sent', 'reminded'];
 
     /**
      * Row of an invoice listing (also usable for a full invoice detail).
@@ -92,6 +93,7 @@ final class McpFormat
             'reverse_charge'    => (bool) ($invoice['reverse_charge'] ?? false),
             'prices_include_vat' => (bool) ($invoice['prices_include_vat'] ?? false),
             'discount_percent'  => (float) ($invoice['discount_percent'] ?? 0),
+            'auto_send_reminders' => (bool) ($invoice['auto_send_reminders'] ?? false),
             'exchange_rate'     => isset($invoice['exchange_rate']) ? (float) $invoice['exchange_rate'] : null,
             'note_above_items'  => $invoice['note_above_items'] ?? null,
             'note_below_items'  => $invoice['note_below_items'] ?? null,
@@ -151,6 +153,12 @@ final class McpFormat
             'pages'    => (int) ($meta['pages'] ?? 1),
             'total'    => (int) ($meta['total'] ?? 0),
         ];
+    }
+
+    /** Money as shown to users in messages: `1 234,50`. */
+    public static function money(float $amount): string
+    {
+        return number_format($amount, 2, ',', ' ');
     }
 
     /**

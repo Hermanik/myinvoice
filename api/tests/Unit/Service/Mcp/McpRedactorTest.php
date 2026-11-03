@@ -32,6 +32,13 @@ final class McpRedactorTest extends TestCase
         self::assertSame($data, McpRedactor::redact($data));
     }
 
+    public function testConfirmationTokenIsMeantForTheModelAndSurvives(): void
+    {
+        $data = ['error' => ['code' => 'confirmation_required', 'confirmation_token' => '1.abc', 'api_token' => 'x']];
+
+        self::assertSame(['error' => ['code' => 'confirmation_required', 'confirmation_token' => '1.abc']], McpRedactor::redact($data));
+    }
+
     public function testValuesAreNotInspected(): void
     {
         $data = ['note' => 'the password is hidden in a token'];

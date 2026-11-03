@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Mcp;
 
+use MyInvoice\Middleware\AuthMiddleware;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
 /**
@@ -22,6 +23,7 @@ final class McpToolContext
         private readonly Request $request,
         private readonly InternalApiClient $api,
         private readonly string $appUrl,
+        private readonly McpConfirmation $confirmation,
     ) {}
 
     /**
@@ -84,6 +86,33 @@ final class McpToolContext
     public function appUrl(): string
     {
         return $this->appUrl;
+    }
+
+    /**
+     * Whether a write call carries `confirm: true` and a valid confirmation token for exactly these arguments
+     * and this state (see McpConfirmation).
+     *
+     * @param array<string,mixed> $arguments
+     * @param array<string,mixed> $state
+     */
+    public function isConfirmed(string $tool, array $arguments, array $state): bool
+    {
+        return $this->confirmation->verify($this->apiTokenId(), $tool, $arguments, $state);
+    }
+
+    /**
+     * @param array<string,mixed> $arguments
+     * @param array<string,mixed> $state
+     * @return array{token: string, expires_at: string}
+     */
+    public function issueConfirmation(string $tool, array $arguments, array $state): array
+    {
+        return $this->confirmation->issue($this->apiTokenId(), $tool, $arguments, $state);
+    }
+
+    private function apiTokenId(): int
+    {
+        return (int) (((array) $this->request->getAttribute(AuthMiddleware::ATTR_API_TOKEN, []))['id'] ?? 0);
     }
 
     /**

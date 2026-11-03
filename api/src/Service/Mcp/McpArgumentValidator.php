@@ -6,7 +6,7 @@ namespace MyInvoice\Service\Mcp;
 
 /**
  * Validates tool arguments against the JSON Schema subset used by the tool
- * definitions: type, enum, minimum/maximum, minLength/maxLength, minItems,
+ * definitions: type, enum, minimum/maximum, minLength/maxLength, minItems/maxItems,
  * format "date", properties/required/additionalProperties and items.
  *
  * Messages are Czech (the language of the app); they go straight to the model
@@ -57,6 +57,9 @@ final class McpArgumentValidator
         if (is_array($value) && array_is_list($value) && isset($schema['items'])) {
             if (isset($schema['minItems']) && count($value) < $schema['minItems']) {
                 $errors[] = $label . ': minimální počet položek je ' . $schema['minItems'] . '.';
+            }
+            if (isset($schema['maxItems']) && count($value) > $schema['maxItems']) {
+                $errors[] = $label . ': maximální počet položek je ' . $schema['maxItems'] . '.';
             }
             foreach ($value as $i => $item) {
                 $errors = [...$errors, ...self::validate($schema['items'], $item, $path . '[' . $i . ']')];

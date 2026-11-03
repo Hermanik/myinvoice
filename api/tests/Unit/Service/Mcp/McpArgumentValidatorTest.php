@@ -20,7 +20,7 @@ final class McpArgumentValidatorTest extends TestCase
             'flag' => ['type' => 'boolean'],
             'either' => ['type' => ['string', 'array'], 'items' => ['type' => 'string']],
             'lines' => [
-                'type' => 'array', 'minItems' => 1,
+                'type' => 'array', 'minItems' => 1, 'maxItems' => 2,
                 'items' => ['type' => 'object', 'properties' => ['q' => ['type' => 'number']], 'required' => ['q'], 'additionalProperties' => false],
             ],
         ],
@@ -60,6 +60,7 @@ final class McpArgumentValidatorTest extends TestCase
         yield 'unknown property' => [['id' => 1, 'extra' => 1], 'Neznámý argument `extra`'];
         yield 'union item type' => [['id' => 1, 'either' => [1]], '`either[0]`'];
         yield 'too few items' => [['id' => 1, 'lines' => []], 'minimální počet'];
+        yield 'too many items' => [['id' => 1, 'lines' => [['q' => 1], ['q' => 2], ['q' => 3]]], 'maximální počet'];
         yield 'nested required' => [['id' => 1, 'lines' => [[]]], 'lines[0].q'];
         yield 'nested unknown' => [['id' => 1, 'lines' => [['q' => 1, 'z' => 1]]], 'lines[0].z'];
     }

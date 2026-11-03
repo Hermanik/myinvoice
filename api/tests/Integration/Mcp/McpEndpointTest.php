@@ -129,6 +129,21 @@ final class McpEndpointTest extends TestCase
         return $body['result'];
     }
 
+    /**
+     * The two-step flow of the guarded write tools: an unconfirmed call yields the confirmation token,
+     * the confirmed call repeats the same arguments with it.
+     *
+     * @param array<string,mixed> $arguments
+     * @return array<string,mixed> result of the confirmed call
+     */
+    private function confirmed(string $token, string $name, array $arguments): array
+    {
+        $preview = $this->tool($token, $name, $arguments);
+        self::assertTrue($preview['structuredContent']['requires_confirmation'] ?? false, json_encode($preview));
+
+        return $this->tool($token, $name, $arguments + ['confirm' => true, 'confirmation_token' => $preview['structuredContent']['confirmation_token']]);
+    }
+
     private function createClient(string $adminToken, int $supplierId, string $name): int
     {
         $response = $this->send('POST', '/api/clients', json_encode([
@@ -302,16 +317,25 @@ final class McpEndpointTest extends TestCase
         self::assertSame('draft', $invoice['status']);
         self::assertNull($invoice['number']);
         self::assertSame(2000.0, (float) $invoice['total_without_vat']);
+        self::assertFalse($invoice['auto_send_reminders'], 'MCP drafts do not opt in to reminder e-mails');
+        self::assertSame(0, (int) $this->pdo->query("SELECT auto_send_reminders FROM invoices WHERE id = {$id}")->fetchColumn());
 
-        // Issuing is refused without confirm: true, and nothing changes.
-        foreach ([[], ['confirm' => false]] as $extra) {
+        // Issuing is refused without the confirmation token, and nothing changes.
+        $preview = $this->tool($token, 'issue_invoice', ['invoice_id' => $id]);
+        self::assertFalse($preview['isError'], 'a preview is a normal result');
+        self::assertTrue($preview['structuredContent']['requires_confirmation']);
+        $confirmationToken = $preview['structuredContent']['confirmation_token'];
+        foreach ([['confirm' => false], ['confirm' => true], ['confirm' => true, 'confirmation_token' => 'forged']] as $extra) {
             $refused = $this->tool($token, 'issue_invoice', ['invoice_id' => $id] + $extra);
-            self::assertTrue($refused['isError']);
-            self::assertSame('confirmation_required', $refused['structuredContent']['error']['code']);
+            self::assertTrue($refused['structuredContent']['requires_confirmation'] ?? false, json_encode($extra));
         }
+        // A token minted for another API token does not unlock the call either.
+        $other = $this->token('read_write');
+        $stolen = $this->tool($other, 'issue_invoice', ['invoice_id' => $id, 'confirm' => true, 'confirmation_token' => $confirmationToken]);
+        self::assertTrue($stolen['structuredContent']['requires_confirmation']);
         self::assertSame('draft', $this->tool($token, 'get_invoice', ['invoice_id' => $id])['structuredContent']['invoice']['status']);
 
-        $issued = $this->tool($token, 'issue_invoice', ['invoice_id' => $id, 'confirm' => true]);
+        $issued = $this->tool($token, 'issue_invoice', ['invoice_id' => $id, 'confirm' => true, 'confirmation_token' => $confirmationToken]);
         self::assertFalse($issued['isError'], json_encode($issued));
         $number = $issued['structuredContent']['invoice']['number'];
         self::assertNotEmpty($number);
@@ -320,13 +344,29 @@ final class McpEndpointTest extends TestCase
         // Lookup by number resolves to the same invoice.
         $byNumber = $this->tool($token, 'get_invoice', ['number' => $number]);
         self::assertSame($id, $byNumber['structuredContent']['invoice']['id']);
+        $total = (float) $byNumber['structuredContent']['invoice']['total_with_vat'];
 
-        // Payment: refused without confirm, partial with amount, remainder without.
-        self::assertTrue($this->tool($token, 'mark_invoice_paid', ['invoice_id' => $id, 'amount' => 100])['isError']);
-        $partial = $this->tool($token, 'mark_invoice_paid', ['invoice_id' => $id, 'confirm' => true, 'amount' => 100, 'paid_at' => date('Y-m-d')]);
+        // Payments: the token is required, a partial payment is recorded, a repeat is refused as a duplicate and
+        // an overpayment is refused; the remainder is booked through /mark-paid.
+        $today = date('Y-m-d');
+        $payArgs = ['invoice_id' => $id, 'amount' => 100, 'paid_at' => $today];
+        $payPreview = $this->tool($token, 'mark_invoice_paid', $payArgs);
+        self::assertTrue($payPreview['structuredContent']['requires_confirmation']);
+        $partial = $this->tool($token, 'mark_invoice_paid', $payArgs + ['confirm' => true, 'confirmation_token' => $payPreview['structuredContent']['confirmation_token']]);
         self::assertFalse($partial['isError'], json_encode($partial));
         self::assertFalse($partial['structuredContent']['became_paid']);
-        $full = $this->tool($token, 'mark_invoice_paid', ['invoice_id' => $id, 'confirm' => true]);
+
+        // Replaying the approved call books nothing: the invoice changed, so the token no longer fits (and the
+        // payment would be a duplicate anyway).
+        $replay = $this->tool($token, 'mark_invoice_paid', $payArgs + ['confirm' => true, 'confirmation_token' => $payPreview['structuredContent']['confirmation_token']]);
+        self::assertSame('duplicate_payment', $replay['structuredContent']['error']['code']);
+        $duplicate = $this->tool($token, 'mark_invoice_paid', $payArgs);
+        self::assertSame('duplicate_payment', $duplicate['structuredContent']['error']['code']);
+        $overpaid = $this->tool($token, 'mark_invoice_paid', ['invoice_id' => $id, 'amount' => $total, 'paid_at' => $today]);
+        self::assertSame('overpayment', $overpaid['structuredContent']['error']['code']);
+        self::assertCount(1, $this->tool($token, 'get_invoice', ['invoice_id' => $id])['structuredContent']['invoice']['payments'], 'refused calls book nothing');
+
+        $full = $this->confirmed($token, 'mark_invoice_paid', ['invoice_id' => $id]);
         self::assertFalse($full['isError'], json_encode($full));
         self::assertTrue($full['structuredContent']['became_paid']);
 
@@ -334,6 +374,11 @@ final class McpEndpointTest extends TestCase
         self::assertSame('paid', $final['status']);
         self::assertSame(0.0, (float) $final['outstanding']);
         self::assertCount(2, $final['payments']);
+
+        // A paid invoice takes no further payment, however the call is phrased.
+        $late = $this->tool($token, 'mark_invoice_paid', ['invoice_id' => $id, 'amount' => 5000, 'paid_at' => $today]);
+        self::assertSame('invalid_state', $late['structuredContent']['error']['code']);
+        self::assertCount(2, $this->tool($token, 'get_invoice', ['invoice_id' => $id])['structuredContent']['invoice']['payments']);
 
         // Mutations are attributed to MCP in the audit log.
         $stmt = $this->pdo->prepare("SELECT user_agent FROM activity_log WHERE entity_type = 'invoice' AND entity_id = ? AND action IN ('invoice.created','invoice.issued','invoice.paid')");
@@ -343,6 +388,43 @@ final class McpEndpointTest extends TestCase
         foreach ($agents as $agent) {
             self::assertStringStartsWith('MyInvoice-MCP', (string) $agent);
         }
+    }
+
+    public function testAutomaticRemindersAreOptIn(): void
+    {
+        $token = $this->token('read_write');
+        $clientId = $this->createClient($token, $this->supplierIds[0], $this->tag . ' reminders');
+        $item = ['description' => 'x', 'quantity' => 1, 'unit_price_without_vat' => 10, 'vat_rate_id' => $this->vatRateId($token)];
+
+        $on = $this->tool($token, 'create_draft_invoice', ['client_id' => $clientId, 'items' => [$item], 'auto_send_reminders' => true]);
+        self::assertFalse($on['isError'], json_encode($on));
+        $id = (int) $on['structuredContent']['invoice']['id'];
+        $this->invoiceIds[] = $id;
+
+        self::assertSame(1, (int) $this->pdo->query("SELECT auto_send_reminders FROM invoices WHERE id = {$id}")->fetchColumn());
+        $preview = $this->tool($token, 'issue_invoice', ['invoice_id' => $id]);
+        self::assertTrue($preview['structuredContent']['preview']['auto_send_reminders']);
+        self::assertStringContainsString('automatické upomínky ano', $preview['content'][0]['text']);
+    }
+
+    public function testOutOfBoundsDraftsNeverReachTheDatabase(): void
+    {
+        $token = $this->token('read_write');
+        $clientId = $this->createClient($token, $this->supplierIds[0], $this->tag . ' bounds');
+        $before = (int) $this->pdo->query('SELECT COUNT(*) FROM invoices')->fetchColumn();
+        $itemsBefore = (int) $this->pdo->query('SELECT COUNT(*) FROM invoice_items')->fetchColumn();
+        $line = ['description' => 'x', 'quantity' => 1, 'unit_price_without_vat' => 1, 'vat_rate_id' => 1];
+
+        foreach ([
+            array_fill(0, 201, $line),
+            [['quantity' => 999_999, 'unit_price_without_vat' => 999_999_999] + $line],
+        ] as $items) {
+            $result = $this->tool($token, 'create_draft_invoice', ['client_id' => $clientId, 'items' => $items]);
+            self::assertTrue($result['isError']);
+        }
+
+        self::assertSame($before, (int) $this->pdo->query('SELECT COUNT(*) FROM invoices')->fetchColumn(), 'no draft was created');
+        self::assertSame($itemsBefore, (int) $this->pdo->query('SELECT COUNT(*) FROM invoice_items')->fetchColumn());
     }
 
     // ---- secrets --------------------------------------------------------------------------

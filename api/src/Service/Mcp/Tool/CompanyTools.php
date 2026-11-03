@@ -85,6 +85,7 @@ final class CompanyTools implements McpToolProvider
                 . 'credentials, SMTP/IMAP settings and API keys are never exposed.',
             inputSchema: ['type' => 'object', 'properties' => new \stdClass(), 'additionalProperties' => false],
             write: false,
+            thirdPartyText: false,
             handler: function (array $a, McpToolContext $c): array {
                 $s = $c->get('/api/settings/supplier');
                 $rates = $c->get('/api/codebooks/vat-rates', ['country' => 'CZ', 'active_on' => date('Y-m-d')]);

@@ -13,6 +13,9 @@ final class McpRedactor
 {
     private const SECRET_KEY = '/token|password|passwd|passphrase|secret|api_?key|private_?key|credential|_enc$/i';
 
+    /** Matches the pattern above but is meant for the model: an HMAC bound to one tool call (McpConfirmation). */
+    private const SAFE_KEYS = ['confirmation_token'];
+
     /**
      * @param array<array-key,mixed> $data
      * @return array<array-key,mixed>
@@ -21,7 +24,7 @@ final class McpRedactor
     {
         $clean = [];
         foreach ($data as $key => $value) {
-            if (is_string($key) && preg_match(self::SECRET_KEY, $key) === 1) {
+            if (is_string($key) && !in_array($key, self::SAFE_KEYS, true) && preg_match(self::SECRET_KEY, $key) === 1) {
                 continue;
             }
             $clean[$key] = is_array($value) ? self::redact($value) : $value;

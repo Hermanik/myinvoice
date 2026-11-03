@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Mcp\Tool;
 
+use MyInvoice\Service\Invoice\InvoicePaymentService;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use MyInvoice\Service\Mcp\McpFormat;
 use MyInvoice\Service\Mcp\McpTool;
@@ -19,12 +20,27 @@ final class InvoiceTools implements McpToolProvider
     private const CREATE_TYPES = ['invoice', 'proforma', 'credit_note'];
     private const PAYMENT_METHODS = ['bank_transfer', 'card', 'cash', 'other'];
 
+    /** Document types a payment can be recorded on (same as InvoicePaymentService). */
+    private const PAYABLE_TYPES = ['invoice', 'proforma'];
+
     /** Default `limit` of list_unpaid_invoices. */
     private const UNPAID_DEFAULT_LIMIT = 50;
 
-    private const CONFIRM_SCHEMA = [
-        'type' => 'boolean',
-        'description' => 'Must be exactly true to proceed; only after explicit user approval.',
+    /** Bounds that keep a draft within the database columns (quantity DECIMAL(10,3), prices/totals DECIMAL(12,2)). */
+    private const MAX_ITEMS = 200;
+    private const MAX_QUANTITY = 1_000_000;
+    private const MAX_AMOUNT = 1_000_000_000;
+
+    private const CONFIRMATION_PROPERTIES = [
+        'confirm' => [
+            'type' => 'boolean',
+            'description' => 'Must be exactly true, together with `confirmation_token`, and only after explicit user approval.',
+        ],
+        'confirmation_token' => [
+            'type' => 'string',
+            'maxLength' => 100,
+            'description' => 'The `confirmation_token` returned by the unconfirmed call with exactly the same arguments (valid for 10 minutes).',
+        ],
     ];
 
     public function __construct(private readonly OverduePolicy $overdue) {}
@@ -205,7 +221,8 @@ final class InvoiceTools implements McpToolProvider
                 . 'match POST /api/v1/invoices. Dates default to today, due date to the client/project/company payment '
                 . 'terms, currency to the project/client/company default. Every item needs a VAT rate: pass `vat_rate` '
                 . '(percent, e.g. 21; resolved to the rate valid on the document date) or an explicit `vat_rate_id` '
-                . '(see get_supplier_settings). Prices are without VAT unless `prices_include_vat` is true.',
+                . '(see get_supplier_settings). Prices are without VAT unless `prices_include_vat` is true. Automatic '
+                . 'payment reminders (e-mails to the client) are OFF for drafts created here unless `auto_send_reminders` is true.',
             inputSchema: [
                 'type' => 'object',
                 'properties' => [
@@ -213,14 +230,15 @@ final class InvoiceTools implements McpToolProvider
                     'items' => [
                         'type' => 'array',
                         'minItems' => 1,
-                        'description' => 'Invoice lines.',
+                        'maxItems' => self::MAX_ITEMS,
+                        'description' => 'Invoice lines (at most ' . self::MAX_ITEMS . ').',
                         'items' => [
                             'type' => 'object',
                             'properties' => [
                                 'description' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 500, 'description' => 'Line text.'],
-                                'quantity' => ['type' => 'number', 'description' => 'Quantity, must not be 0 (negative only for discount lines).'],
+                                'quantity' => ['type' => 'number', 'minimum' => -self::MAX_QUANTITY, 'maximum' => self::MAX_QUANTITY, 'description' => 'Quantity, must not be 0 (negative only for discount lines).'],
                                 'unit' => ['type' => 'string', 'maxLength' => 20, 'description' => 'Unit, e.g. ks, h, měs (default ks).'],
-                                'unit_price_without_vat' => ['type' => 'number', 'description' => 'Unit price without VAT (with VAT when `prices_include_vat` is true).'],
+                                'unit_price_without_vat' => ['type' => 'number', 'minimum' => -self::MAX_AMOUNT, 'maximum' => self::MAX_AMOUNT, 'description' => 'Unit price without VAT (with VAT when `prices_include_vat` is true).'],
                                 'vat_rate' => ['type' => 'number', 'minimum' => 0, 'maximum' => 100, 'description' => 'VAT rate in percent (e.g. 21, 12, 0). Alternative to `vat_rate_id`.'],
                                 'vat_rate_id' => ['type' => 'integer', 'description' => 'VAT rate id from get_supplier_settings; takes precedence over `vat_rate`.'],
                             ],
@@ -240,15 +258,19 @@ final class InvoiceTools implements McpToolProvider
                     'reverse_charge' => ['type' => 'boolean', 'description' => 'Reverse charge (přenesená daňová povinnost); default from the client.'],
                     'prices_include_vat' => ['type' => 'boolean', 'description' => 'Item prices already include VAT.'],
                     'discount_percent' => ['type' => 'number', 'minimum' => 0, 'maximum' => 100, 'description' => 'Whole-invoice discount in percent.'],
-                    'advance_paid_amount' => ['type' => 'number', 'minimum' => 0, 'description' => 'Advance payment to deduct from the total.'],
-                    'note_above_items' => ['type' => 'string', 'description' => 'Text above the items.'],
-                    'note_below_items' => ['type' => 'string', 'description' => 'Text below the items.'],
+                    'advance_paid_amount' => ['type' => 'number', 'minimum' => 0, 'maximum' => self::MAX_AMOUNT, 'description' => 'Advance payment to deduct from the total.'],
+                    'auto_send_reminders' => ['type' => 'boolean', 'description' => 'Let the reminder job e-mail the client when the invoice is overdue (default false).'],
+                    'note_above_items' => ['type' => 'string', 'maxLength' => 5000, 'description' => 'Text above the items.'],
+                    'note_below_items' => ['type' => 'string', 'maxLength' => 5000, 'description' => 'Text below the items.'],
                 ],
                 'required' => ['client_id', 'items'],
                 'additionalProperties' => false,
             ],
             write: true,
+            destructive: false,
             handler: function (array $a, McpToolContext $c): array {
+                // Everything that could make the create fail half-way is rejected before the first call.
+                $this->assertAmountsInRange($a['items']);
                 $documentDate = (string) ($a['tax_date'] ?? $a['issue_date'] ?? date('Y-m-d'));
 
                 $items = [];
@@ -272,7 +294,8 @@ final class InvoiceTools implements McpToolProvider
                 }
 
                 try {
-                    $created = $c->post('/api/invoices', array_replace($a, ['items' => $items]));
+                    // The app defaults new drafts to automatic reminders; here they are opt-in.
+                    $created = $c->post('/api/invoices', array_replace(['auto_send_reminders' => false], $a, ['items' => $items]));
                 } catch (McpToolError $e) {
                     // An unknown client surfaces as an invalid currency; name the real cause when that is what failed.
                     throw $e->httpStatus === 400 ? $this->explainBadRequest($c, (int) $a['client_id'], $e) : $e;
@@ -294,21 +317,38 @@ final class InvoiceTools implements McpToolProvider
             name: 'issue_invoice',
             title: 'Issue a draft invoice',
             description: 'Issues a draft invoice (draft -> issued): assigns the invoice number and locks the document. '
-                . 'This is irreversible except by cancelling or crediting the invoice, and it does not send e-mail. '
-                . 'Requires `confirm: true`; only set it after the user has explicitly approved issuing THIS invoice. '
-                . 'Without confirmation the tool returns a preview and changes nothing.',
+                . 'This is irreversible except by cancelling or crediting the invoice, and it does not send e-mail itself. '
+                . 'If automatic reminders are on for the invoice (`auto_send_reminders`, off for drafts made by '
+                . 'create_draft_invoice unless requested), the reminder job may e-mail the client once it is overdue. '
+                . 'Two steps: the first call only returns a preview and a `confirmation_token`; after the user has '
+                . 'explicitly approved issuing THIS invoice, repeat the call with `confirm: true` and that token. '
+                . 'Editing the draft in between invalidates the token.',
             inputSchema: [
                 'type' => 'object',
                 'properties' => [
                     'invoice_id' => ['type' => 'integer', 'description' => 'Draft invoice id (from create_draft_invoice or list_invoices).'],
-                    'confirm' => self::CONFIRM_SCHEMA,
-                ],
+                ] + self::CONFIRMATION_PROPERTIES,
                 'required' => ['invoice_id'],
                 'additionalProperties' => false,
             ],
             write: true,
             handler: function (array $a, McpToolContext $c): array {
-                $id = $this->confirmedInvoiceId($a, $c, 'Vystavení faktury je nevratné (přidělí se číslo a doklad se zamkne).');
+                $id = (int) $a['invoice_id'];
+                $invoice = $c->get('/api/invoices/' . $id);
+                if (($invoice['status'] ?? null) !== 'draft') {
+                    throw new McpToolError('Lze vystavit jen koncept (draft); faktura má stav ' . ($invoice['status'] ?? '?') . '.', 'invalid_state', 409);
+                }
+                $pending = $this->confirmationPending(
+                    'issue_invoice',
+                    $a,
+                    $c,
+                    $invoice,
+                    'Vystavení faktury je nevratné (přidělí se číslo a doklad se zamkne).',
+                    ['total_with_vat' => $invoice['total_with_vat'] ?? null, 'client_id' => $invoice['client_id'] ?? null, 'updated_at' => $invoice['updated_at'] ?? null],
+                );
+                if ($pending !== null) {
+                    return $pending;
+                }
 
                 $issued = $c->post('/api/invoices/' . $id . '/issue');
                 return ['issued' => true, 'invoice' => McpFormat::invoiceRow($issued) + ['url' => McpFormat::invoiceUrl($c->appUrl(), $id)]];
@@ -323,26 +363,50 @@ final class InvoiceTools implements McpToolProvider
             title: 'Record payment of an invoice',
             description: 'Records a payment on an issued/sent/reminded invoice. Without `amount` the whole remaining '
                 . 'amount is marked paid; with `amount` a (partial) payment is recorded and the invoice becomes paid '
-                . 'once the payments cover it. Requires `confirm: true`; only set it after the user has confirmed the '
-                . 'payment (date and amount). Without confirmation the tool returns a preview and changes nothing.',
+                . 'once the payments cover it. A payment above the remaining amount, or one identical (amount and date) '
+                . 'to an existing payment, is refused (`allow_duplicate: true` overrides the duplicate check only). '
+                . 'Two steps: the first call only returns a preview and a `confirmation_token`; after the user has '
+                . 'confirmed the payment (date and amount), repeat the call with `confirm: true` and that token. '
+                . 'Any payment recorded in between invalidates the token.',
             inputSchema: [
                 'type' => 'object',
                 'properties' => [
                     'invoice_id' => ['type' => 'integer', 'description' => 'Invoice id.'],
-                    'confirm' => self::CONFIRM_SCHEMA,
                     'paid_at' => ['type' => 'string', 'format' => 'date', 'description' => 'Payment date YYYY-MM-DD (default today).'],
-                    'amount' => ['type' => 'number', 'minimum' => 0.01, 'description' => 'Paid amount in the invoice currency; omit to pay the full remainder.'],
-                ],
+                    'amount' => ['type' => 'number', 'minimum' => 0.01, 'maximum' => self::MAX_AMOUNT, 'description' => 'Paid amount in the invoice currency; omit to pay the full remainder.'],
+                    'allow_duplicate' => ['type' => 'boolean', 'description' => 'Record a payment even though one with the same amount and date already exists (default false).'],
+                ] + self::CONFIRMATION_PROPERTIES,
                 'required' => ['invoice_id'],
                 'additionalProperties' => false,
             ],
             write: true,
             handler: function (array $a, McpToolContext $c): array {
-                $id = $this->confirmedInvoiceId($a, $c, 'Zaevidování úhrady změní stav faktury.');
-
+                $id = (int) $a['invoice_id'];
                 $paidAt = (string) ($a['paid_at'] ?? date('Y-m-d'));
-                if (isset($a['amount'])) {
-                    $result = $c->post('/api/invoices/' . $id . '/payments', ['amount' => $a['amount'], 'paid_on' => $paidAt]);
+                $amount = isset($a['amount']) ? round((float) $a['amount'], 2) : null;
+                $invoice = $c->get('/api/invoices/' . $id);
+
+                $this->assertOpenForPayment($invoice);
+                if ($amount !== null) {
+                    $payments = $c->get('/api/invoices/' . $id . '/payments');
+                    $this->assertPaymentAllowed($invoice, $payments, $amount, $paidAt, !empty($a['allow_duplicate']));
+                }
+                $pending = $this->confirmationPending(
+                    'mark_invoice_paid',
+                    $a,
+                    $c,
+                    $invoice,
+                    'Zaevidování úhrady změní stav faktury.',
+                    // Bound to what is already paid and to the resolved date, so a changed invoice needs a new preview.
+                    ['paid_total' => $invoice['paid_total'] ?? null, 'amount_to_pay' => $invoice['amount_to_pay'] ?? null, 'paid_at' => $paidAt],
+                    ['paid_at' => $paidAt, 'amount' => $amount],
+                );
+                if ($pending !== null) {
+                    return $pending;
+                }
+
+                if ($amount !== null) {
+                    $result = $c->post('/api/invoices/' . $id . '/payments', ['amount' => $amount, 'paid_on' => $paidAt]);
                     return [
                         'recorded'    => true,
                         'became_paid' => (bool) ($result['became_paid'] ?? false),
@@ -363,18 +427,119 @@ final class InvoiceTools implements McpToolProvider
     }
 
     /**
-     * Guard shared by the write tools that change accounting data: returns the invoice id only when the
-     * call carries `confirm: true`; otherwise throws a preview telling the model to ask the user first.
+     * Rejects a draft whose lines could overflow the DECIMAL columns, so the create endpoint is never
+     * reached with a payload that would leave a draft without items.
+     *
+     * @param list<array<string,mixed>> $items
+     */
+    private function assertAmountsInRange(array $items): void
+    {
+        $total = 0.0;
+        foreach ($items as $i => $item) {
+            $total += abs((float) $item['quantity'] * (float) $item['unit_price_without_vat']);
+            if ($total > self::MAX_AMOUNT) {
+                throw new McpToolError(
+                    'Položka #' . ($i + 1) . ' je mimo rozsah: součet řádků nesmí překročit ' . number_format(self::MAX_AMOUNT, 0, ',', ' ') . '.',
+                    'invalid_arguments',
+                );
+            }
+        }
+    }
+
+    /**
+     * A payment can only be recorded on an invoice that is open (issued, sent or reminded). Checked before a
+     * confirmation token is handed out, so the user is never asked to approve something that is refused.
+     *
+     * @param array<string,mixed> $invoice GET /api/invoices/{id}
+     */
+    private function assertOpenForPayment(array $invoice): void
+    {
+        $status = (string) ($invoice['status'] ?? '');
+        if (!in_array($status, McpFormat::UNPAID_STATUSES, true)) {
+            throw new McpToolError('Platbu lze evidovat jen u vystavené, odeslané nebo upomínané faktury; faktura má stav ' . $status . '.', 'invalid_state', 409);
+        }
+    }
+
+    /**
+     * Guards against double booking and overpayment before a partial payment is recorded.
+     *
+     * @param array<string,mixed> $invoice  GET /api/invoices/{id}
+     * @param array<string,mixed> $payments GET /api/invoices/{id}/payments
+     */
+    private function assertPaymentAllowed(array $invoice, array $payments, float $amount, string $paidAt, bool $allowDuplicate): void
+    {
+        if (!in_array((string) ($invoice['invoice_type'] ?? ''), self::PAYABLE_TYPES, true)) {
+            throw new McpToolError('Platby lze evidovat jen u faktur a zálohových faktur.', 'invalid_state', 409);
+        }
+
+        $remaining = (float) ($payments['remaining'] ?? 0);
+        if (round($amount - $remaining, 2) > InvoicePaymentService::TOLERANCE) {
+            throw new McpToolError(
+                'Částka ' . McpFormat::money($amount) . ' přesahuje zbývající k úhradě ' . McpFormat::money(max(0.0, $remaining)) . ' (přeplatek se neeviduje).',
+                'overpayment',
+                409,
+            );
+        }
+
+        if (!$allowDuplicate) {
+            foreach ((array) ($payments['payments'] ?? []) as $existing) {
+                if (abs((float) ($existing['amount'] ?? 0) - $amount) < 0.005 && ($existing['paid_on'] ?? null) === $paidAt) {
+                    throw new McpToolError(
+                        'Platba ' . McpFormat::money($amount) . ' ze dne ' . $paidAt . ' už u této faktury existuje. '
+                        . 'Pokud jde o další stejnou platbu, zopakuj volání s `allow_duplicate: true`.',
+                        'duplicate_payment',
+                        409,
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Gate shared by the write tools that change accounting data. Returns null when the call carries
+     * `confirm: true` plus a valid confirmation token for exactly these arguments and this state. Otherwise it
+     * returns the result to hand back instead of acting: a preview with a fresh token and the instruction to
+     * ask the user first. A preview is a normal result, not an error: nothing failed, nothing was done.
      *
      * @param array<string,mixed> $args
+     * @param array<string,mixed> $invoice
+     * @param array<string,mixed> $state   Fingerprint the token is bound to
+     * @param array<string,mixed> $planned What the confirmed call is going to do, shown in the preview
+     * @return array<string,mixed>|null
      */
-    private function confirmedInvoiceId(array $args, McpToolContext $c, string $why): int
+    private function confirmationPending(string $tool, array $args, McpToolContext $c, array $invoice, string $why, array $state, array $planned = []): ?array
     {
-        $id = (int) $args['invoice_id'];
-        if (($args['confirm'] ?? false) !== true) {
-            throw $this->confirmationRequired($c->get('/api/invoices/' . $id), $why);
+        if ($c->isConfirmed($tool, $args, $state)) {
+            return null;
         }
-        return $id;
+
+        $confirmation = $c->issueConfirmation($tool, $args, $state);
+        $preview = McpFormat::invoiceRow($invoice) + ['auto_send_reminders' => (bool) ($invoice['auto_send_reminders'] ?? false)];
+        $summary = sprintf(
+            'faktura %s (id %d), klient %s, %s %s, splatnost %s, stav %s, k úhradě %s %s, automatické upomínky %s',
+            $preview['number'] ?? 'bez čísla',
+            $preview['id'],
+            $preview['client']['name'] ?? '?',
+            McpFormat::money($preview['total_with_vat']),
+            $preview['currency'],
+            $preview['due_date'] ?? '-',
+            $preview['status'],
+            McpFormat::money($preview['outstanding'] ?: $preview['amount_to_pay']),
+            $preview['currency'],
+            $preview['auto_send_reminders'] ? 'ano' : 'ne',
+        );
+
+        return [
+            'executed'                => false,
+            'requires_confirmation'   => true,
+            'message'                 => $why . ' Nic se nezměnilo. Ukaž uživateli náhled (' . $summary . ') a po jeho výslovném souhlasu zavolej nástroj '
+                . 'znovu se stejnými argumenty, `confirm: true` a `confirmation_token: ' . $confirmation['token'] . '` '
+                . '(platí do ' . $confirmation['expires_at'] . ').',
+            'preview'                 => $preview,
+            'planned'                 => $planned,
+            'confirmation_token'      => $confirmation['token'],
+            'confirmation_expires_at' => $confirmation['expires_at'],
+        ];
     }
 
     /** Replaces a generic 400 by "client not found" when the client is the actual problem. */
@@ -388,32 +553,6 @@ final class InvoiceTools implements McpToolProvider
             }
         }
         return $original;
-    }
-
-    /**
-     * @param array<string,mixed> $invoice
-     */
-    private function confirmationRequired(array $invoice, string $why): McpToolError
-    {
-        $row = McpFormat::invoiceRow($invoice);
-        $preview = sprintf(
-            'faktura %s (id %d), klient %s, %s %s, splatnost %s, stav %s, k úhradě %s %s',
-            $row['number'] ?? 'bez čísla',
-            $row['id'],
-            $row['client']['name'] ?? '?',
-            number_format($row['total_with_vat'], 2, ',', ' '),
-            $row['currency'],
-            $row['due_date'] ?? '-',
-            $row['status'],
-            number_format($row['outstanding'] ?: $row['amount_to_pay'], 2, ',', ' '),
-            $row['currency'],
-        );
-
-        return new McpToolError(
-            $why . ' Nic se nezměnilo. Ukaž uživateli náhled (' . $preview . ') a po jeho výslovném souhlasu zavolej '
-            . 'nástroj znovu se stejnými argumenty a `confirm: true`.',
-            'confirmation_required',
-        );
     }
 
     private function resolveNumber(McpToolContext $c, string $number): int
