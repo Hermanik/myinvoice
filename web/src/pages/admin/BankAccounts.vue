@@ -19,6 +19,7 @@ import { useToast } from '@/composables/useToast'
 import { formatMoney, formatDate } from '@/composables/useFormat'
 import { useChartColors } from '@/composables/useTheme'
 import BalanceTrendChart from '@/components/charts/BalanceTrendChart.vue'
+import BankNoticeGuide from '@/components/bank/BankNoticeGuide.vue'
 
 // embedded = vykresleno jako záložky uvnitř BankPage.vue (Finance → Bankovní účty);
 // hlavičku a lištu záložek pak dodává obálka, aktivní tab řídí přes ?tab=.
@@ -109,6 +110,9 @@ const mappings = ref<BankEmailAccountMapping[]>([])
 const providers = ref<BankEmailProvider[]>([])
 const imapAccounts = ref<BankEmailImapSettings[]>([])
 const messages = ref<BankEmailProcessedMessage[]>([])
+// Inputs for the setup guide prefill: providers used by mappings, hosts configured or being typed.
+const guideProviderRefs = computed(() => mappings.value.map(m => m.provider_ref))
+const guideHosts = computed(() => [imapFormOpen.value ? imapDraft.host : null, ...imapAccounts.value.map(a => a.host)])
 const messagesTotal = ref(0)
 const messagesPage = ref(1)
 const messagesPerPage = ref(50)
@@ -983,6 +987,8 @@ async function deleteMessage(m: BankEmailProcessedMessage) {
       <div v-if="bankEmailLoadError" class="bg-warning-50 border border-warning-200 text-warning-700 rounded-lg px-4 py-3 text-sm">
         {{ bankEmailLoadError }}
       </div>
+
+      <BankNoticeGuide :provider-refs="guideProviderRefs" :hosts="guideHosts" />
 
       <section class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
         <header class="px-5 py-3 border-b border-neutral-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">

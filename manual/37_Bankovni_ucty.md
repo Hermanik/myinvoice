@@ -254,3 +254,135 @@ cmd/cron-bank-email-notices.sh   # každých 30 minut
 Skript spustí `php api/bin/cron-bank-email-notices.php`, projde aktivní IMAP
 účty dodavatele, načte nejnovější zprávy podle limitu a zapíše heartbeat do
 plánovaných úloh.
+
+## 37.8 Návod krok za krokem: zapnutí párování plateb z e-mailových avíz
+
+Stejný návod je v aplikaci na záložce **Bankovní avíza z e-mailu** (rozbalovací
+blok „Návod: jak zapnout automatické párování plateb z e-mailových avíz").
+
+**Jak to funguje:** banka pošle při každém pohybu na účtu krátký e-mail (avízo).
+MyInvoice si pravidelně (každých 30 minut) přečte e-mailovou schránku, avíza
+rozpozná, založí z nich platby a spáruje je s fakturami podle variabilního
+symbolu a částky.
+
+### Krok 1 – v bance: zapněte e-mailová avíza
+
+Banka musí posílat e-mail o každé příchozí i odchozí platbě na adresu, kterou čte
+MyInvoice.
+
+**Air Bank:**
+
+1. Přihlaste se do internetového bankovnictví Air Bank **na počítači** (toto
+   nastavení se dělá v internetovém bankovnictví, v mobilní aplikaci nebývá).
+2. V horním menu otevřete **Účty a karty** a vyberte účet, ze kterého chcete avíza
+   dostávat (u více účtů nastavte každý zvlášť).
+3. V levém menu klikněte na **Možnosti** → **Info o dění na účtu**.
+4. Zaškrtněte **Jiný kontakt** a do pole **Mail** zadejte adresu, na kterou má
+   banka avíza posílat (např. `banka@vasedomena.cz`, viz Krok 2).
+5. U **Informace o změně zůstatku** zvolte posílat mailem a jako hranici zadejte
+   nejnižší nabízenou hodnotu (0 nebo 1 Kč), jinak se malé platby nepošlou.
+   Zapněte avíza o zvýšení zůstatku (příchozí platby) i o snížení zůstatku
+   (odchozí platby), pokud je banka nabízí zvlášť.
+6. Klikněte na **Pokračovat** a změnu potvrďte podle pokynů banky.
+
+Názvy položek se v bankovnictví mohou mírně lišit. Postup vychází z veřejných
+návodů ([FAPI](https://napoveda.fapi.cz/article/40-nastaveni-zasilani-e-mailu-o-prichozich-platbach-z-air-bank),
+[Fakturoid](https://www.fakturoid.cz/podpora/parovani/air)). Avíza chodí od
+`info@airbank.cz` s předmětem „Zvýšení zůstatku na účtu …" (příchozí platba) nebo
+„Snížení zůstatku na účtu …" (odchozí platba); v textu je číslo vašeho účtu,
+částka, variabilní symbol a protiúčet. Šablonu MyInvoice zná.
+
+**Jiná banka:** podporované banky jsou uvedené v kapitole 37.4. V bankovnictví
+vyhledejte nastavení e-mailových notifikací (často Infoservis, Notifikace, Info
+e-maily) a zapněte e-mail o každé příchozí i odchozí platbě.
+
+### Krok 2 – e-mailová schránka
+
+MyInvoice čte schránku přes IMAP. Doporučená je samostatná schránka jen pro
+avíza. Alternativou je **sběrná schránka (catch-all)**: má-li doména zapnutou
+sběrnou schránku, doručí se e-mail na jakoukoli adresu `@vasedomena.cz` do jedné
+hlavní schránky. Bance proto můžete zadat třeba `banka@vasedomena.cz` (aniž ji
+zakládáte), ale MyInvoice se přihlašuje do hlavní schránky, např.
+`info@vasedomena.cz`.
+
+Co MyInvoice se schránkou dělá:
+
+- čte nejnovější zprávy ve zvolené složce (výchozí `INBOX`) bez označení jako
+  přečtené a každou zkusí rozpoznat jako avízo některé z podporovaných bank,
+- e-maily od jiných odesílatelů žádnou platbu nevytvoří; v seznamu **Zpracované
+  e-maily** se u nich ale objeví záznam se stavem `parse_failed` (jednou na
+  zprávu, je to v pořádku),
+- zprávy nemaže ani nepřesouvá, dokud u účtu nezvolíte jinou akci v poli **Po
+  úspěchu**,
+- v jednom běhu načte jen nejnovějších N zpráv (**Max. zpráv na běh**, výchozí 50,
+  maximum 500). Ve rušné sběrné schránce hodnotu zvyšte a nastavte **Zpracovat od
+  data** na dnešek,
+- čte jen nastavenou složku. Spam se nečte; avízo, které skončí ve spamu, přesuňte
+  do `INBOX` (nebo změňte pole **Složka**).
+
+| Poskytovatel | Host | Port | Šifrování | Přihlášení / heslo |
+|---|---|---|---|---|
+| Seznam (Email.cz, Email pro firmy / Moje doména) | `imap.seznam.cz` | 993 | SSL | celá e-mailová adresa; při dvoufázovém ověření **heslo pro aplikace** |
+| Gmail / Google Workspace | `imap.gmail.com` | 993 | SSL | celá adresa; **heslo pro aplikace** (vyžaduje dvoufázové ověření) |
+| Microsoft 365 / Outlook | `outlook.office365.com` | 993 | SSL | jen jméno a heslo, OAuth se nepodporuje |
+| Jiný | viz nápověda poskytovatele | obvykle 993 | SSL | celá adresa |
+
+- **Seznam:** heslo pro aplikace vytvoříte na seznam.cz v Zabezpečení účtu →
+  Dvoufázové ověření → Heslo pro aplikace; musí se lišit od přihlašovacího hesla
+  ([nápověda Seznamu](https://o-seznam.cz/napoveda/ucet/en/dvoufazove-overeni/postovni-programy/)).
+  IMAP je u schránek Seznamu trvale zapnutý a nelze ho vypnout
+  ([nastavení pro aplikace](https://o-seznam.cz/napoveda/email/mohlo-by-se-hodit/postovni-programy-a-aplikace/)),
+  takže nic zapínat nemusíte. Údaje pro schránku v Email pro firmy / Moje doména
+  jsou stejné; pokud přihlášení selže, ověřte u správce domény, že schránka
+  existuje a heslo platí.
+- **Microsoft 365:** základní přihlášení heslem pro IMAP Microsoft u většiny účtů
+  vypnul, takže to často nepůjde. Řešení: nechte avíza přeposílat do jiné schránky
+  (**Přijímat přeposlaná (FW) avíza**, viz 37.3).
+
+### Krok 3 – v MyInvoice
+
+Vše se dělá na záložce **Bankovní avíza z e-mailu** (Finance → Bankovní účty).
+
+1. V sekci **IMAP účty pro bankovní avíza** klikněte na **Nový IMAP účet**.
+2. Vyplňte **Název** (např. „Air Bank avíza"), **Host**, **Port**, **Šifrování**,
+   **Uživatel** a **Heslo** podle Kroku 2. **Složku** nechte `INBOX`; tlačítko
+   **Procházet** ověří připojení a nabídne složky ze serveru.
+3. Do **Zpracovat od data** zadejte dnešní datum. Ponechte zaškrtnuté **Povolit
+   zpracování bankovních avíz z tohoto účtu** a **Ověřit certifikát serveru**.
+4. Klikněte na **Uložit IMAP účet** a v tabulce u nového účtu na **Test**.
+5. V sekci **Mapování bankovních avíz** najděte řádek svého bankovního účtu, ve
+   sloupci **IMAP účet** změňte výchozí **Žádný IMAP účet** na účet z kroku 2, u
+   **Parser** stačí **Automatický výběr** (u Air Bank lze zvolit Air Bank),
+   zaškrtněte **Aktivní** a klikněte na **Uložit mapování**.
+6. Mapování funguje podle čísla účtu: bankovní účet musí být evidován na záložce
+   **Měny a účty** včetně čísla účtu a kódu banky (Air Bank má kód 3030).
+7. Čtení schránky běží automaticky každých 30 minut přes plánovanou úlohu
+   `cron-bank-email-notices` (viz 37.7). Hned po nastavení můžete použít tlačítko
+   **Spustit scan** v sekci **Zpracované e-maily**.
+
+### Krok 4 – ověření a řešení potíží
+
+1. Pošlete si malou testovací platbu na svůj účet (ideálně s variabilním symbolem
+   existující neuhrazené faktury).
+2. Počkejte do 30 minut nebo klikněte na **Spustit scan**; pod tlačítkem uvidíte
+   souhrn (zpracováno, spárováno, chyby).
+3. V seznamu **Zpracované e-maily** má zpracované avízo stav `processed_success`,
+   vidíte variabilní symbol a částku a u spárované platby zelený odkaz na fakturu.
+   Platba se objeví také v Bance.
+4. Každé avízo se zpracuje jen jednou; smazání záznamu v seznamu smaže jen záznam o
+   zpracování, ne platbu ani fakturu.
+
+Když něco nefunguje:
+
+- **Test selže** – zkontrolujte host, port 993, šifrování SSL; uživatel je celá
+  adresa. U Seznamu, Gmailu a dalších se dvoufázovým ověřením je nutné heslo pro
+  aplikace.
+- **Test projde, ale nic se neobjevuje** – e-mail mohl skončit ve spamu nebo jiné
+  složce (viz Krok 2), banka avízo neposlala, nebo byla platba pod nastavenou
+  hranicí.
+- **`match_failed` – cílový účet není namapovaný** – zkontrolujte mapování (vybraný
+  IMAP účet, **Aktivní**) a číslo účtu na záložce **Měny a účty**.
+- **Platba se nespárovala s fakturou** – plátce nezadal variabilní symbol nebo
+  nesedí částka; spárujte platbu ručně v Bance.
+- **Zpráva ve schránce je, ale scan ji přeskočil** – je starší než **Zpracovat od
+  data** nebo mimo nejnovějších N zpráv (**Max. zpráv na běh**).
