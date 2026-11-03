@@ -108,3 +108,18 @@ test('cs and en carry the same new keys', async () => {
   assert.ok(cs.nav.registration_deduction && en.nav.registration_deduction)
   assert.ok(cs.regded.title && en.regded.title)
 })
+
+test('the changed-after-filing list shows items of the agenda and links to it', async () => {
+  const list = await read('components/reports/ChangedAfterFilingList.vue')
+  const utils = await read('utils/taxFiling.ts')
+  const api = await read('api/taxFiling.ts')
+
+  assert.match(api, /'registration_deduction'/, 'the changed document can come from the agenda')
+  assert.match(utils, /\/tax\/registration-deductions/, 'its link goes to the agenda')
+  assert.match(list, /deduction_\$\{d\.kind\}/, 'the label depends on registration / deregistration')
+  for (const lang of ['cs', 'en']) {
+    const json = JSON.parse(await read(`i18n/${lang}.json`))
+    assert.ok(json.reports.changes_after_filing.deduction_registration, `${lang}: registration label`)
+    assert.ok(json.reports.changes_after_filing.deduction_deregistration, `${lang}: deregistration label`)
+  }
+})

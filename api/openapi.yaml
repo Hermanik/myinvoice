@@ -3909,7 +3909,7 @@ paths:
               schema: { type: object }
         '400': { description: Neplatná forma podání nebo chybějící/neplatné `d_zjist` / `reason` }
         '403': { description: Pouze admin/accountant }
-        '422': { description: 'Dodatečné přiznání nejde sestavit: `no_filed_return` (za období není podané ani potvrzené přiznání) nebo `nothing_changed` (proti poslednímu podanému se nic nezměnilo)' }
+        '422': { description: 'Dodatečné přiznání nejde sestavit: `corrective_return_required` (lhůta pro podání přiznání za období ještě neuplynula — do té doby se opravuje opravným přiznáním O), `no_filed_return` (za období není podané ani potvrzené přiznání), `nothing_changed` (proti poslednímu podanému se nic nezměnilo) nebo `base_without_lines` (podané přiznání nemá v archivu uložené řádky)' }
 
   /api/v1/reports/dphdp3:
     get:
@@ -4100,7 +4100,8 @@ paths:
         (v `error.conflict` je id a čas podání toho, které už je podané). Pro formy D (dodatečné DPH)
         a N/E/V (KH) tato jednoznačnost neplatí — za jedno období jich smí být podáno víc po sobě.
         Dodatečné přiznání D lze označit jako podané jen nad přiznáním, proti kterému bylo spočteno
-        (jinak `409 stale_supplementary` — vygeneruj ho znovu). Změna se zapisuje do auditního logu.
+        (jinak `409 stale_supplementary` — vygeneruj ho znovu) a s časem podání pozdějším než přiznání, ke kterému se vztahuje
+        (`409 filed_before_base`). Označení podání zamyká podaná přiznání za období, takže dvě dodatečná přiznání nejdou podat současně. Změna se zapisuje do auditního logu.
       parameters:
         - { in: path, name: id, required: true, schema: { type: integer } }
         - $ref: '#/components/parameters/SupplierIdHeader'
@@ -4124,7 +4125,7 @@ paths:
         '400': { description: Neplatný čas nebo způsob podání }
         '403': { description: Pouze admin }
         '404': { description: Not found }
-        '409': { description: 'Už je podané (`already_filed`), podání téhož výkazu už existuje (`duplicate_filing`) nebo dodatečné přiznání bylo spočteno proti jinému stavu (`stale_supplementary`)' }
+        '409': { description: 'Už je podané (`already_filed`), podání téhož výkazu už existuje (`duplicate_filing`), dodatečné přiznání bylo spočteno proti jinému stavu (`stale_supplementary`) nebo se podává dřív než jeho základ (`filed_before_base`)' }
 
   /api/v1/reports/submissions/{id}/unfile:
     post:

@@ -89,6 +89,28 @@ final class FiledReturnChain
     }
 
     /**
+     * A supplementary return is filed AFTER the return it states the difference against: with an earlier or equal
+     * `filed_at` it would sort before it, count as superseded and its difference would be lost.
+     *
+     * @param string $filedAt the filing time of the supplementary return, `Y-m-d H:i:s`
+     * @throws TaxFilingException
+     */
+    public function assertFiledAfterBase(string $filedAt): void
+    {
+        $last = $this->last();
+        if ($last !== null && $filedAt <= (string) $last['filed_at']) {
+            throw new TaxFilingException(
+                sprintf(
+                    'Dodatečné přiznání musí být podané později než přiznání, ke kterému se vztahuje (podané %s). Zadej pozdější datum a čas podání.',
+                    substr((string) $last['filed_at'], 0, 16),
+                ),
+                'filed_before_base',
+                409,
+            );
+        }
+    }
+
+    /**
      * A supplementary return may only be filed on top of the return it was computed against.
      *
      * @param array<string,mixed> $supplement the generated D (summary decoded)

@@ -61,6 +61,13 @@ final class DphSupplementaryDifference
         return ['lines' => $lines] + Dphdp3Lines::totals($lines);
     }
 
+    /** Does the archived return carry its rows at all (older archives may not)? Without them there is nothing to compare with. */
+    public static function hasKnownLines(array $submission): bool
+    {
+        $summary = (array) ($submission['summary'] ?? []);
+        return array_key_exists('full_lines', $summary) || array_key_exists('lines', $summary);
+    }
+
     /**
      * Full rows of a filed return: the cumulative state of a D, the rows of a B / O.
      *

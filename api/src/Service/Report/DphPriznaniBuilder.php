@@ -12,6 +12,7 @@ use MyInvoice\Service\Vat\RegistrationDeductionService;
 use MyInvoice\Service\Vat\VatStatus;
 use MyInvoice\Service\Vat\VatStatusHistory;
 use MyInvoice\Service\Vat\VatStatusService;
+use Psr\Clock\ClockInterface;
 
 /**
  * Builder XML pro DPH přiznání (DPHDP3) — EPO portál MFČR.
@@ -30,6 +31,7 @@ final class DphPriznaniBuilder
         private readonly VatClassificationMapper $mapper,
         private readonly VatStatusService $vatStatus,
         private readonly TaxSubmissionRepository $submissions,
+        private readonly ClockInterface $clock,
     ) {}
 
     /**
@@ -109,7 +111,7 @@ final class DphPriznaniBuilder
         $fullLines = $lines;
         $supplementary = null;
         if ($filing->isSupplementary()) {
-            $supplementary = $this->supplementaryBase($supplierId, $year, $month, $quarter, $lines);
+            $supplementary = $this->supplementaryBase($supplierId, $year, $month, $period, $quarter, $lines);
             $lines = $supplementary['difference']['lines'];
             $warnings[] = 'Dodatečné přiznání obsahuje jen rozdíly proti poslednímu podanému přiznání za toto období (§ 141 odst. 5 daňového řádu).';
         }
@@ -384,8 +386,21 @@ final class DphPriznaniBuilder
      * @return array{based_on: array<string,mixed>, known_tax: int, new_tax: int, difference: array<string,mixed>}
      * @throws TaxFilingException there is no filed return of the period, or nothing changed since
      */
-    private function supplementaryBase(int $supplierId, int $year, int $month, ?int $quarter, array $current): array
+    private function supplementaryBase(int $supplierId, int $year, int $month, string $period, ?int $quarter, array $current): array
     {
+        // Until the regular deadline of the period a return is corrected by a CORRECTIVE return (§ 138 DŘ); the
+        // supplementary one (§ 141 DŘ) is for the time after it.
+        $deadline = ReportPeriod::filingDeadline($year, $month, $period);
+        $today = $this->clock->now()->setTimezone(new \DateTimeZone(date_default_timezone_get()))->format('Y-m-d');
+        if ($today <= $deadline) {
+            throw new TaxFilingException(
+                sprintf(
+                    'Lhůta pro podání přiznání za toto období ještě neuplynula (do %s). Do té doby se přiznání opravuje opravným přiznáním (forma Opravné, § 138 daňového řádu); dodatečné přiznání (§ 141) lze podat až po uplynutí lhůty.',
+                    (new \DateTimeImmutable($deadline))->format('j. n. Y'),
+                ),
+                'corrective_return_required',
+            );
+        }
         $last = (new FiledReturnChain(
             $this->submissions->filedForPeriod($supplierId, TaxSubmissionRepository::FORM_DPH, $year, $quarter === null ? $month : null, $quarter),
         ))->last();
@@ -396,6 +411,13 @@ final class DphPriznaniBuilder
             );
         }
 
+        if (!DphSupplementaryDifference::hasKnownLines($last)) {
+            // Returns archived before the summary carried the rows: a difference against nothing would restate the whole return.
+            throw new TaxFilingException(
+                'Poslední podané přiznání za toto období nemá v archivu uložené řádky, takže z něj nejde spočítat rozdíly. Dodatečné přiznání sestav ručně na portálu EPO.',
+                'base_without_lines',
+            );
+        }
         $known = DphSupplementaryDifference::knownLines($last);
         $difference = DphSupplementaryDifference::compute($current, $known);
         if ($difference['lines'] === []) {

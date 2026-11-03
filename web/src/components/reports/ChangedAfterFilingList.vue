@@ -16,6 +16,11 @@ const { t } = useI18n()
 function linkOf(d: ChangedDocument): string | null {
   return d.deleted ? null : documentLink(d)
 }
+
+function sourceLabel(d: ChangedDocument): string {
+  if (d.source === 'registration_deduction') return t(`reports.changes_after_filing.deduction_${d.kind}`)
+  return d.source === 'sale' ? t('reports.cross_check.sale') : t('reports.cross_check.purchase')
+}
 </script>
 
 <template>
@@ -37,7 +42,7 @@ function linkOf(d: ChangedDocument): string | null {
           <div class="flex flex-wrap items-baseline gap-x-2">
             <RouterLink v-if="linkOf(d)" :to="linkOf(d)!" class="font-mono text-primary-700 hover:underline">{{ d.doc_number ?? '#' + d.id }}</RouterLink>
             <span v-else class="font-mono text-neutral-700 line-through">{{ d.doc_number ?? '#' + d.id }}</span>
-            <span class="text-neutral-500">{{ d.source === 'sale' ? t('reports.cross_check.sale') : t('reports.cross_check.purchase') }}
+            <span class="text-neutral-500">{{ sourceLabel(d) }}
               <template v-if="d.counterparty"> · {{ d.counterparty }}</template>
               <template v-if="d.tax_date"> · {{ t('reports.changes_after_filing.duzp') }} {{ formatDate(d.tax_date) }}</template></span>
             <span v-if="d.total_with_vat !== null" class="font-mono">{{ formatMoney(d.total_with_vat, d.currency || 'CZK') }}</span>

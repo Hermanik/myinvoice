@@ -119,6 +119,16 @@ final class RegistrationDeductionCalculator
     }
 
     /**
+     * Does the event's item belong to the DPH return of [$start, $end]? A registration to the period containing its date
+     * (§ 79 odst. 7), a deregistration to the period containing the last registered day (§ 79a odst. 5).
+     */
+    public static function eventInPeriod(string $kind, string $eventDate, string $start, string $end): bool
+    {
+        $reference = $kind === 'deregistration' ? self::lastDayOfRegistration($eventDate) : $eventDate;
+        return $reference >= $start && $reference <= $end;
+    }
+
+    /**
      * Years of the adjustment period left, the year of the registration / deregistration included (§ 78d odst. 2).
      * The period starts with the calendar year of the acquisition (§ 78 odst. 3).
      */

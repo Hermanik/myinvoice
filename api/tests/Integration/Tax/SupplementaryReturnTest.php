@@ -17,6 +17,9 @@ use MyInvoice\Service\Tax\TaxSubmissionFilingService;
 use MyInvoice\Service\Tax\VatPaymentService;
 use MyInvoice\Service\Vat\RegistrationDeductionService;
 use MyInvoice\Tests\Support\FilingFixture;
+use MyInvoice\Tests\Support\FixedClock;
+use MyInvoice\Infrastructure\Database\Connection;
+use Psr\Clock\ClockInterface;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Slim\Psr7\Factory\ServerRequestFactory;
@@ -44,11 +47,16 @@ final class SupplementaryReturnTest extends TestCase
     private int $customer = 0;
     private int $vendor = 0;
     private int $filedSeq = 0;
+    private FixedClock $clock;
 
     protected function setUp(): void
     {
         $this->fx = FilingFixture::boot($this);
         $c = $this->fx->container;
+        // "Today" is after the regular deadline of June 2050 (25. 7.), so a supplementary return is due. Bound before the
+        // builder (and the report action) are resolved from the container.
+        $this->clock = new FixedClock('2050-09-01 12:00:00');
+        $c->set(ClockInterface::class, $this->clock);
         $this->dph = $c->get(DphPriznaniBuilder::class);
         $this->archiver = $c->get(TaxSubmissionArchiver::class);
         $this->filing = $c->get(TaxSubmissionFilingService::class);
@@ -72,6 +80,17 @@ final class SupplementaryReturnTest extends TestCase
     private function sid(): int
     {
         return $this->fx->supplierId;
+    }
+
+    /** Runs `$call`, which must be refused with a {@see TaxFilingException}; returns the exception. */
+    private function refusal(callable $call): TaxFilingException
+    {
+        try {
+            $call();
+        } catch (TaxFilingException $e) {
+            return $e;
+        }
+        self::fail('Expected the call to be refused.');
     }
 
     /** Builds + archives a return of June 2050 the way the report endpoint does and returns the archive id and the build. */
@@ -203,6 +222,82 @@ final class SupplementaryReturnTest extends TestCase
         $this->generate('B');
         $this->expectException(TaxFilingException::class);
         $this->dph->build($this->sid(), self::YEAR, self::MONTH, 'monthly', new DphFiling('D', self::DISCOVERED, 'důvod'));
+    }
+
+    public function testBeforeTheRegularDeadlineACorrectiveReturnIsRequired(): void
+    {
+        $this->file();
+        $this->addPurchase('P-2050-0602', 5_000, 1_050);
+        $filing = new DphFiling('D', self::DISCOVERED, 'důvod');
+
+        // The deadline of June 2050 is 25. 7. 2050 (Monday): up to and including that day only the corrective return replaces a return.
+        foreach (['2050-07-01', '2050-07-25'] as $today) {
+            $this->clock->set($today . ' 12:00:00');
+            $e = $this->refusal(fn () => $this->dph->build($this->sid(), self::YEAR, self::MONTH, 'monthly', $filing));
+            self::assertSame('corrective_return_required', $e->errorCode, $today);
+            self::assertStringContainsString('opravným přiznáním', $e->getMessage());
+        }
+
+        $this->clock->set('2050-07-26 12:00:00');
+        self::assertSame('D', $this->dph->build($this->sid(), self::YEAR, self::MONTH, 'monthly', $filing)['summary']['form'], 'allowed from the day after the deadline');
+    }
+
+    public function testSupplementaryReturnCannotBeFiledBeforeItsBase(): void
+    {
+        $b = $this->file();                                   // filed 2026-10-02 10:00
+        $this->addPurchase('P-2050-0602', 5_000, 1_050);
+        $d = $this->generate('D', self::DISCOVERED, 'Zapomenutý doklad');
+
+        foreach (['2026-10-01 09:00', '2026-10-02 10:00'] as $tooEarly) {
+            $e = $this->refusal(fn () => $this->filing->markFiled($this->sid(), $d['id'], $tooEarly, 'epo', null, $this->fx->userId));
+            self::assertSame('filed_before_base', $e->errorCode, $tooEarly);
+            self::assertSame(409, $e->httpStatus);
+        }
+        self::assertSame('generated', $this->repo->findMeta($d['id'], $this->sid())['filing_status']);
+
+        $this->filing->markFiled($this->sid(), $d['id'], '2026-10-02 10:01', 'epo', null, $this->fx->userId);
+        $filed = $this->repo->filedForPeriod($this->sid(), 'dphdp3', self::YEAR, self::MONTH, null);
+        self::assertSame([$b['id'], $d['id']], array_column($filed, 'id'));
+        self::assertTrue((new \MyInvoice\Service\Tax\FiledReturnChain($filed))->isInForce($d['id']), 'filed after its base, the supplement is in force');
+    }
+
+    public function testFilingLocksTheFiledReturnsOfThePeriod(): void
+    {
+        $b = $this->file();
+        $this->addPurchase('P-2050-0602', 5_000, 1_050);
+        $d = $this->generate('D', self::DISCOVERED, 'Zapomenutý doklad');
+
+        // Another connection holds the base return of the period (as a concurrent filing of a supplementary return would): this filing
+        // must wait for it. Only that one record is locked (no index gaps), so nothing else but the lock on the filed returns can make it wait.
+        $other = new Connection($this->fx->container->get(\MyInvoice\Infrastructure\Config\Config::class));
+        $pdo = $other->pdo();
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare('SELECT id FROM tax_submissions WHERE id = ? FOR UPDATE')->execute([$b['id']]);
+            $this->fx->pdo->exec('SET SESSION innodb_lock_wait_timeout = 1');
+            try {
+                $this->filing->markFiled($this->sid(), $d['id'], '2026-10-20 10:00', 'epo', null, $this->fx->userId);
+                self::fail('the filing must wait for the lock on the filed returns of the period');
+            } catch (\PDOException $e) {
+                self::assertStringContainsString('Lock wait timeout', $e->getMessage());
+            }
+        } finally {
+            $pdo->rollBack();
+            $other->close();
+            $this->fx->pdo->exec('SET SESSION innodb_lock_wait_timeout = 50');
+        }
+        self::assertSame('generated', $this->repo->findMeta($d['id'], $this->sid())['filing_status']);
+    }
+
+    public function testBaseWithoutStoredRowsIsRefused(): void
+    {
+        // A return archived before the summary carried its rows: a difference against it would restate the whole return.
+        $legacy = $this->fx->submission('dphdp3', self::YEAR, self::MONTH, null, 'B', ['tax_due' => 2100.0, 'line_64_dano_da' => 2100]);
+        $this->filing->markFiled($this->sid(), $legacy, '2026-10-02 10:00', 'epo', null, $this->fx->userId);
+
+        $e = $this->refusal(fn () => $this->dph->build($this->sid(), self::YEAR, self::MONTH, 'monthly', new DphFiling('D', self::DISCOVERED, 'důvod')));
+        self::assertSame('base_without_lines', $e->errorCode);
+        self::assertStringContainsString('řádky', $e->getMessage());
     }
 
     public function testRefusedWhenNothingChangedSinceTheLastFiledReturn(): void

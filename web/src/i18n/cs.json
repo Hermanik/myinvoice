@@ -4039,6 +4039,8 @@
       "none": "Od podání nebyl žádný doklad tohoto období vytvořen, upraven, stornován ani smazán.",
       "hint": "Tyto doklady se po podání změnily. Přiznání nebo hlášení za toto období už tak nemusí odpovídat evidenci — zvaž opravné podání (jen do konce lhůty) nebo dodatečné podání.",
       "duzp": "DUZP",
+      "deduction_registration": "Odpočet při registraci (§ 79)",
+      "deduction_deregistration": "Snížení odpočtu při zrušení registrace (§ 79a)",
       "change_created": "vytvořen",
       "change_issued": "vystaven",
       "change_edited": "upraven",

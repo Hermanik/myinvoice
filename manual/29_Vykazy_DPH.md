@@ -585,8 +585,18 @@ Po ní je jedinou cestou **dodatečné** (§ 141 DŘ):
 Výsledek: **kladný ř. 66** = doplatek daně, **záporný** = snížení daně / nadměrný odpočet
 (vrácení se žádá podle § 155 DŘ).
 
-Aplikace odmítne dodatečné přiznání, když za období **není podané přiznání** (`no_filed_return`)
-nebo se **nic nezměnilo** (`nothing_changed`).
+Aplikace odmítne dodatečné přiznání, když:
+
+- **ještě neuplynula lhůta** pro podání přiznání za období (`corrective_return_required`) — do té doby
+  se přiznání opravuje **opravným** přiznáním (forma Opravné, § 138 DŘ), dodatečné (§ 141 DŘ) je až pro čas po lhůtě;
+- za období **není podané přiznání** (`no_filed_return`) nebo se **nic nezměnilo** (`nothing_changed`);
+- podané přiznání za období nemá v archivu **uložené řádky** (starý záznam, `base_without_lines`) — rozdíly
+  by nešlo spočítat a D by znovu přiznalo celé přiznání; takové dodatečné sestav na portálu EPO;
+- se D označuje jako podané **dřív než přiznání, ke kterému se vztahuje** (`filed_before_base`) — zadej
+  pozdější datum a čas podání.
+
+Dvě dodatečná přiznání nejdou označit jako podaná současně: označení podání zamkne podaná přiznání
+za období a druhé D, spočtené ještě proti starému stavu, aplikace odmítne (`stale_supplementary`).
 
 ### Příklad: zapomenutá přijatá faktura
 
@@ -743,7 +753,10 @@ Agenda pokrývá jen **§ 79 odst. 1** (včetně pravidla částky u dlouhodobé
 - nedokončený dlouhodobý majetek s 60měsíčním oknem (odst. 2), vývoz (odst. 3), nárok na vrácení (odst. 4)
   a přeměny (odst. 5) — řeš s účetní;
 - poměrný a krácený odpočet (§ 75, § 76);
-- případy podle § 79c, kdy snížení nevzniká (např. zánik společnosti bez likvidace).
+- případy podle § 79c, kdy snížení nevzniká (např. zánik společnosti bez likvidace);
+- **ř. 47 (`nar_maj`) u majetku z § 79** — aplikace do něj dává základ daně dlouhodobého majetku uplatněného
+  při registraci, ale správné vyplnění tohoto řádku (a sloupce s daní) pro majetek z registrace **není
+  ověřené** — konzultuj s účetní, než přiznání podáš.
 
 ## Evidence podání, platba DPH a kontroly před podáním
 
@@ -861,7 +874,9 @@ Je-li výkaz za období označený jako podaný, ukáže panel **Doklady změně
 vystavené a přijaté doklady s DUZP v tomto období, které byly **po čase podání vytvořeny,
 vystaveny, upraveny, stornovány nebo smazány**. Zdrojem jsou data dokladů a auditní log
 (odeslání faktury, její úhrada ani zaúčtování přijatého dokladu se za změnu nepočítá —
-žádná z těch věcí nemění částky ve výkazu). Smazaný doklad jde zařadit do
+žádná z těch věcí nemění částky ve výkazu). U přiznání k DPH panel ukáže i **položky agendy
+[Odpočet při registraci](#odpočet-při-registraci-a-snížení-při-zrušení-registrace)** (ř. 45), které se po podání
+přidaly, upravily nebo smazaly — změnu uplatníš dodatečným přiznáním. Smazaný doklad jde zařadit do
 období jen tehdy, když ho smazání zapsalo do logu s datem DUZP. Takový doklad může být
 důvod k **opravnému** (jen do konce lhůty) nebo **dodatečnému** podání.
 

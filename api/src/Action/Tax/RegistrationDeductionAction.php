@@ -73,18 +73,18 @@ final class RegistrationDeductionAction
     public function delete(Request $request, Response $response, array $args): Response
     {
         $id = (int) ($args['id'] ?? 0);
-        return $this->write($request, $response, 'tax.registration_deduction_deleted', function (int $supplierId) use ($id): array {
-            $this->service->delete($supplierId, $id);
-            return ['id' => $id];
-        });
+        // The audit entry carries the deleted item: "changed after filing" finds the deletion in it.
+        return $this->write($request, $response, 'tax.registration_deduction_deleted', fn (int $supplierId): array
+            => $this->service->delete($supplierId, $id), responseKeys: ['id']);
     }
 
     /**
      * Admin-only write: runs `$operation`, maps domain errors, logs the change.
      *
      * @param callable(int, array<string,mixed>, ?int): array<string,mixed> $operation
+     * @param list<string> $responseKeys when given, only these keys of the result are returned to the client
      */
-    private function write(Request $request, Response $response, string $logAction, callable $operation, int $status = 200): Response
+    private function write(Request $request, Response $response, string $logAction, callable $operation, int $status = 200, array $responseKeys = []): Response
     {
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
         if (($user['role'] ?? '') !== 'admin') {
@@ -105,10 +105,11 @@ final class RegistrationDeductionAction
             (int) ($userId ?? 0),
             'supplier',
             $supplierId,
-            array_intersect_key($result, array_flip(['id', 'kind', 'event_date', 'asset_type', 'deduction_amount'])),
+            array_intersect_key($result, array_flip(RegistrationDeductionService::AUDIT_FIELDS)),
             $this->ipMatcher->clientIpFromRequest($request->getServerParams()),
             $request->getHeaderLine('User-Agent'),
+            $supplierId,
         );
-        return Json::ok($response, $result, $status);
+        return Json::ok($response, $responseKeys === [] ? $result : array_intersect_key($result, array_flip($responseKeys)), $status);
     }
 }

@@ -174,9 +174,11 @@ final class TaxSubmissionRepository
      * (a regular / corrective return replaces the earlier ones, a supplementary one only adds to them); that is
      * why a second return of a period must be filed with a full date and time.
      *
+     * @param bool $forUpdate lock the rows (call inside a transaction): serialises the concurrent filings of one period
+     *
      * @return list<array<string,mixed>>
      */
-    public function filedForPeriod(int $supplierId, string $formCode, int $year, ?int $month, ?int $quarter): array
+    public function filedForPeriod(int $supplierId, string $formCode, int $year, ?int $month, ?int $quarter, bool $forUpdate = false): array
     {
         $stmt = $this->db->pdo()->prepare(
             'SELECT ' . self::META_COLUMNS . '
@@ -184,7 +186,7 @@ final class TaxSubmissionRepository
               WHERE supplier_id = ? AND form_code = ? AND period_year = ?
                 AND COALESCE(period_month, 0) = ? AND COALESCE(period_quarter, 0) = ?
                 AND filing_status IN (\'filed\', \'confirmed\')
-           ORDER BY filed_at ASC, id ASC'
+           ORDER BY filed_at ASC, id ASC' . ($forUpdate ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$supplierId, $formCode, $year, (int) ($month ?? 0), (int) ($quarter ?? 0)]);
         return array_map(fn ($r) => $this->normalize($r), $stmt->fetchAll(\PDO::FETCH_ASSOC));

@@ -298,6 +298,45 @@ final class RegistrationDeductionTest extends TestCase
         $this->assertRefused('not_found', fn () => $this->service->update($this->sid(), $item['id'], []));
     }
 
+    public function testDeductionItemsChangedAfterFilingAreListedWithTheReturn(): void
+    {
+        $before = $this->add(['description' => 'Zásoby před podáním']);
+        $c = $this->fx->container;
+        $repo = $c->get(\MyInvoice\Repository\TaxSubmissionRepository::class);
+        $changes = $c->get(\MyInvoice\Service\Tax\ChangesAfterFilingService::class);
+        $returnId = $this->fx->dphSubmission(2050, 1, null, -2100);
+        $c->get(\MyInvoice\Service\Tax\TaxSubmissionFilingService::class)->markFiled($this->sid(), $returnId, '2026-10-02 10:00', 'epo', null, $this->fx->userId);
+        $forReturn = fn (): array => $changes->forSubmission($repo->findMeta($returnId, $this->sid()));
+
+        // Created and edited before the filing: nothing to report.
+        $this->fx->pdo->prepare("UPDATE vat_registration_deductions SET created_at = '2026-09-01 10:00:00', updated_at = '2026-09-01 10:00:00' WHERE id = ?")->execute([$before['id']]);
+        self::assertSame(0, $forReturn()['count']);
+
+        // Edited after the filing; another item created after it; an item of another period does not count.
+        $this->fx->pdo->prepare("UPDATE vat_registration_deductions SET updated_at = '2026-10-05 10:00:00' WHERE id = ?")->execute([$before['id']]);
+        $created = $this->add(['description' => 'Zásoby po podání']);
+        $this->fx->vatHistory([['2000-01-01', 'non_payer'], ['2050-01-01', 'payer'], ['2052-01-01', 'non_payer']]);
+        $other = $this->service->create($this->sid(), [
+            'kind' => 'deregistration', 'event_date' => '2052-01-01', 'description' => 'Jiné období', 'asset_type' => 'inventory',
+            'acquired_on' => '2049-06-01', 'tax_base' => 1000, 'vat_amount' => 210,
+        ], $this->fx->userId);
+        $this->fx->trackDeduction($other['id']);
+
+        $items = array_column($forReturn()['items'], null, 'doc_number');
+        self::assertEqualsCanonicalizing(['Zásoby po podání', 'Zásoby před podáním'], array_keys($items));
+        self::assertSame('registration_deduction', $items['Zásoby před podáním']['source']);
+        self::assertSame('edited', $items['Zásoby před podáním']['changes'][0]['type']);
+        self::assertSame('created', $items['Zásoby po podání']['changes'][0]['type']);
+        self::assertSame(2100.0, $items['Zásoby po podání']['total_with_vat']);
+
+        // Deleted after the filing: the audit entry of the action carries the item.
+        $action = $c->get(RegistrationDeductionAction::class);
+        self::assertSame(200, $action->delete($this->request('DELETE', 'admin'), new Response(), ['id' => $created['id']])->getStatusCode());
+        $deleted = array_column($forReturn()['items'], null, 'doc_number')['Zásoby po podání'];
+        self::assertTrue($deleted['deleted']);
+        self::assertSame('deleted', $deleted['changes'][0]['type']);
+    }
+
     public function testWritesAreAdminOnlyOverHttp(): void
     {
         $action = $this->fx->container->get(RegistrationDeductionAction::class);

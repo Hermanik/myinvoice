@@ -4039,6 +4039,8 @@
       "none": "No document of this period was created, edited, cancelled or deleted since the filing.",
       "hint": "These documents changed after the filing. The return or statement for this period may no longer match your records — consider a corrective filing (only until the deadline) or a supplementary filing.",
       "duzp": "Tax point",
+      "deduction_registration": "Deduction on registration (§ 79)",
+      "deduction_deregistration": "Reduction of the deduction on deregistration (§ 79a)",
       "change_created": "created",
       "change_issued": "issued",
       "change_edited": "edited",

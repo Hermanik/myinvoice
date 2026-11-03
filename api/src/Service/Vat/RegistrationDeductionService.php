@@ -26,6 +26,12 @@ final class RegistrationDeductionService
     public const KIND_REGISTRATION = 'registration';
     public const KIND_DEREGISTRATION = 'deregistration';
 
+    /**
+     * What the audit entry of a change carries about the item. The deletion entry is the only trace of a deleted item:
+     * {@see \MyInvoice\Service\Tax\ChangesAfterFilingService} rebuilds it from these fields.
+     */
+    public const AUDIT_FIELDS = ['id', 'kind', 'event_date', 'description', 'asset_type', 'deduction_amount'];
+
     public function __construct(
         private readonly VatRegistrationDeductionRepository $items,
         private readonly VatStatusService $vatStatus,
@@ -82,15 +88,11 @@ final class RegistrationDeductionService
     {
         $history ??= $this->vatStatus->history($supplierId);
         $events = [];
-        foreach ($history->registrationDates() as $date) {
-            if ($date >= $start && $date <= $end) {
-                $events[] = ['kind' => self::KIND_REGISTRATION, 'event_date' => $date];
-            }
-        }
-        foreach ($history->deregistrationDates() as $date) {
-            $lastDay = RegistrationDeductionCalculator::lastDayOfRegistration($date);
-            if ($lastDay >= $start && $lastDay <= $end) {
-                $events[] = ['kind' => self::KIND_DEREGISTRATION, 'event_date' => $date];
+        foreach ([self::KIND_REGISTRATION => $history->registrationDates(), self::KIND_DEREGISTRATION => $history->deregistrationDates()] as $kind => $dates) {
+            foreach ($dates as $date) {
+                if (RegistrationDeductionCalculator::eventInPeriod($kind, $date, $start, $end)) {
+                    $events[] = ['kind' => $kind, 'event_date' => $date];
+                }
             }
         }
 
@@ -282,12 +284,19 @@ final class RegistrationDeductionService
         return $this->items->find($supplierId, $id) ?? [];
     }
 
-    /** @throws VatStatusException */
-    public function delete(int $supplierId, int $id): void
+    /**
+     * Deletes an item.
+     *
+     * @return array<string,mixed> the deleted item (for the audit log)
+     * @throws VatStatusException
+     */
+    public function delete(int $supplierId, int $id): array
     {
-        if (!$this->items->delete($supplierId, $id)) {
+        $item = $this->items->find($supplierId, $id);
+        if ($item === null || !$this->items->delete($supplierId, $id)) {
             throw new VatStatusException('Položka nenalezena.', 'not_found', 404);
         }
+        return $item;
     }
 
     /**
