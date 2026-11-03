@@ -47,6 +47,7 @@ final class SubmissionDataboxService
         private readonly DataboxMessageRepository $messages,
         private readonly DataboxService $service,
         private readonly DataboxSendService $sender,
+        private readonly SubmissionFilingBridge $filings,
         private readonly Connection $db,
     ) {}
 
@@ -86,7 +87,7 @@ final class SubmissionDataboxService
             'file_size' => $submission['xml_size_bytes'],
             'boxes' => $candidates,
             'recommended_box_id' => $this->recommendedBox($boxes),
-            'blocked_reason' => self::blockedReason($submission),
+            'blocked_reason' => self::blockedReason($submission) ?? ($this->filings->hasFiledSibling($submission) ? 'duplicate_filing' : null),
             'warnings' => $this->warnings($submission, $office, null),
             'previous_sends' => $this->messages->activeSendsOfSubmission($submissionId, $supplierId),
         ];
@@ -107,6 +108,7 @@ final class SubmissionDataboxService
         if ($blocked !== null) {
             throw new DataboxException($blocked, self::BLOCKED_MESSAGES[$blocked], 409);
         }
+        $this->filings->assertNoFiledSibling($submission); // the filing rules: it could not be recorded after the send
         $box = $this->service->requireBox($supplierId, $boxId);
         $supplier = $this->supplierRow($supplierId);
         $office = $this->officeFor($submission, $supplier);
@@ -123,6 +125,7 @@ final class SubmissionDataboxService
             'is_tax_office' => TaxOfficeCodebook::isTaxOfficeBox($recipient),
             'warnings' => $this->warnings($submission, $office, $box, $recipient),
             'previous_sends' => $previous,
+            'requires_resend_confirmation' => $this->filings->requiresResend($submission, $previous),
             // A filing that was never validated against the EPO schema may be ineffective: sending it takes its own confirmation.
             'requires_unvalidated_confirmation' => self::isUnvalidated($submission),
             'form' => [
@@ -278,6 +281,9 @@ final class SubmissionDataboxService
         $w = [];
         if (self::isUnvalidated($submission)) {
             $w[] = 'xsd_skipped';
+        }
+        if ($submission['filing_status'] !== 'generated') {
+            $w[] = 'already_filed';
         }
         if ($office['box_id'] === null) {
             $w[] = 'no_office';

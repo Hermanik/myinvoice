@@ -159,8 +159,13 @@ final class DataboxMessageService
     {
         $message = $this->requireMessage($supplierId, $messageId);
         $bytes = $this->messages->fileBytes($messageId, $kind) ?? throw new DataboxException('not_found', 'Soubor není uložen.', 404);
-        $suffix = $kind === 'zfo' ? '' : '-dorucenka';
-        return ['filename' => 'datova-zprava-' . $message['dm_id'] . $suffix . '.zfo', 'bytes' => $bytes];
+        return ['filename' => self::zfoFileName((string) $message['dm_id'], $kind), 'bytes' => $bytes];
+    }
+
+    /** Download name of a stored sealed file; also the name of a delivery receipt kept with a tax filing. */
+    public static function zfoFileName(string $dmId, string $kind): string
+    {
+        return 'datova-zprava-' . $dmId . ($kind === 'zfo' ? '' : '-dorucenka') . '.zfo';
     }
 
     /**

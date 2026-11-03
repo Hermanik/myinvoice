@@ -10,6 +10,7 @@ use MyInvoice\Service\Invoice\FinalFromProformaCreator;
 use MyInvoice\Service\Invoice\InvoicePaymentService;
 use MyInvoice\Service\Invoice\PaymentTaxDocumentCreator;
 use MyInvoice\Service\Mail\PaymentThanksMailer;
+use MyInvoice\Service\Tax\VatPaymentRecognizer;
 use PDO;
 
 /**
@@ -69,6 +70,11 @@ final class StatementMatcher
         // avízo, cron, rematch jdou přes match(), takže ruční logging v Action vrstvě
         // je míjí). Nullable kvůli izolovaným konstrukcím v testech; Bootstrap injektuje.
         private readonly ?ActivityLogger $activityLogger = null,
+        // Payment of a filed DPH liability to the tax office's VAT account — an outgoing
+        // transaction to 705-matrika/0710 with the DIČ as variable symbol and the exact amount
+        // is consumed here instead of being offered as an unmatched payment. Nullable like the
+        // other collaborators (isolated constructions in tests); Bootstrap injects it.
+        private readonly ?VatPaymentRecognizer $vatPayments = null,
     ) {}
 
     /**
@@ -190,20 +196,7 @@ final class StatementMatcher
                   WHERE account_number IS NOT NULL OR iban IS NOT NULL'
             );
             foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $candidate) {
-                $iban = isset($candidate['iban']) && is_string($candidate['iban']) ? $candidate['iban'] : null;
-                // Bank code filter (jen když výpis kód banky nese): kandidátův kód
-                // z bank_code sloupce, případně z IBANu. Neznámý kód nevyřazuje —
-                // radši porovnat číslo účtu než ztratit IBAN-only řádek.
-                if (!empty($row['recipient_bank'])) {
-                    $candidateBank = (string) ($candidate['bank_code'] ?? '');
-                    if ($candidateBank === '' && $iban !== null) {
-                        $candidateBank = (string) AccountNumberNormalizer::czechIbanBankCode($iban);
-                    }
-                    if ($candidateBank !== '' && $candidateBank !== (string) $row['recipient_bank']) {
-                        continue;
-                    }
-                }
-                if (AccountNumberNormalizer::matchesAny((string) $row['recipient_account'], $candidate['account_number'] ?? null, $iban)) {
+                if (AccountNumberNormalizer::statementBelongsTo($candidate, (string) $row['recipient_account'], isset($row['recipient_bank']) ? (string) $row['recipient_bank'] : null)) {
                     $supplierId = (int) $candidate['supplier_id'];
                     break;
                 }
@@ -215,6 +208,11 @@ final class StatementMatcher
 
         // ── Outgoing → purchase_invoice (přijaté faktury) ────────────────
         if ($isOutgoing) {
+            // 0) Payment of a filed DPH return (tax office VAT account + DIČ variable symbol).
+            $vatPayment = $this->vatPayments?->recognize($supplierId, $row);
+            if ($vatPayment !== null) {
+                return $vatPayment;
+            }
             // Rematch bere i auto_partial. Částečnou shodu dle VS (confidence 70, status
             // faktury nemění) zahodíme a vyhodnotíme znovu, ať ji třeba nově započtené
             // zaokrouhlení povýší na přesnou. Fuzzy / částka+datum shody fakturu už

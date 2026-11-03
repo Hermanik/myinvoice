@@ -17,16 +17,20 @@ use MyInvoice\Service\Validation\InvoiceAmountPolicy;
 use MyInvoice\Service\Vat\VatStatusService;
 
 /**
- * Po schválení výkazu klientem (nebo manuálním přepnutí na 'approved'):
- *  1. Pokud je faktura draft → vystaví ji (varsymbol + snapshots + status='issued')
- *  2. Vyrenderuje PDF
- *  3. Pošle email se standardní šablonou invoice_send na příjemce z resolveRecipients()
- *  4. Status posune na 'sent'
- *  5. Loguje invoice.issued (jen pokud byla draft) + invoice.sent
+ * After the client approves the work report (or the status is switched to 'approved' by hand):
+ *  1. A draft invoice is issued (varsymbol + snapshots + status='issued')
+ *  2. The PDF is rendered
+ *  3. The standard `invoice_send` e-mail goes to the recipients from resolveRecipients()
+ *  4. The status moves to 'sent'
+ *  5. `invoice.issued` (only if it was a draft) + `invoice.sent` are logged
  *
- * Vrací sumář pro audit/payload caller akcí.
+ * Returns a summary for the audit/payload of the calling action.
  *
- * @phpstan-type Result array{issued: bool, sent_to: list<string>, varsymbol: string|null}
+ * A payer-time domestic draft with every line on 0 % (typically prepared while the supplier was
+ * still a non-payer) is HELD: it stays a draft and nothing is sent, exactly like the recurring
+ * generator does ({@see InvoiceVatAdvisor}). The caller gets `held` + the advisor's `warnings`.
+ *
+ * @phpstan-type Result array{issued: bool, sent_to: list<string>, varsymbol: string|null, held?: bool, warnings?: list<array{code:string,message:string}>}
  */
 final class AutoIssueAndSendService
 {
@@ -42,6 +46,7 @@ final class AutoIssueAndSendService
         private readonly StatsRecomputer $stats,
         private readonly PdfArchiveService $pdfArchive,
         private readonly RecipientResolver $recipients,
+        private readonly InvoiceVatAdvisor $vatAdvisor,
     ) {}
 
     /**
@@ -49,7 +54,7 @@ final class AutoIssueAndSendService
      * @param ?int     $userId   user, který akci spustil (může být null pro public approval)
      * @param string   $ip       IP pro audit log
      * @param string   $ua       User-Agent pro audit log
-     * @return array{issued: bool, sent_to: list<string>, varsymbol: string|null}
+     * @return array{issued: bool, sent_to: list<string>, varsymbol: string|null, held?: bool, warnings?: list<array{code:string,message:string}>}
      */
     public function run(int $invoiceId, ?int $userId, string $ip, string $ua): array
     {
@@ -61,6 +66,21 @@ final class AutoIssueAndSendService
         $issued = false;
         // 1. Vystavit pokud draft
         if ($invoice['status'] === 'draft') {
+            $warnings = $this->vatAdvisor->warnings((int) $invoice['supplier_id'], $invoice);
+            if ($warnings !== []) {
+                // Same hold as the recurring generator: keep the draft, issue and send nothing.
+                $this->logger->log('invoice.auto_issue_held', $userId, 'invoice', $invoiceId, [
+                    'reason'      => $warnings[0]['code'],
+                    'auto_reason' => 'work_report_approved',
+                ], $ip, $ua);
+                return [
+                    'issued'    => false,
+                    'sent_to'   => [],
+                    'varsymbol' => $invoice['varsymbol'] ?? null,
+                    'held'      => true,
+                    'warnings'  => $warnings,
+                ];
+            }
             if (
                 InvoiceAmountPolicy::requiresPositiveDraftAmountToPay(
                     (string) ($invoice['invoice_type'] ?? 'invoice'),

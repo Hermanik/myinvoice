@@ -44,6 +44,7 @@ final class DataboxSendService
         private readonly DataboxOutboxRepository $outbox,
         private readonly DataboxService $service,
         private readonly DataboxReceiptService $receipts,
+        private readonly SubmissionFilingBridge $filings,
         private readonly IsdsClient $isds,
         private readonly LoggerInterface $logger,
     ) {}
@@ -54,7 +55,7 @@ final class DataboxSendService
      * @param array{recipient_box_id:string, annotation:string, to_hands?:?string, sender_ref_number?:?string,
      *              recipient_ref_number?:?string, personal_delivery?:bool} $input
      * @param list<array{name:string, bytes:string}> $files
-     * @param array{recipient_name?:?string, is_tax_office?:bool, warnings?:list<string>, previous_sends?:list<array<string,mixed>>, form?:?array<string,mixed>} $context
+     * @param array{recipient_name?:?string, is_tax_office?:bool, warnings?:list<string>, previous_sends?:list<array<string,mixed>>, requires_resend_confirmation?:bool, form?:?array<string,mixed>} $context
      * @return array{token:string, expires_at:string, summary:array<string,mixed>}
      * @throws DataboxException
      */
@@ -106,7 +107,7 @@ final class DataboxSendService
             'total_bytes' => array_sum(array_map(static fn (array $f): int => strlen($f['bytes']), $prepared)),
             'warnings' => $warnings,
             'previous_sends' => $previous,
-            'requires_resend_confirmation' => $previous !== [],
+            'requires_resend_confirmation' => $context['requires_resend_confirmation'] ?? $previous !== [],
             'requires_unvalidated_confirmation' => (bool) ($context['requires_unvalidated_confirmation'] ?? false),
             'form' => $context['form'] ?? null,
         ];
@@ -120,7 +121,7 @@ final class DataboxSendService
     /**
      * The explicit confirmation: send the staged payload exactly once.
      *
-     * @return array{message_id:int, dm_id:string, submission_id:?int, receipt:bool, zfo:bool}
+     * @return array{message_id:int, dm_id:string, submission_id:?int, receipt:bool, zfo:bool, filing:?array{status:string, message:?string}}
      * @throws DataboxException|IsdsException
      */
     public function send(int $supplierId, int $userId, string $token, bool $confirmed, bool $resendConfirmed = false, ?\DateTimeImmutable $now = null, bool $unvalidatedConfirmed = false): array
@@ -138,9 +139,10 @@ final class DataboxSendService
         if ($header === null || $header['supplier_id'] !== $supplierId || $header['user_id'] !== $userId) {
             throw new DataboxException('token_invalid', 'Potvrzení odeslání je neplatné nebo vypršelo. Připravte zprávu znovu.', 410);
         }
-        // Re-checked here, not only at prepare time: the filing may have been sent from another tab meanwhile.
-        if ($header['submission_id'] !== null && !$resendConfirmed && $this->messages->activeSendsOfSubmission($header['submission_id'], $supplierId) !== []) {
-            throw new DataboxException('resend_confirmation_required', 'Tento výkaz už byl datovou schránkou odeslán. Potvrďte, že ho chcete odeslat znovu.', 409);
+        // Re-checked here, not only at prepare time: the filing may have been sent or filed from another tab meanwhile, and a
+        // filing that could not be recorded afterwards (a duplicate of the same period) must not be sent at all.
+        if ($header['submission_id'] !== null) {
+            $this->filings->guardSend($supplierId, $header['submission_id'], $resendConfirmed);
         }
         if (($header['summary']['requires_unvalidated_confirmation'] ?? false) === true && !$unvalidatedConfirmed) {
             throw new DataboxException(
@@ -198,8 +200,10 @@ final class DataboxSendService
             'submission_id' => $staged['submission_id'],
         ]);
         $this->messages->acknowledge($messageId, $userId);
+        $filing = null;
         if ($staged['submission_id'] !== null) {
             $this->messages->linkSubmission($staged['submission_id'], $messageId, $userId);
+            $filing = $this->filings->sent($supplierId, $staged['submission_id'], $dmId, $userId, $now);
         }
 
         // Best effort from here on: the message is sent and recorded, the receipt and the sealed copy can be fetched later.
@@ -218,7 +222,7 @@ final class DataboxSendService
             $this->logger->info('Sealed copy not stored right after send', ['dm_id' => $dmId, 'reason' => $e->reason]);
         }
 
-        return ['message_id' => $messageId, 'dm_id' => $dmId, 'submission_id' => $staged['submission_id'], 'receipt' => $receipt, 'zfo' => $zfo];
+        return ['message_id' => $messageId, 'dm_id' => $dmId, 'submission_id' => $staged['submission_id'], 'receipt' => $receipt, 'zfo' => $zfo, 'filing' => $filing];
     }
 
     // ---- internals ----

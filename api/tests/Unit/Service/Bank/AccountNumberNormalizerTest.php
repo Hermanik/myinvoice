@@ -121,4 +121,25 @@ final class AccountNumberNormalizerTest extends TestCase
         self::assertFalse(AccountNumberNormalizer::matchesAny('1000000005', '1000000006', 'CZ6508000000192000145399'));
         self::assertFalse(AccountNumberNormalizer::matchesAny('1000000005', null, null));
     }
+
+    public function testStatementBelongsToChecksTheBankCodeOnlyWhenTheStatementCarriesOne(): void
+    {
+        $account = ['account_number' => '19-2000145399', 'iban' => null, 'bank_code' => '0800'];
+
+        self::assertTrue(AccountNumberNormalizer::statementBelongsTo($account, '0000192000145399', '0800'));
+        self::assertTrue(AccountNumberNormalizer::statementBelongsTo($account, '0000192000145399', null), 'no bank code on the statement');
+        self::assertTrue(AccountNumberNormalizer::statementBelongsTo($account, '0000192000145399', ''));
+        self::assertFalse(AccountNumberNormalizer::statementBelongsTo($account, '0000192000145399', '0100'), 'same number, other bank');
+        self::assertFalse(AccountNumberNormalizer::statementBelongsTo($account, '9999999999', '0800'));
+    }
+
+    public function testStatementBelongsToTakesTheBankCodeFromTheIbanAndToleratesAnUnknownOne(): void
+    {
+        $ibanOnly = ['account_number' => null, 'iban' => 'CZ6508000000192000145399', 'bank_code' => null];
+        self::assertTrue(AccountNumberNormalizer::statementBelongsTo($ibanOnly, '192000145399', '0800'));
+        self::assertFalse(AccountNumberNormalizer::statementBelongsTo($ibanOnly, '192000145399', '0100'));
+
+        // A stored account without any known bank code is compared by its number alone.
+        self::assertTrue(AccountNumberNormalizer::statementBelongsTo(['account_number' => '1000000005'], '1000000005', '0100'));
+    }
 }

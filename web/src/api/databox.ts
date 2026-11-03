@@ -175,7 +175,7 @@ export interface SubmissionPrefill {
   file_size: number
   boxes: Array<{ id: number; label: string | null; db_id: string; db_type: string; environment: DataboxEnvironment; is_active: boolean; can_send: boolean }>
   recommended_box_id: number | null
-  blocked_reason: 'xsd_failed' | 'integrity_failed' | null
+  blocked_reason: 'xsd_failed' | 'integrity_failed' | 'duplicate_filing' | null
   warnings: string[]
   previous_sends: PreviousSend[]
 }

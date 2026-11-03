@@ -18,6 +18,8 @@ use MyInvoice\Service\Databox\DataboxService;
 use MyInvoice\Service\Databox\DataboxSyncService;
 use MyInvoice\Service\Databox\IsdsClient;
 use MyInvoice\Service\Databox\SubmissionDataboxService;
+use MyInvoice\Service\Databox\SubmissionFilingBridge;
+use MyInvoice\Service\Tax\TaxSubmissionFilingService;
 use MyInvoice\Service\Document\ZfoExtractor;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -46,6 +48,8 @@ abstract class DataboxIntegrationTestCase extends TestCase
     protected DataboxMessageService $messageService;
     protected DataboxSendService $sender;
     protected SubmissionDataboxService $submissions;
+    protected SubmissionFilingBridge $filings;
+    protected TaxSubmissionFilingService $filing;
     protected TaxSubmissionRepository $submissionRepo;
 
     protected int $supplierId = 0;
@@ -92,11 +96,13 @@ abstract class DataboxIntegrationTestCase extends TestCase
         $this->outbox = new DataboxOutboxRepository($this->db);
         $this->submissionRepo = new TaxSubmissionRepository($this->db);
         $this->service = new DataboxService($this->boxes, $this->crypto, $this->client, $logger);
-        $this->receipts = new DataboxReceiptService($this->client, $this->messages);
-        $this->sync = new DataboxSyncService($this->boxes, $this->messages, $this->service, $this->receipts, $this->client, $logger);
+        $this->filing = $container->get(TaxSubmissionFilingService::class);
+        $this->filings = new SubmissionFilingBridge($this->submissionRepo, $this->filing, $this->messages, $logger);
+        $this->receipts = new DataboxReceiptService($this->client, $this->messages, $this->filings);
+        $this->sync = new DataboxSyncService($this->boxes, $this->messages, $this->service, $this->receipts, $this->filings, $this->client, $logger);
         $this->messageService = new DataboxMessageService($this->boxes, $this->messages, $this->service, $this->receipts, $this->client, new ZfoExtractor(), $logger);
-        $this->sender = new DataboxSendService($this->boxes, $this->messages, $this->outbox, $this->service, $this->receipts, $this->client, $logger);
-        $this->submissions = new SubmissionDataboxService($this->submissionRepo, $this->messages, $this->service, $this->sender, $this->db);
+        $this->sender = new DataboxSendService($this->boxes, $this->messages, $this->outbox, $this->service, $this->receipts, $this->filings, $this->client, $logger);
+        $this->submissions = new SubmissionDataboxService($this->submissionRepo, $this->messages, $this->service, $this->sender, $this->filings, $this->db);
     }
 
     protected function tearDown(): void
@@ -165,9 +171,9 @@ abstract class DataboxIntegrationTestCase extends TestCase
     }
 
     /** Archive an EPO XML like TaxSubmissionArchiver does; removed in tearDown. */
-    protected function archiveSubmission(string $formCode, string $xml, string $validation = 'passed', int $year = 2026, ?int $month = 9, ?int $quarter = null, ?int $supplierId = null): int
+    protected function archiveSubmission(string $formCode, string $xml, string $validation = 'passed', int $year = 2026, ?int $month = 9, ?int $quarter = null, ?int $supplierId = null, string $submissionForm = 'B'): int
     {
-        $id = $this->submissionRepo->archive($supplierId ?? $this->supplierId, $formCode, $year, $month, $quarter, $xml, ['test' => true], $validation, [], $this->userId);
+        $id = $this->submissionRepo->archive($supplierId ?? $this->supplierId, $formCode, $year, $month, $quarter, $xml, ['test' => true], $validation, [], $this->userId, $submissionForm);
         $this->createdSubmissions[] = $id;
         return $id;
     }

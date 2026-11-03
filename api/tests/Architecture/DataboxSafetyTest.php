@@ -215,6 +215,17 @@ final class DataboxSafetyTest extends TestCase
         self::assertSame(['DataboxService.php'], $constructing, 'every other service gets its access from DataboxService::accessFor()');
     }
 
+    public function testTheFilingBridgeGoesThroughTheFilingServiceAndTouchesOnlyItsOwnFilings(): void
+    {
+        $source = (string) file_get_contents(self::SRC . '/Service/Databox/SubmissionFilingBridge.php');
+        foreach (['markFiled(', 'clearFiling(', 'setReceipt(', 'clearReceipt(', 'setFiledAt('] as $write) {
+            self::assertStringNotContainsString('$this->submissions->' . $write, $source, 'filing state changes only through TaxSubmissionFilingService');
+        }
+        self::assertStringNotContainsString('IsdsClient', $source, 'the bridge never talks to ISDS');
+        // A filing is only followed by the message that created it: channel data_box and its message number as the reference.
+        self::assertStringContainsString("\$submission['filing_channel'] === 'data_box' && (string) \$submission['filing_reference'] === (string) \$message['dm_id']", $source);
+    }
+
     public function testTheDatabaseDumpOfTheBackupCanCarryAWholeSignedMessage(): void
     {
         $source = (string) file_get_contents(self::SRC . '/../bin/cron-backup.php');

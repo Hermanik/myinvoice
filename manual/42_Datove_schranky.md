@@ -255,6 +255,19 @@ kontrolní hlášení, souhrnné hlášení, přiznání k dani z příjmů) tla
 - Je-li podání **už odeslané**, ukáže aplikace předchozí odeslání (číslo zprávy,
   stav, doručenku) a druhé odeslání vyžaduje **navíc potvrzení** („odeslat znovu"),
   aby nevznikly omylem duplicity.
+- **Odesláním se podání označí jako podané** (stejná evidence jako v kapitole
+  [Výkazy DPH](29_Vykazy_DPH.md#evidence-podání-platba-dph-a-kontroly-před-podáním)):
+  způsob **datová schránka**, číslo podání = **číslo zprávy**, čas = okamžik odeslání.
+  Jakmile ISDS vrátí doručenku, čas se upřesní na okamžik, kdy byla zpráva **dodána do
+  datové schránky úřadu** (to je chvíle, kdy podání dojde správci daně), a podepsaná
+  doručenka (ZFO) se uloží k podání jako potvrzení — podání přejde do stavu
+  **Potvrzeno**. Zpráva, kterou ISDS odmítne nebo nedoručí, označení podání zase zruší.
+  Dělá to i hodinová synchronizace, pokud doručenka není hned po odeslání k dispozici.
+- Je-li výkaz **už označený jako podaný** (na EPO portálu nebo dřívějším odesláním),
+  je odeslání „odeslat znovu": vyžaduje potvrzení a stav původního podání ani jeho
+  potvrzení nezmění. Je-li za stejné období a formu podané **jiné** podání, aplikace
+  odeslání odmítne ještě před odesláním — nešlo by ho zaznamenat; nejdřív u něj
+  zruš označení podání.
 - Číslo zprávy a **doručenka** se uloží k podání a zobrazí v seznamu archivu. Finanční
   správa uvádí, že stav doručení je jednoznačně patrný z doručenky v odesílající
   schránce; potvrzení doručení však **neříká**, že je podání věcně správné a účinné.

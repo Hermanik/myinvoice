@@ -301,10 +301,21 @@ final class InvoiceTools implements McpToolProvider
                     throw $e->httpStatus === 400 ? $this->explainBadRequest($c, (int) $a['client_id'], $e) : $e;
                 }
 
+                // Non-blocking hints from the create response (e.g. `payer_zero_rated`: a payer-time
+                // draft with every line on 0 %) must reach the caller before it decides to issue.
+                $warnings = [];
+                foreach ((array) ($created['warnings'] ?? []) as $w) {
+                    if (is_array($w)) {
+                        $warnings[] = ['code' => (string) ($w['code'] ?? ''), 'message' => (string) ($w['message'] ?? '')];
+                    }
+                }
+
                 return [
                     'created' => true,
                     'invoice' => McpFormat::invoiceDetail($created, [], $c->appUrl()),
+                    'warnings' => $warnings,
                     'next_step' => 'Faktura je uložena jako koncept (draft) bez čísla a nikam se neodeslala. '
+                        . ($warnings === [] ? '' : 'Před vystavením vyřeš upozornění v `warnings`. ')
                         . 'Vystavení provede nástroj issue_invoice až po souhlasu uživatele.',
                 ];
             },

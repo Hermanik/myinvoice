@@ -48,6 +48,12 @@ final class DeliveryDates
         return CzechWorkingDays::shiftToWorkingDay($day->modify('+10 days'));
     }
 
+    /** ISDS did not take the message: rejected (e.g. by the virus check) or undeliverable. Such a send carried nothing. */
+    public static function isFailed(?int $status): bool
+    {
+        return $status === self::STATE_REJECTED || $status === self::STATE_UNDELIVERABLE;
+    }
+
     /** True when the message is not yet legally delivered (reading it with a read-capable login delivers it). */
     public static function isUndelivered(?int $status): bool
     {

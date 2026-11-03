@@ -6,8 +6,16 @@ namespace MyInvoice\Tests\Unit\Service\Crm;
 
 use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\TaxConstantsRepository;
+use MyInvoice\Repository\SupplierVatStatusRepository;
+use MyInvoice\Repository\TaxSubmissionRepository;
+use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Crm\CrmAggregationService;
 use MyInvoice\Service\Invoice\OverduePolicy;
+use MyInvoice\Service\Qr\QrPaymentGenerator;
+use MyInvoice\Service\Tax\TaxCalendarService;
+use MyInvoice\Service\Tax\VatPaymentService;
+use MyInvoice\Service\Vat\VatStatusService;
 use PDO;
 use PDOStatement;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -27,6 +35,8 @@ final class OverdueActionItemsTest extends TestCase
         $sqlite->createFunction('CURDATE', static fn () => date('Y-m-d'));
         $sqlite->exec('CREATE TABLE invoices (id INTEGER, supplier_id INTEGER, status TEXT, due_date TEXT,
             invoice_type TEXT, parent_invoice_id INTEGER, amount_to_pay REAL, paid_total REAL)');
+        // The held-draft item of the same feed looks the approval hold up in the activity log (none here).
+        $sqlite->exec('CREATE TABLE activity_log (entity_type TEXT, entity_id INTEGER, action TEXT)');
         $insert = $sqlite->prepare("INSERT INTO invoices VALUES (?, ?, ?, ?, 'invoice', NULL, 100, ?)");
         foreach ([-1, 0, 1] as $offset) {
             $insert->execute([$offset + 2, 7, 'issued', date('Y-m-d', strtotime("$offset days")), 0]);
@@ -45,9 +55,13 @@ final class OverdueActionItemsTest extends TestCase
         });
         $db = new Connection(new Config([]));
         new \ReflectionProperty(Connection::class, 'pdo')->setValue($db, $pdo);
-        $service = new CrmAggregationService($db, new OverduePolicy(
-            new Config(['invoices' => ['overdue_includes_today' => $includesToday]]),
-        ));
+        $submissions = new TaxSubmissionRepository($db);
+        $service = new CrmAggregationService(
+            $db,
+            new OverduePolicy(new Config(['invoices' => ['overdue_includes_today' => $includesToday]])),
+            new TaxCalendarService($db, VatStatusService::forConnection($db), $submissions, new TaxConstantsRepository($db), new SupplierVatStatusRepository($db)),
+            new VatPaymentService($submissions, $db, $this->createStub(QrPaymentGenerator::class), new ActivityLogger($db)),
+        );
 
         $result = $service->actionItems(7);
         $items = array_values(array_filter($result['items'], static fn (array $item) => $item['type'] === 'overdue_invoices'));

@@ -102,14 +102,22 @@ test('the delivering-sync toggle asks for confirmation and multipart prepare use
   assert.match(compose, /databoxApi\.prepareMessage\(fd\)/)
 })
 
-test('TaxSubmissions offers the data box send only to admins', async () => {
+test('TaxSubmissions offers the data box send only to admins, inside the filing controls', async () => {
   const src = await read('pages/reports/TaxSubmissions.vue')
-  assert.match(src, /v-if="isAdmin" type="button" @click="sendingId = s\.id"/)
+  // One coherent page: the send button lives in the admin block next to "mark as filed", once; so does the chip.
+  assert.match(src, /<template v-if="isAdmin">\s*<button v-if="s\.filing_status === 'generated'"[\s\S]*?@click="sendingId = s\.id" data-test="databox-send"/)
+  assert.equal([...src.matchAll(/data-test="databox-send"/g)].length, 1)
+  assert.equal([...src.matchAll(/data-test="databox-chip"/g)].length, 1)
+  assert.match(src, /<router-link v-if="isAdmin && lastLink\(s\.id\)"/)
   assert.match(src, /<SubmissionSendModal v-if="isAdmin && sendingId !== null"/)
+  assert.match(src, /@sent="onDataboxSent"/)
   assert.match(src, /if \(!isAdmin\.value \|\| items\.value\.length === 0\) return/)
+  // The filing line and the chip do not both print the message number.
+  assert.match(src, /showReference\(s\)/)
   const modal = await read('components/databox/SubmissionSendModal.vue')
-  assert.match(modal, /blocked_reason === 'xsd_failed'/)
-  assert.match(modal, /blocked_reason === 'integrity_failed'/)
+  assert.match(modal, /blocked_reason != null/)
   assert.match(modal, /prepareSubmission\(/)
   assert.match(modal, /<SendConfirmModal/)
+  const confirm = await read('components/databox/SendConfirmModal.vue')
+  assert.match(confirm, /data-test="filing-outcome"/)
 })

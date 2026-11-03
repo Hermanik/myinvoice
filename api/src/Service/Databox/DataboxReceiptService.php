@@ -18,6 +18,7 @@ final class DataboxReceiptService
     public function __construct(
         private readonly IsdsClient $isds,
         private readonly DataboxMessageRepository $messages,
+        private readonly SubmissionFilingBridge $filings,
     ) {}
 
     /**
@@ -31,9 +32,14 @@ final class DataboxReceiptService
         $info = $this->isds->deliveryInfo($access, $dmId);
         $this->messages->saveDeliveryInfo($messageId, $info['xml']);
         $this->messages->updateState($messageId, $info['status'], $info['delivery_time'], $info['acceptance_time']);
-        // The readable receipt is saved even when the sealed copy fails; the failure then reaches the caller's back-off.
-        $this->messages->storeFile($messageId, 'delivery_zfo', $this->isds->signedDeliveryInfo($access, $dmId));
-        $this->messages->clearReceiptRetry($messageId);
+        try {
+            // The readable receipt is saved even when the sealed copy fails; the failure then reaches the caller's back-off.
+            $this->messages->storeFile($messageId, 'delivery_zfo', $this->isds->signedDeliveryInfo($access, $dmId));
+            $this->messages->clearReceiptRetry($messageId);
+        } finally {
+            // A tax filing sent in this message follows its delivery: the time of delivery now, the sealed receipt once stored.
+            $this->filings->messageChanged($messageId);
+        }
         return ['status' => $info['status'], 'acceptance_time' => $info['acceptance_time']];
     }
 }

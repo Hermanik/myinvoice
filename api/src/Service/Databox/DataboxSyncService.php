@@ -36,6 +36,7 @@ final class DataboxSyncService
         private readonly DataboxMessageRepository $messages,
         private readonly DataboxService $service,
         private readonly DataboxReceiptService $receipts,
+        private readonly SubmissionFilingBridge $filings,
         private readonly IsdsClient $isds,
         private readonly LoggerInterface $logger,
     ) {}
@@ -112,6 +113,11 @@ final class DataboxSyncService
                     $this->messages->recordReceiptFailure($sent['id'], $now);
                     $this->logger->warning('Data box receipt refresh failed', ['box_id' => $boxId, 'dm_id' => $sent['dm_id'], 'reason' => $e->reason]);
                 }
+            }
+
+            // A tax filing made by one of these messages follows the message's state (e.g. rejected) even when no receipt is fetched.
+            foreach ($this->messages->openFilingMessages($boxId) as $messageId) {
+                $this->filings->messageChanged($messageId);
             }
 
             $report['status'] = 'ok';

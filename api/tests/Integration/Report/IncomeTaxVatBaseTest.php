@@ -123,6 +123,9 @@ final class IncomeTaxVatBaseTest extends TestCase
         // ── Plátce DPH → částky BEZ DPH ──────────────────────────────────────
         $this->setVatPayer(true);
         $vat = $this->builder->build($this->supplierId, self::YEAR, 'fo')['summary'];
+        // Electronic filing (§ 136/2 a) DŘ, 1 May moved past the holiday) is the main deadline, paper filing (1 April) the second one.
+        self::assertSame('2099-05-04', $vat['submission_deadline']);
+        self::assertSame('2099-04-01', $vat['paper_deadline']);
         $this->assertTrue($vat['is_vat_payer'], 'summary.is_vat_payer musí být true pro plátce');
         $this->assertEqualsWithDelta($expectedBaseRevenue, $vat['revenue_orientacni'], 0.01,
             'Plátce DPH: tržby BEZ DPH (total_without_vat)');

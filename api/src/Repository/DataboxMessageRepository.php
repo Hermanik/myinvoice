@@ -312,13 +312,40 @@ final class DataboxMessageRepository
     public function activeSendsOfSubmission(int $submissionId, int $supplierId): array
     {
         $links = $this->linksForSubmissions([$submissionId], $supplierId)[$submissionId] ?? [];
-        return array_values(array_filter($links, static fn (array $l): bool => !in_array($l['status'], [DeliveryDates::STATE_REJECTED, DeliveryDates::STATE_UNDELIVERABLE], true)));
+        return array_values(array_filter($links, static fn (array $l): bool => !DeliveryDates::isFailed($l['status'])));
     }
 
     public function linkSubmission(int $submissionId, int $messageId, int $userId): void
     {
         $this->db->pdo()->prepare('INSERT IGNORE INTO tax_submission_databox_messages (submission_id, message_id, created_by) VALUES (?, ?, ?)')
             ->execute([$submissionId, $messageId, $this->userOrNull($userId)]);
+    }
+
+    /**
+     * Sent messages of the box that carry an archived submission whose filing they created and that is still only "filed"
+     * (no receipt yet): the ones whose later state in ISDS still decides that filing.
+     *
+     * @return list<int>
+     */
+    public function openFilingMessages(int $boxId): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT DISTINCT m.id FROM databox_messages m
+               JOIN tax_submission_databox_messages l ON l.message_id = m.id
+               JOIN tax_submissions s ON s.id = l.submission_id
+              WHERE m.databox_id = ? AND m.direction = 'sent' AND s.filing_status = 'filed'
+                AND s.filing_channel = 'data_box' AND s.filing_reference = m.dm_id"
+        );
+        $stmt->execute([$boxId]);
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /** @return list<int> archived submissions the message carried */
+    public function submissionsOfMessage(int $messageId): array
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT submission_id FROM tax_submission_databox_messages WHERE message_id = ?');
+        $stmt->execute([$messageId]);
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     /**

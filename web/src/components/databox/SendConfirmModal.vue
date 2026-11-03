@@ -19,7 +19,11 @@ const emit = defineEmits<{
 }>()
 const { t, te } = useI18n()
 
-interface SendResult { message_id: number; dm_id: string; submission_id: number | null; receipt: boolean; zfo: boolean; message: MessageDetail }
+interface SendResult {
+  message_id: number; dm_id: string; submission_id: number | null; receipt: boolean; zfo: boolean; message: MessageDetail
+  /** Only for a tax filing: what happened to its filing state (kept = it was already filed and stays so). */
+  filing: null | { status: 'recorded' | 'kept' | 'not_recorded'; message: string | null }
+}
 
 const summary = computed(() => props.prepared.summary)
 const busy = ref(false)
@@ -67,6 +71,9 @@ async function send() {
           <span v-else class="text-neutral-500">{{ t('databox.send.receipt_pending') }}</span>
         </dd>
       </dl>
+      <p v-if="result.filing" :class="['rounded-md border px-3 py-2', result.filing.status === 'not_recorded' ? 'border-danger-500/40 bg-danger-50 text-danger-500' : 'border-neutral-200 bg-neutral-50 text-neutral-700']" data-test="filing-outcome">
+        {{ t(`databox.send.filing_${result.filing.status}`) }}<template v-if="result.filing.message"> {{ result.filing.message }}</template>
+      </p>
       <router-link :to="{ path: '/databox', query: { box: String(result.message.databox_id), message: String(result.message_id) } }" class="text-primary-700 hover:underline inline-block" @click="emit('close')">
         {{ t('databox.send.open_message') }}
       </router-link>

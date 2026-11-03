@@ -22,7 +22,7 @@ const annotation = ref('')
 const prepared = ref<PrepareResponse | null>(null)
 
 const sendableBoxes = computed(() => (prefill.value?.boxes ?? []).filter(b => b.is_active && b.can_send))
-const blocked = computed(() => prefill.value?.blocked_reason === 'xsd_failed' || prefill.value?.blocked_reason === 'integrity_failed')
+const blocked = computed(() => prefill.value?.blocked_reason != null)
 const effectiveRecipient = computed(() => (editRecipient.value || !prefill.value?.recipient.box_id) ? recipientOverride.value.trim() : prefill.value.recipient.box_id)
 const canContinue = computed(() => !busy.value && !blocked.value && boxId.value !== null && effectiveRecipient.value?.length === 7 && annotation.value.trim().length > 0)
 

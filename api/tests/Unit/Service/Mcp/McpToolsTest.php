@@ -402,6 +402,44 @@ final class McpToolsTest extends TestCase
         self::assertSame([], array_filter($this->api->calls, static fn (array $c): bool => str_ends_with($c['path'], '/issue')));
     }
 
+    public function testCreateDraftInvoicePassesTheCreateWarningsThrough(): void
+    {
+        $this->api->on('POST /api/invoices', [201, $this->invoiceFixture([
+            'id' => 32, 'varsymbol' => null, 'status' => 'draft', 'payment_status' => null,
+            'warnings' => [[
+                'code' => 'payer_zero_rated',
+                'message' => 'Doklad má DUZP v době, kdy jste plátcem DPH, ale všechny položky jsou na 0 % sazbě.',
+            ]],
+        ])]);
+
+        $result = $this->call('create_draft_invoice', [
+            'client_id' => 2,
+            'items' => [['description' => 'Práce', 'quantity' => 1, 'unit_price_without_vat' => 1000, 'vat_rate_id' => 3]],
+        ]);
+
+        self::assertFalse($result['isError']);
+        $content = $result['structuredContent'];
+        self::assertTrue($content['created']);
+        self::assertCount(1, $content['warnings']);
+        self::assertSame('payer_zero_rated', $content['warnings'][0]['code']);
+        self::assertStringContainsString('0 %', $content['warnings'][0]['message']);
+        self::assertStringContainsString('warnings', $content['next_step'], 'the caller is told to resolve them before issuing');
+        self::assertStringContainsString('payer_zero_rated', $result['content'][0]['text'], 'the text form shows them too');
+    }
+
+    public function testCreateDraftInvoiceReportsAnEmptyWarningsListWhenThereAreNone(): void
+    {
+        $this->api->on('POST /api/invoices', [201, $this->invoiceFixture(['id' => 33, 'varsymbol' => null, 'status' => 'draft', 'payment_status' => null, 'warnings' => []])]);
+
+        $result = $this->call('create_draft_invoice', [
+            'client_id' => 2,
+            'items' => [['description' => 'Práce', 'quantity' => 1, 'unit_price_without_vat' => 1000, 'vat_rate_id' => 1]],
+        ]);
+
+        self::assertSame([], $result['structuredContent']['warnings']);
+        self::assertStringNotContainsString('upozornění', $result['structuredContent']['next_step']);
+    }
+
     public function testCreateDraftInvoiceNeedsAVatRatePerItem(): void
     {
         $result = $this->call('create_draft_invoice', ['client_id' => 2, 'items' => [['description' => 'x', 'quantity' => 1, 'unit_price_without_vat' => 1]]]);

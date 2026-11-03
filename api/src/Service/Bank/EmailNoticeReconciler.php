@@ -212,9 +212,8 @@ final class EmailNoticeReconciler
     }
 
     /**
-     * Supplier (tenant) z čísla účtu výpisu — kopíruje logiku StatementMatcher::match():
-     * porovnání přes AccountNumberNormalizer (zero-padding/prefix + domácí část IBANu),
-     * volitelný filtr na bank_code. Vrací 0, když účet nepatří žádnému supplierovi.
+     * Supplier (tenant) of the statement account, resolved like StatementMatcher::match() does it
+     * ({@see AccountNumberNormalizer::statementBelongsTo()}). Returns 0 when no supplier owns the account.
      */
     private function resolveSupplierId(PDO $pdo, string $account, string $bankCode): int
     {
@@ -229,17 +228,7 @@ final class EmailNoticeReconciler
             return 0;
         }
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $cand) {
-            $iban = isset($cand['iban']) && is_string($cand['iban']) ? $cand['iban'] : null;
-            if ($bankCode !== '') {
-                $candBank = (string) ($cand['bank_code'] ?? '');
-                if ($candBank === '' && $iban !== null) {
-                    $candBank = (string) AccountNumberNormalizer::czechIbanBankCode($iban);
-                }
-                if ($candBank !== '' && $candBank !== $bankCode) {
-                    continue;
-                }
-            }
-            if (AccountNumberNormalizer::matchesAny($account, $cand['account_number'] ?? null, $iban)) {
+            if (AccountNumberNormalizer::statementBelongsTo($cand, $account, $bankCode)) {
                 return (int) $cand['supplier_id'];
             }
         }
