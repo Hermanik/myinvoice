@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Invoice;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\ActivityLogger;
+use MyInvoice\Service\LateInterest\LateInterestService;
 use MyInvoice\Service\Mail\InvoiceEmailVarsBuilder;
 use MyInvoice\Service\Mail\Mailer;
 use MyInvoice\Service\Mail\RecipientResolver;
@@ -38,6 +39,7 @@ final class ReminderService
         private readonly InvoiceEmailVarsBuilder $varsBuilder,
         private readonly ActivityLogger $logger,
         private readonly RecipientResolver $recipients,
+        private readonly LateInterestService $lateInterest,
     ) {}
 
     /**
@@ -96,7 +98,12 @@ final class ReminderService
         // caller (manual/bulk/cron) si ji ošetří jako dosud.
         try {
             $pdfPath = $this->renderer->render($invoiceId, false, $userId);
-            $vars = $this->varsBuilder->buildReminder($invoice, $daysOverdue, $locale);
+            $vars = $this->varsBuilder->buildReminder(
+                $invoice,
+                $daysOverdue,
+                $locale,
+                $this->lateInterest->forReminder($invoice, $today->format('Y-m-d')),
+            );
             $templateCode = $invoice['invoice_type'] === 'proforma' ? 'proforma_reminder' : 'invoice_reminder';
             $this->mailer->sendTemplate(
                 $templateCode,

@@ -980,6 +980,106 @@ paths:
         '409':
           description: Podmínky nesplněny (neplátce DPH, reverse charge, není proforma)
 
+  /api/v1/invoices/{id}/late-interest:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer, format: int64 }
+    get:
+      tags: [Invoices]
+      summary: Zákonný úrok z prodlení faktury
+      description: |
+        Naběhlý zákonný úrok z prodlení (§ 1970 občanského zákoníku, nařízení vlády č. 351/2013 Sb.)
+        ke zvolenému dni. Roční sazba = repo sazba ČNB platná k prvnímu dni kalendářního pololetí,
+        ve kterém prodlení vzniklo, + 8 procentních bodů; sazba se po celou dobu prodlení nemění.
+        Úrok běží od dne následujícího po splatnosti, počítá se ze zbývající dlužné částky v měně faktury
+        (skutečný počet dní / 365 resp. 366 dní kalendářního roku).
+
+        Funkce je ve výchozím stavu vypnutá (dodavatel → klient → faktura). Je-li vypnutá nebo faktura
+        není po splatnosti, je `summary` null a `reason` říká proč.
+      parameters:
+        - in: query
+          name: as_of
+          required: false
+          schema: { type: string, format: date }
+          description: Rozhodný den (default dnes)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LateInterestInfo' }
+        '404':
+          description: Faktura nenalezena
+        '422':
+          description: Neplatné datum `as_of`
+    put:
+      tags: [Invoices]
+      summary: Přepínač úroku z prodlení u faktury
+      description: |
+        Nastaví přepsání na úrovni faktury: `true` = počítat, `false` = nepočítat, `null` = dědit z klienta
+        a dodavatele. Funguje i u vystavené faktury (nemění obsah dokladu).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [late_interest]
+              properties:
+                late_interest: { type: [boolean, "null"] }
+      responses:
+        '200':
+          description: OK (stejné tělo jako GET)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LateInterestInfo' }
+        '422':
+          description: Hodnota není true / false / null
+
+  /api/v1/invoices/{id}/late-interest-invoice:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer, format: int64 }
+    post:
+      tags: [Invoices]
+      summary: Vyúčtuje úrok z prodlení (koncept)
+      description: |
+        Vytvoří KONCEPT faktury stejnému klientovi s dosud nevyúčtovaným úrokem z prodlení (a volitelně
+        paušální náhradou nákladů 1 200 Kč podle § 3 nařízení vlády č. 351/2013 Sb. jako samostatným řádkem).
+        Doklad se nikdy sám nevystaví ani neodešle. Řádky jsou mimo předmět DPH (sazba 0 %, klasifikace
+        `MPD`), v poznámkách je odkaz na původní fakturu a období. Opakované volání vyúčtuje jen dny po
+        dříve vyúčtovaném období; paušál se účtuje jen jednou.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                as_of: { type: string, format: date, description: "Vyúčtovat do tohoto dne (default dnes, ne v budoucnu)" }
+                include_fixed_cost: { type: boolean, default: true, description: "Přidat paušální náhradu nákladů, pokud ji dodavatel uplatňuje a klient je podnikatel" }
+      responses:
+        '201':
+          description: Koncept vytvořen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoice: { $ref: '#/components/schemas/Invoice' }
+                  warnings:
+                    type: array
+                    items: { type: string }
+        '409':
+          description: Není co vyúčtovat / funkce vypnutá / faktura není způsobilá / číselník repo sazeb není aktuální
+        '422':
+          description: Neplatné nebo budoucí `as_of`
+
   /api/v1/invoices/{id}/pdf:
     parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
@@ -3465,6 +3565,32 @@ paths:
       responses:
         '200':
           description: OK
+
+  /api/v1/codebooks/repo-rates:
+    get:
+      tags: [Codebooks]
+      summary: Historie dvoutýdenní repo sazby ČNB
+      description: |
+        Číselník pro výpočet zákonného úroku z prodlení, nejnovější záznam první. Řádek znamená „od tohoto
+        dne platí tato sazba“. Číselník je jen k přidávání, existující historie se nepřepisuje.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rates:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        valid_from: { type: string, format: date }
+                        rate_percent: { type: number, format: float }
+                        source: { type: string, enum: [seed, cnb, manual] }
+                  verified_on: { type: [string, "null"], format: date, description: "Číselník je znám jako úplný k tomuto dni" }
+                  is_current: { type: boolean, description: "Dá se číselníku věřit pro prodlení začínající dnes (ověřeno po začátku aktuálního pololetí)? Jinak upomínky úrok neuvádějí a vyúčtování je zablokované." }
 
   /api/v1/codebooks/units:
     get:
@@ -6536,6 +6662,7 @@ components:
         is_vendor: { type: boolean, description: "Role dodavatele (evidujeme přijaté faktury)" }
         is_vat_payer: { type: boolean, description: "Plátce DPH (ověřitelné přes /clients/{id}/vat-status)" }
         auto_send_reminders: { type: boolean, description: "Automatické odesílání upomínek" }
+        late_interest: { type: [boolean, "null"], description: "Přepsání zákonného úroku z prodlení u klienta: true = počítat, false = nepočítat, null = dědit z nastavení dodavatele" }
         payment_due_default: { type: [integer, "null"], description: "Default splatnost pro nové faktury klienta" }
         payment_due_unit: { type: [string, "null"], enum: [days, month, null], description: "Jednotka splatnosti (dny / konec měsíce)" }
         note: { type: [string, "null"] }
@@ -6650,6 +6777,7 @@ components:
         is_vendor: { type: boolean, default: false, description: "Role dodavatele." }
         is_vat_payer: { type: boolean, default: true }
         auto_send_reminders: { type: boolean, default: true }
+        late_interest: { type: [boolean, "null"], description: "Přepsání zákonného úroku z prodlení (null = dědit z dodavatele)" }
         payment_due_default: { type: integer, minimum: 1, maximum: 365, description: "Default splatnost" }
         payment_due_unit: { type: [string, "null"], enum: [days, month, null] }
         note: { type: [string, "null"] }
@@ -6699,6 +6827,7 @@ components:
         reverse_charge: { type: boolean }
         prices_include_vat: { type: boolean, description: "Ceny položek zadané včetně DPH (DPH se počítá shora koeficientem). Per-doklad, migrace 0083." }
         auto_send_reminders: { type: boolean, description: "Per-faktura přepínač automatických upomínek (migrace 0088). False = cron tuto fakturu přeskočí, i když má dodavatel i klient upomínky zapnuté." }
+        late_interest: { type: [boolean, "null"], description: "Per-faktura přepsání zákonného úroku z prodlení: true = počítat, false = nepočítat, null = dědit z klienta / dodavatele. Mění se přes PUT /invoices/{id}/late-interest." }
         client_ic: { type: [string, "null"], description: "Denormalizováno z klienta" }
         client_dic: { type: [string, "null"] }
         revenue_category_id: { type: [integer, "null"], description: "FK do /revenue-categories — kategorie tržby pro CRM/Grafy" }
@@ -7764,6 +7893,9 @@ components:
         default_branding_profile_id: { type: [integer, "null"], readOnly: true }
         auto_send_reminders: { type: boolean }
         reminder_days_after_due: { type: integer, minimum: 1, maximum: 365 }
+        late_interest_enabled: { type: boolean, default: false, description: "Zákonný úrok z prodlení (NV 351/2013 Sb.) — globální zapnutí, ve výchozím stavu vypnuto" }
+        late_interest_in_reminders: { type: boolean, default: true, description: "Uvádět naběhlý úrok v upomínkách" }
+        late_interest_claim_fixed_cost: { type: boolean, default: false, description: "Uplatnit paušální náhradu nákladů 1 200 Kč (jen podnikatelé)" }
 
     SupplierFull:
       type: object
@@ -7829,6 +7961,9 @@ components:
         email_accent_color: { type: string, example: "#3B2D83" }
         has_email_logo: { type: boolean }
         auto_send_reminders: { type: boolean }
+        late_interest_enabled: { type: boolean }
+        late_interest_in_reminders: { type: boolean }
+        late_interest_claim_fixed_cost: { type: boolean }
         reminder_days_after_due: { type: integer, minimum: 1, maximum: 365, default: 3, description: "Per-dodavatel práh: po kolika dnech po splatnosti poslat první automatickou upomínku (migrace 0089). CLI --days ho přebije." }
         self_copy:
           type: [object, "null"]
@@ -7881,6 +8016,95 @@ components:
         page:     { type: integer, example: 1 }
         per_page: { type: integer, example: 50 }
         pages:    { type: integer, example: 9 }
+
+    LateInterestSegment:
+      type: object
+      description: Úsek prodlení s konstantním zůstatkem v rámci jednoho kalendářního roku
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        days: { type: integer }
+        balance: { type: number, format: float, description: "Dlužná částka v měně faktury" }
+        year_days: { type: integer, enum: [365, 366] }
+        interest: { type: number, format: float }
+
+    LateInterestInfo:
+      type: object
+      properties:
+        invoice_id: { type: integer, format: int64 }
+        as_of: { type: string, format: date }
+        enabled: { type: boolean, description: "Výsledek přepsání faktura → klient → dodavatel" }
+        enabled_source: { type: string, enum: [invoice, client, supplier] }
+        invoice_override: { type: [boolean, "null"] }
+        client_override: { type: [boolean, "null"] }
+        supplier_enabled: { type: boolean }
+        reason:
+          type: [string, "null"]
+          enum: [disabled, invalid_type, invalid_state, no_amount, interest_invoice, not_overdue, unsupported, null]
+          description: "Proč není `summary` k dispozici. `interest_invoice` = z dokladu na úrok se další úrok nepočítá (§ 1806 OZ)."
+        message: { type: [string, "null"] }
+        summary:
+          type: [object, "null"]
+          properties:
+            as_of: { type: string, format: date }
+            currency: { type: string }
+            principal: { type: number, format: float }
+            due_date: { type: string, format: date }
+            delay_from: { type: string, format: date, description: "První den prodlení (den po splatnosti)" }
+            days: { type: integer }
+            interest: { type: number, format: float, description: "Naběhlý úrok v měně faktury" }
+            outstanding: { type: number, format: float }
+            settled_on: { type: [string, "null"], format: date, description: "Den úhrady, který prodlení ukončil" }
+            annual_rate_percent: { type: number, format: float, description: "repo sazba + 8 p. b." }
+            repo:
+              type: object
+              properties:
+                rate_percent: { type: number, format: float }
+                valid_from: { type: string, format: date }
+                half_year_start: { type: string, format: date }
+            segments:
+              type: array
+              items: { $ref: '#/components/schemas/LateInterestSegment' }
+            rate_verified: { type: boolean, description: "false = číselník repo sazeb není znám jako aktuální pro dané pololetí; upomínky úrok neuvádějí a vyúčtování je zablokované" }
+            billed_through: { type: [string, "null"], format: date }
+            billed_interest: { type: number, format: float }
+            billable:
+              type: object
+              description: Dosud nevyúčtovaná část
+              properties:
+                from: { type: [string, "null"], format: date }
+                to: { type: [string, "null"], format: date }
+                days: { type: integer }
+                interest: { type: number, format: float }
+                segments:
+                  type: array
+                  items: { $ref: '#/components/schemas/LateInterestSegment' }
+            fixed_cost:
+              type: object
+              properties:
+                amount_czk: { type: number, format: float, example: 1200 }
+                business_client: { type: boolean }
+                already_claimed: { type: boolean }
+                claimable: { type: boolean }
+        settings:
+          type: object
+          properties:
+            enabled: { type: boolean }
+            in_reminders: { type: boolean }
+            claim_fixed_cost: { type: boolean }
+        claims:
+          type: array
+          description: Již vytvořené doklady na úrok z prodlení (bez stornovaných)
+          items:
+            type: object
+            properties:
+              invoice_id: { type: integer, format: int64 }
+              varsymbol: { type: [string, "null"] }
+              status: { type: string }
+              period_from: { type: string, format: date }
+              period_to: { type: string, format: date }
+              interest_amount: { type: number, format: float }
+              fixed_cost_amount: { type: [number, "null"], format: float }
 
     InvoicePayment:
       type: object

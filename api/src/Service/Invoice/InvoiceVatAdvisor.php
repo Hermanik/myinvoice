@@ -20,6 +20,12 @@ final class InvoiceVatAdvisor
 {
     public const PAYER_ZERO_RATED = 'payer_zero_rated';
 
+    /**
+     * vat_classifications.code of a sale outside the scope of VAT (e.g. late-payment interest, migration
+     * 9005). A line classified so is a deliberate 0 %, never a forgotten rate.
+     */
+    public const OUTSIDE_VAT_SCOPE = 'MPD';
+
     public function __construct(
         private readonly InvoiceRepository $invoices,
         private readonly VatStatusService $vatStatus,
@@ -39,7 +45,12 @@ final class InvoiceVatAdvisor
             return [];
         }
         // Cheapest check first: every line must be a 0 % domestic line (the stored rate snapshot).
-        $items = (array) ($invoice['items'] ?? []);
+        // Lines explicitly classified as outside the scope of VAT are not "forgotten" 0 % lines.
+        $headerCode = (string) ($invoice['vat_classification_code'] ?? '');
+        $items = array_filter(
+            (array) ($invoice['items'] ?? []),
+            static fn (array $item): bool => ($item['vat_classification_code'] ?? '' ?: $headerCode) !== self::OUTSIDE_VAT_SCOPE,
+        );
         foreach ($items as $item) {
             if (!empty($item['oss_applicable']) || !isset($item['vat_rate_snapshot']) || (float) $item['vat_rate_snapshot'] > 0.0) {
                 return [];

@@ -311,6 +311,12 @@ final class Routes
         $app->put   ('/api/codebooks/tax-constants/{year:[0-9]+}',  [\MyInvoice\Action\Codebook\TaxConstantsAction::class, 'update']);
         $app->delete('/api/codebooks/tax-constants/{year:[0-9]+}',  [\MyInvoice\Action\Codebook\TaxConstantsAction::class, 'reset']);
 
+        // CNB 2T repo rate history for statutory late-payment interest (global, append-only; migration 9005)
+        $app->get   ('/api/codebooks/repo-rates',                   [\MyInvoice\Action\Codebook\RepoRatesAction::class, 'list']);
+        $app->post  ('/api/codebooks/repo-rates',                   [\MyInvoice\Action\Codebook\RepoRatesAction::class, 'create']);
+        $app->post  ('/api/codebooks/repo-rates/fetch',             [\MyInvoice\Action\Codebook\RepoRatesAction::class, 'fetch']);
+        $app->delete('/api/codebooks/repo-rates/{date:[0-9-]+}', [\MyInvoice\Action\Codebook\RepoRatesAction::class, 'delete']);
+
         // VAT klasifikační kódy (pro DPHDP3 + KH)
         $app->get   ('/api/vat-classifications',                 [\MyInvoice\Action\Codebook\VatClassificationsAction::class, 'list']);
         $app->post  ('/api/vat-classifications',                 [\MyInvoice\Action\Codebook\VatClassificationsAction::class, 'create']);
@@ -385,6 +391,10 @@ final class Routes
         $app->post   ('/api/invoices/{id:[0-9]+}/send-test', SendTestEmailAction::class);
         $app->post   ('/api/invoices/{id:[0-9]+}/reminder',  SendReminderAction::class);
         $app->post   ('/api/invoices/{id:[0-9]+}/reminder-test', SendTestReminderAction::class);
+        // Statutory late-payment interest: accrued amount + opt-in state, per-invoice override, interest invoice draft
+        $app->get    ('/api/invoices/{id:[0-9]+}/late-interest',         [\MyInvoice\Action\Invoice\LateInterestAction::class, 'get']);
+        $app->put    ('/api/invoices/{id:[0-9]+}/late-interest',         [\MyInvoice\Action\Invoice\LateInterestAction::class, 'setOverride']);
+        $app->post   ('/api/invoices/{id:[0-9]+}/late-interest-invoice', [\MyInvoice\Action\Invoice\LateInterestAction::class, 'createInvoice']);
         $app->post   ('/api/invoices/{id:[0-9]+}/issue-final', IssueFinalFromProformaAction::class);
         // Zpětné propojení daňového dokladu se zálohovou fakturou (proforma)
         $app->get    ('/api/invoices/{id:[0-9]+}/advance-candidates', InvoiceAdvanceCandidatesAction::class);

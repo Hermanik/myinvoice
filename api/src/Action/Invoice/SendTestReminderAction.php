@@ -12,6 +12,7 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
+use MyInvoice\Service\LateInterest\LateInterestService;
 use MyInvoice\Service\Mail\InvoiceEmailVarsBuilder;
 use MyInvoice\Service\Mail\Mailer;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
@@ -38,6 +39,7 @@ final class SendTestReminderAction
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
         private readonly Connection $db,
+        private readonly LateInterestService $lateInterest,
     ) {}
 
     public function __invoke(Request $request, Response $response, array $args): Response
@@ -85,7 +87,12 @@ final class SendTestReminderAction
         }
 
         $locale = (string) ($invoice['language'] ?? 'cs');
-        $vars = $this->varsBuilder->buildReminder($invoice, $daysOverdue, $locale);
+        $vars = $this->varsBuilder->buildReminder(
+            $invoice,
+            $daysOverdue,
+            $locale,
+            $this->lateInterest->forReminder($invoice, date('Y-m-d')),
+        );
         // Označ jako TEST v subjectu (na rozdíl od reálné upomínky)
         $vars['subject'] = ($locale === 'en' ? '[TEST] ' : '[TEST] ') . $vars['subject'];
 

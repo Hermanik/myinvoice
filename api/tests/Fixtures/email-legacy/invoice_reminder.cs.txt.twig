@@ -1,0 +1,22 @@
+{% extends '_layout.txt.twig' %}
+
+{% block content %}
+UPOMÍNKA — neuhrazená faktura
+================================
+
+Dobrý den,
+
+dovolujeme si Vás upozornit, že faktura č. {{ invoice.varsymbol }}
+je {{ days_overdue }} {% if days_overdue == 1 %}den{% elseif days_overdue < 5 %}dny{% else %}dní{% endif %} po splatnosti a nebyla dosud uhrazena.
+
+Variabilní symbol: {{ invoice.varsymbol }}
+Datum vystavení:   {{ invoice.issue_date|date('j.n.Y') }}
+Splatnost:         {{ invoice.due_date|date('j.n.Y') }}
+Po splatnosti:     {{ days_overdue }} {% if days_overdue == 1 %}den{% elseif days_overdue < 5 %}dny{% else %}dní{% endif %}
+K úhradě:          {{ amount_to_pay|number_format(2, ',', ' ') }} {{ invoice.currency }}
+
+Faktura v PDF je v příloze tohoto emailu.
+Pokud byla platba odeslána v posledních dnech, považujte prosím tuto upomínku za bezpředmětnou.
+
+Děkujeme za vyřízení.
+{% endblock %}

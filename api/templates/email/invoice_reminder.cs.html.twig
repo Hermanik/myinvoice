@@ -42,7 +42,30 @@
       </table>
     </td>
   </tr>
-</table>
+</table>{% if late_interest %}
+
+<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;background:#F6F5FA;border:1px solid #E7E3EE;border-radius:8px;margin:16px 0;">
+  <tr>
+    <td style="padding:16px 20px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:14px;color:#403B52;">
+        <tr>
+          <td style="padding:4px 0;color:#7A748C;width:42%;">Úrok z prodlení ke dni {{ late_interest.as_of|date('j.n.Y') }}</td>
+          <td style="padding:4px 0;font-weight:600;font-family:monospace;color:#15131D;">{{ late_interest.interest|number_format(2, ',', ' ') }} {{ invoice.currency }}</td>
+        </tr>
+        {% if late_interest.fixed_cost.claimable %}
+        <tr>
+          <td style="padding:4px 0;color:#7A748C;width:42%;">Paušální náhrada nákladů spojených s uplatněním pohledávky</td>
+          <td style="padding:4px 0;font-weight:600;font-family:monospace;color:#15131D;">{{ late_interest.fixed_cost.amount_czk|number_format(2, ',', ' ') }} Kč</td>
+        </tr>
+        {% endif %}
+      </table>
+      <p style="margin:8px 0 0;font-size:12px;color:#7A748C;">
+        Uplatňujeme úrok z prodlení od {{ late_interest.delay_from|date('j.n.Y') }}: roční sazba {{ late_interest.annual_rate_percent|number_format(2, ',', ' ') }} % = repo sazba ČNB {{ late_interest.repo.rate_percent|number_format(2, ',', ' ') }} % platná k {{ late_interest.repo.half_year_start|date('j.n.Y') }} + 8 procentních bodů (§ 1970 občanského zákoníku, § 2 nařízení vlády č. 351/2013 Sb.).
+      </p>
+    </td>
+  </tr>
+</table>{% endif %}
+
 
 {% if qr_data_uri %}
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:32px 0 8px;">
