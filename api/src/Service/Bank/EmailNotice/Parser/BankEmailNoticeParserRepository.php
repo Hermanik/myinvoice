@@ -75,6 +75,22 @@ final class BankEmailNoticeParserRepository
     }
 
     /**
+     * Would any enabled provider's parser take this e-mail? This is the same gate {@see parse()}
+     * applies (sender, subject and body checks of every parser), so a message that fails it can only
+     * end in `parse_failed` and needs no authenticity check.
+     */
+    public function supportsMessage(BankEmailNoticeMessage $message, ?int $supplierId = null): bool
+    {
+        foreach ($this->providers(null, $supplierId) as $provider) {
+            $parser = $this->parsers[$provider->parserType] ?? null;
+            if ($parser !== null && $parser->supports($message, $provider)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * @return list<BankEmailNoticeProvider>
      */
     public function providers(?string $preferredProviderRef = null, ?int $supplierId = null, bool $enabledOnly = true): array

@@ -76,6 +76,8 @@ Každý dodavatel může mít více IMAP účtů, typicky jeden pro každou bank
 | Procházet | Ověří připojení a nabídne složky ze serveru |
 | Max. zpráv na běh | Kolik nejnovějších e-mailů cron načte při jednom běhu |
 | Zpracovat od data | Starší e-maily se ignorují i když spadnou do limitu |
+| Vyžadovat ověření autenticity (DKIM/DMARC) | Zpracují se jen e-maily, jejichž odesílatele se podařilo ověřit — viz [37.3.1](#3731-overeni-autenticity-e-mailu). Ostatní se zamítnou (`security_rejected`) |
+| Důvěryhodný authserv-id | Volitelné, **doporučeno nechat prázdné**. Jen když znáš authserv-id svého přijímacího serveru — viz [37.3.1](#3731-overeni-autenticity-e-mailu) |
 | Přijímat přeposlaná (FW) avíza | Rozpozná banku i z těla e-mailu, když avíza chodí do schránky přeposlaná (odesílatel je tvoje adresa, ne banka) |
 | E-mail přeposílatele | Volitelné omezení, od koho smí přeposlaná avíza chodit — adresa (`jan@firma.cz`) nebo doména (`firma.cz`); prázdné = libovolný |
 | Po úspěchu | Co udělat se zpracovanou zprávou |
@@ -86,6 +88,87 @@ podle odesílatele, ale přeposláním se odesílatelem stáváš ty — proto s
 hledá i z těla e-mailu. Volitelně omez **E-mail přeposílatele**, ať se zpracují
 jen avíza od tvé adresy. Přeposláním zaniká původní podpis banky (DKIM), takže
 ověření autenticity se vztahuje na přeposílatele, ne na banku.
+
+### 37.3.1 Ověření autenticity e-mailu
+
+Hlavička `From` se dá podvrhnout. Padělané avízo by přitom mohlo označit fakturu
+(nebo i závazek z DPH) za uhrazenou. Zapni proto u IMAP účtu **Vyžadovat ověření
+autenticity (DKIM/DMARC)** — e-mail se zpracuje, jen když se ověří, že ho opravdu
+odeslala doména banky. Kontrola se týká jen e-mailů, které by některý aktivní
+provider avíz vůbec vzal (podle odesílatele, předmětu a těla); ostatní pošta ve
+schránce se normálně označí `parse_failed` a nic se pro ni neověřuje ani
+nestahuje z DNS.
+
+**Ve výchozím nastavení se vždy ověřuje DKIM podpis (vlastní kontrola, RFC 6376).**
+MyInvoice si v IMAP přečte zprávu přesně tak, jak dorazila, najde v ní podpis
+`DKIM-Signature` banky, stáhne její veřejný klíč z DNS
+(`<selector>._domainkey.<doména>`, např. `ab._domainkey.airbank.cz`) a podpis
+zkontroluje. Funguje s jakýmkoli poštovním serverem, i s **Seznamem**
+(`imap.seznam.cz`, Email Profi), který žádný výsledek ověření do zpráv nepřidává.
+
+Hlavičku **`Authentication-Results`** MyInvoice přijme jen tehdy, když u účtu
+vyplníš **Důvěryhodný authserv-id** a zpráva obsahuje hlavičku přesně s tímto
+identifikátorem — pak se převezme verdikt serveru (`dmarc=pass`, nebo `dkim=pass`
+s doménou zarovnanou na odesílatele). Bez vyplněného authserv-id se všechny
+hlavičky `Authentication-Results` **ignorují**, protože si je do e-mailu může
+vložit i odesílatel (a u poštovního serveru, který vlastní hlavičku nepřidává,
+jsou takové jediné, takže by padělek prošel). Pole proto nech prázdné, dokud
+přesně nevíš, jak se tvůj přijímací server jmenuje a že hlavičku opravdu
+přidává (např. `mx.google.com` u Gmailu). Když hlavička s tímto identifikátorem
+ve zprávě chybí, ověří se DKIM podpis.
+
+Zpráva projde vlastní kontrolou jen tehdy, když platí **všechno**:
+
+- aspoň jeden podpis je platný (podepsané hlavičky i tělo e-mailu se po podpisu nezměnily),
+- doména podpisu (`d=`) odpovídá doméně odesílatele z hlavičky `From`
+  (stejná doména nebo její subdoména, např. `airbank.cz` ↔ `info@airbank.cz`;
+  podpis cizí domény se nikdy nepřijme),
+- odesílatel v podepsané hlavičce `From` je týž, jehož adresu vidí aplikace
+  (podle ní provider avíz pozná banku),
+- podpis používá `rsa-sha256` nebo `ed25519-sha256` (starý `rsa-sha1` se odmítá,
+  stejně jako RSA klíče pod 1024 bitů),
+- podpis nemá omezenou délku těla (`l=`), neexpiroval (`x=`) a klíč v DNS není
+  zrušený (prázdné `p=`) ani ve zkušebním režimu (`t=y`),
+- hlavička `From` je v e-mailu právě jedna a je podepsaná,
+- zpráva je rozumně velká (hlavičky do 256 KiB, tělo do 2 MiB; bankovní avíza
+  jsou o řády menší).
+
+Vlastní kontrola neposílá nic poštovnímu serveru; jedinou síťovou operací je
+DNS dotaz na klíč banky. Odpověď se pamatuje po dobu jednoho scanu, takže padesát
+zpráv od jedné banky znamená jediný dotaz. Doba čekání na nedostupný DNS server
+se řídí nastavením systémového překladače (`options timeout:` v `resolv.conf`).
+
+Způsob a výsledek ověření je u každého zpracovaného e-mailu vidět v seznamu
+**Zpracované e-maily** (řádek „Ověření: …“); ukládá se do sloupců `auth_method`
+(`dkim_local` / `authentication_results`) a `auth_detail`:
+
+| Kód | Význam |
+|---|---|
+| `dkim_local_pass:airbank.cz` | Vlastní kontrola prošla, podpis je od uvedené domény |
+| `dkim_pass_aligned`, `dmarc_pass` | Ověřil důvěryhodný přijímací server (`Authentication-Results`) |
+| `dkim_no_signature` | Zpráva nemá žádný DKIM podpis — typicky padělek |
+| `dkim_body_hash_mismatch` | Obsah e-mailu se po podepsání změnil |
+| `dkim_signature_invalid` | Podepsané hlavičky se změnily, nebo podpis nepatří k veřejnému klíči |
+| `dkim_domain_not_aligned` | Podpis je od jiné domény, než je odesílatel e-mailu |
+| `dkim_from_domain_mismatch` | Odesílatel v hlavičce `From` nesedí na odesílatele, kterého vidí aplikace |
+| `dkim_from_missing`, `dkim_from_ambiguous`, `dkim_from_invalid` | Hlavička `From` chybí, je jich víc, nebo ji nelze jednoznačně přečíst |
+| `dkim_key_not_found` | V DNS není veřejný klíč pro daný selector |
+| `dkim_key_revoked`, `dkim_key_testing`, `dkim_key_too_weak`, `dkim_key_invalid` | Klíč banky je zrušený, zkušební, příliš slabý nebo nepoužitelný |
+| `dkim_algorithm_insecure`, `dkim_algorithm_unsupported` | Podpis používá `rsa-sha1`, resp. nepodporovaný algoritmus |
+| `dkim_signature_expired`, `dkim_timestamp_invalid` | Podpis expiroval, resp. má nesmyslný čas |
+| `dkim_body_length_limit` | Podpis pokrývá jen část těla (`l=`) — zbytek by mohl být připsaný |
+| `dkim_malformed_signature`, `dkim_from_not_signed` | Podpis je poškozený, resp. nepokrývá odesílatele |
+| `dkim_header_too_large`, `dkim_message_too_large`, `dkim_too_many_signatures` | Zpráva překračuje bezpečnostní limity kontroly |
+| `dkim_no_raw_message` | Zpráva se ze schránky nepodařilo načíst v původní podobě |
+| `auth_failed`, `dkim_domain_mismatch` | Zamítnuto podle hlavičky `Authentication-Results` důvěryhodného serveru (hlásí selhání, resp. špatnou doménu) |
+
+Dočasná chyba DNS (`dkim_dns_error`) zprávu **nezamítne**: nezapíše se žádný záznam
+a zpráva v mailboxu zůstane nedotčená, takže ji další scan zkusí znovu. V souhrnu
+scanu se počítá jako „odloženo (DNS)“.
+
+> 🛈 Vlastní kontrola ověřuje, že zprávu podepsala doména odesílatele, ne že se
+> bance dá věřit. Odesílatel se proto stále musí shodovat s odesílatelem, kterého
+> očekává provider avíz (u Air Bank `info@airbank.cz`).
 
 Polling zprávy standardně **neoznačuje jako přečtené**. Systém si úspěšně
 zpracované e-maily pamatuje v databázi podle `Message-ID` / UID / fallback
@@ -242,6 +325,24 @@ Sekce **Zpracované e-maily** je debug přehled:
 Smazání záznamu zde nemaže transakci ani fakturu. Maže jen deduplikační záznam,
 takže je možné stejný e-mail znovu zpracovat při dalším scanu. Používej to jen
 jako emergency/debug akci.
+
+### Znovu zpracovat zamítnuté avízo
+
+Pravé avízo se stavem `security_rejected` (typicky potom, co banka klíč v DNS
+opravila, nebo co jsi upravil **Důvěryhodný authserv-id**) znovu zpracuješ
+bez zásahu do databáze:
+
+1. U záznamu klikni na **Smazat záznam** (zamítnutý e-mail nemá žádnou
+   transakci ani platbu, nic dalšího se nesmaže).
+2. Klikni na **Spustit scan** (nebo počkej na cron). Scan načte zprávu ze
+   schránky znovu a zpracuje ji včetně ověření autenticity.
+
+Podmínky: zpráva musí být stále ve složce, kterou účet čte, a mezi posledními
+**Max. zpráv na běh** (u staršího avíza limit dočasně zvyš, nejvýš na 500), a nesmí
+být starší než **Zpracovat od data**. Pokud jsi
+v účtu nastavil po neúspěchu **přesunout do složky**, vrať zprávu ručně zpět
+do čtené složky. Opakované zpracování nevytvoří duplicitní platbu: transakce
+z avíza se vždy hledá podle `Message-ID`.
 
 ## 37.7 Cron pro e-mailová avíza
 

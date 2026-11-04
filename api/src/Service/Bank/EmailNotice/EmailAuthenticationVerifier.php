@@ -4,73 +4,94 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Bank\EmailNotice;
 
+use MyInvoice\Service\Bank\EmailNotice\Dkim\DkimVerifier;
+use MyInvoice\Service\Bank\EmailNotice\Dkim\DomainAlignment;
+
 /**
- * Možnost A ověření autenticity e-mailu: NEpřepočítáváme DKIM/SPF sami (to dělá
- * přijímací server při doručení), jen důvěřujeme jeho verdiktu z hlavičky
- * `Authentication-Results` a vyžadujeme `dmarc=pass` nebo `dkim=pass` s doménou
- * zarovnanou na odesílatele.
+ * E-mail authenticity check. Who vouches for the sender:
  *
- * Bezpečnostní pozn.: hlavičku A-R umí kdokoli vložit do těla zprávy. Důvěryhodná
- * je jen ta, kterou přidal náš přijímací server (prepend → index 0). Pokud je
- * nakonfigurován `trustedAuthServId`, hledáme jen řádek s tímto authserv-id;
- * jinak bereme nejvyšší (= poslední hop).
+ *  1. A trusted receiving server, but ONLY when the account has a trusted authserv-id configured and
+ *     one of the message's `Authentication-Results` headers carries exactly that id: we do not
+ *     recompute anything, we take its verdict and require `dmarc=pass` or `dkim=pass` with a domain
+ *     aligned to the sender.
+ *  2. Otherwise (the default) our own DKIM verification of the raw message ({@see DkimVerifier}).
+ *
+ * Security note: anybody can put an A-R header into a message, and a mailbox provider that adds none
+ * (Seznam) leaves ONLY sender-written ones. Without a configured authserv-id every A-R header is
+ * therefore ignored.
  */
 final class EmailAuthenticationVerifier
 {
-    /**
-     * @param list<string> $authResults
-     * @return array{checked:bool, pass:bool, detail:string}
-     */
-    public function verify(array $authResults, ?string $expectedDomain, ?string $trustedAuthServId = null): array
-    {
-        if ($authResults === []) {
-            return ['checked' => false, 'pass' => false, 'detail' => 'no_authentication_results'];
-        }
+    public function __construct(private readonly DkimVerifier $dkim) {}
 
-        $line = null;
-        $trustedAuthServId = $trustedAuthServId !== null ? trim($trustedAuthServId) : '';
+    /**
+     * @param list<string> $authResults Authentication-Results header values, topmost first.
+     * @param ?string $trustedAuthServId authserv-id of the receiving server whose A-R header may be trusted; null/empty = trust none.
+     * @param string $rawHeader Raw header block of the message (empty = not captured).
+     * @param string $rawBody Raw, undecoded body.
+     */
+    public function verify(
+        array $authResults,
+        ?string $expectedDomain,
+        ?string $trustedAuthServId = null,
+        string $rawHeader = '',
+        string $rawBody = '',
+    ): EmailAuthResult {
+        $trustedAuthServId = trim((string) $trustedAuthServId);
         if ($trustedAuthServId !== '') {
             foreach ($authResults as $candidate) {
                 $servId = trim(explode(';', $candidate, 2)[0]);
                 if (stripos($servId, $trustedAuthServId) !== false) {
-                    $line = $candidate;
-                    break;
+                    return $this->fromAuthenticationResults($candidate, $expectedDomain);
                 }
             }
-            if ($line === null) {
-                return ['checked' => true, 'pass' => false, 'detail' => 'authserv_id_mismatch'];
-            }
-        } else {
-            // Bez připnutí důvěřujeme nejvyšší hlavičce (přidal ji přijímací server).
-            $line = $authResults[0];
         }
 
+        // No trusted verdict (the default): check the signature ourselves.
+        if ($rawHeader === '') {
+            return new EmailAuthResult(AuthVerdict::Fail, AuthMethod::DkimLocal, 'dkim_no_raw_message');
+        }
+        $result = $this->dkim->verify($rawHeader, $rawBody, $expectedDomain);
+        return new EmailAuthResult(
+            $result->pass ? AuthVerdict::Pass : ($result->retry ? AuthVerdict::Deferred : AuthVerdict::Fail),
+            AuthMethod::DkimLocal,
+            $result->detail,
+        );
+    }
+
+    private function fromAuthenticationResults(string $line, ?string $expectedDomain): EmailAuthResult
+    {
         $lc = strtolower($line);
+        $result = static fn (bool $pass, string $detail): EmailAuthResult => new EmailAuthResult(
+            $pass ? AuthVerdict::Pass : AuthVerdict::Fail,
+            AuthMethod::AuthenticationResults,
+            $detail,
+        );
 
-        // dmarc=pass implikuje zarovnání na From doménu už na přijímacím serveru → silné samo o sobě.
+        // dmarc=pass already implies alignment with the From domain on the receiving server, so it is strong on its own.
         if (preg_match('/\bdmarc\s*=\s*pass\b/', $lc) === 1) {
-            return ['checked' => true, 'pass' => true, 'detail' => 'dmarc_pass'];
+            return $result(true, 'dmarc_pass');
         }
 
-        // dkim=pass musí mít doménu (header.d=) zarovnanou na očekávaného odesílatele.
+        // dkim=pass must carry a domain (header.d=) aligned with the expected sender.
         if (preg_match_all('/\bdkim\s*=\s*pass\b([^;]*)/', $lc, $matches) >= 1) {
             foreach ($matches[1] as $rest) {
                 if ($expectedDomain === null || $expectedDomain === '') {
-                    return ['checked' => true, 'pass' => true, 'detail' => 'dkim_pass'];
+                    return $result(true, 'dkim_pass');
                 }
                 if (preg_match('/header\.d\s*=\s*([a-z0-9.\-]+)/', $rest, $d) === 1
-                    && $this->domainAligns($d[1], $expectedDomain)) {
-                    return ['checked' => true, 'pass' => true, 'detail' => 'dkim_pass_aligned'];
+                    && DomainAlignment::aligns($d[1], $expectedDomain)) {
+                    return $result(true, 'dkim_pass_aligned');
                 }
             }
-            return ['checked' => true, 'pass' => false, 'detail' => 'dkim_domain_mismatch'];
+            return $result(false, 'dkim_domain_mismatch');
         }
 
-        return ['checked' => true, 'pass' => false, 'detail' => 'auth_failed'];
+        return $result(false, 'auth_failed');
     }
 
     /**
-     * Vytáhne doménu z From adresy ("Jméno <info@rb.cz>" i "info@rb.cz").
+     * Extracts the domain from a From address ("Name <info@rb.cz>" as well as "info@rb.cz").
      */
     public function domainFromSender(string $sender): ?string
     {
@@ -78,18 +99,5 @@ final class EmailAuthenticationVerifier
             return strtolower($m[2]);
         }
         return null;
-    }
-
-    private function domainAligns(string $domain, string $expected): bool
-    {
-        $domain = strtolower(ltrim($domain, '.'));
-        $expected = strtolower(ltrim($expected, '.'));
-        if ($domain === '' || $expected === '') {
-            return false;
-        }
-        // Relaxed alignment: shoda nebo subdoména kteréhokoli směru (rb.cz ~ mail.rb.cz).
-        return $domain === $expected
-            || str_ends_with($domain, '.' . $expected)
-            || str_ends_with($expected, '.' . $domain);
     }
 }

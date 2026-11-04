@@ -54,6 +54,10 @@ final class WebklexImapMailboxClient implements ImapMailboxClientInterface
             authResults: $this->authenticationResults($message),
             allowForwarded: (bool) ($settings['allow_forwarded'] ?? false),
             forwardedFrom: trim((string) ($settings['forwarded_from'] ?? '')),
+            // Together with $rawBody this is the message DKIM hashes; only needed when authenticity is required.
+            rawHeader: !empty($settings['require_email_auth']) && method_exists($message, 'getRawBody')
+                ? $this->rawHeaderBlock($message)
+                : '',
         );
     }
 
@@ -168,23 +172,18 @@ final class WebklexImapMailboxClient implements ImapMailboxClientInterface
     }
 
     /**
-     * Vytáhne hodnoty hlaviček Authentication-Results z raw hlaviček zprávy.
-     * Pořadí v raw = shora dolů = nejnovější hop (přijímací server) první.
+     * Extracts the Authentication-Results header values from the raw message headers.
+     * Order in the raw block = top to bottom = newest hop (the receiving server) first.
      *
      * @return list<string>
      */
     private function authenticationResults(object $message): array
     {
-        try {
-            $header = method_exists($message, 'getHeader') ? $message->getHeader() : null;
-            $raw = is_object($header) && isset($header->raw) ? (string) $header->raw : '';
-        } catch (\Throwable) {
-            $raw = '';
-        }
+        $raw = $this->rawHeaderBlock($message);
         if (trim($raw) === '') {
             return [];
         }
-        // Hlavička může být zalomená na víc řádků (pokračování začíná mezerou/tabem).
+        // The header may be folded over several lines (a continuation starts with a space/tab).
         if (preg_match_all('/^Authentication-Results:[ \t]*(.*(?:\r?\n[ \t]+.*)*)/mi', $raw, $m) < 1) {
             return [];
         }
@@ -196,6 +195,20 @@ final class WebklexImapMailboxClient implements ImapMailboxClientInterface
             }
         }
         return $out;
+    }
+
+    /**
+     * The header block exactly as the server sent it (IMAP `RFC822.HEADER`, including the blank
+     * separator line). Webklex keeps it as an untouched literal, unlike the decoded accessors.
+     */
+    private function rawHeaderBlock(object $message): string
+    {
+        try {
+            $header = $message->getHeader();
+            return is_object($header) && isset($header->raw) ? (string) $header->raw : '';
+        } catch (\Throwable) {
+            return '';
+        }
     }
 
     private function messageDate(object $message): ?\DateTimeImmutable

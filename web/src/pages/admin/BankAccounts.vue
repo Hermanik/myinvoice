@@ -712,6 +712,12 @@ async function removeProvider(provider: BankEmailProvider) {
   }
 }
 
+function authMethodLabel(method: string | null | undefined): string {
+  return method === 'dkim_local' || method === 'authentication_results'
+    ? t(`bank_accounts.auth_method_${method}`)
+    : (method || '—')
+}
+
 async function deleteMessage(m: BankEmailProcessedMessage) {
   if (!window.confirm(t('bank_accounts.delete_message_confirm', { id: m.id }))) return
   try {
@@ -1356,6 +1362,7 @@ async function deleteMessage(m: BankEmailProcessedMessage) {
             known: scanSummary.known_skipped ?? 0,
             old: scanSummary.old_skipped ?? 0,
             rejected: scanSummary.security_rejected ?? 0,
+            deferred: scanSummary.auth_deferred ?? 0,
             errors: scanSummary.errors ?? 0,
           }) }}
         </div>
@@ -1384,6 +1391,7 @@ async function deleteMessage(m: BankEmailProcessedMessage) {
                 <td class="px-3 py-2">
                   <span :class="m.matched ? 'text-success-600' : (['match_failed','parse_failed','security_rejected','postprocess_failed'].includes(m.effective_status || m.status) ? 'text-danger-500' : '')">{{ m.effective_status || m.status }}</span>
                   <div v-if="m.error_message" class="text-xs text-danger-500">{{ m.error_message }}</div>
+                  <div v-if="m.auth_detail" class="text-xs text-neutral-500" data-testid="auth-detail">{{ t('bank_accounts.auth_detail', { method: authMethodLabel(m.auth_method), detail: m.auth_detail }) }}</div>
                 </td>
                 <td class="px-3 py-2">{{ m.provider_code || '—' }}</td>
                 <td class="px-3 py-2 font-mono text-xs">

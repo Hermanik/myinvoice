@@ -7,12 +7,16 @@ namespace MyInvoice\Service\Bank\EmailNotice;
 final class BankEmailNoticeMessage
 {
     /**
-     * @param list<string> $authResults Hodnoty hlaviček Authentication-Results shora dolů
-     *                                   (nejnovější hop = přijímací server = index 0).
-     * @param bool $allowForwarded Schránka přijímá přeposlaná (FW) avíza — povolí
-     *                             detekci banky z těla, když `From` nesedí (opt-in per účet).
-     * @param string $forwardedFrom Volitelný whitelist přeposílatele (adresa nebo doména);
-     *                              prázdný = libovolný. Uplatní se jen v přeposlané větvi.
+     * @param string $raw Raw (undecoded) MIME body as fetched from the mailbox.
+     * @param list<string> $authResults Authentication-Results header values top to bottom
+     *                                   (newest hop = receiving server = index 0).
+     * @param bool $allowForwarded The mailbox receives forwarded (FW) notices: lets the bank be
+     *                             detected from the body when `From` does not match (opt-in per account).
+     * @param string $forwardedFrom Optional forwarder whitelist (address or domain);
+     *                              empty = any. Applies to the forwarded branch only.
+     * @param string $rawHeader The header block byte for byte as received (with `$raw` it makes up the
+     *                          complete RFC 5322 message that DKIM hashes). Empty when the mailbox client
+     *                          did not capture it, which it only does when authenticity is required.
      */
     public function __construct(
         public readonly ?int $uid,
@@ -25,6 +29,7 @@ final class BankEmailNoticeMessage
         public readonly array $authResults = [],
         public readonly bool $allowForwarded = false,
         public readonly string $forwardedFrom = '',
+        public readonly string $rawHeader = '',
     ) {}
 
     public function fallbackHash(): string
