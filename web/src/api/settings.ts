@@ -293,6 +293,10 @@ export interface BankEmailProcessedMessage {
   matched_invoice_id: number | null
   matched_purchase_invoice_id?: number | null
   matched_varsymbol?: string | null
+  /** How the sender was authenticated: `authentication_results` (server verdict) or `dkim_local` (own DKIM check); null = not checked. */
+  auth_method?: string | null
+  /** Stable verification code, e.g. `dkim_local_pass:airbank.cz` or `dkim_body_hash_mismatch`. */
+  auth_detail?: string | null
   error_message: string | null
   processed_at: string
 }

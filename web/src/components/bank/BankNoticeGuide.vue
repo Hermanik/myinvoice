@@ -27,10 +27,10 @@ const mailProvider = computed(() => detectGuideMailProviderFromHosts(props.hosts
 const airBankSteps = ['ab_1', 'ab_2', 'ab_3', 'ab_4', 'ab_5', 'ab_6']
 const step3 = ['s3_1', 's3_2', 's3_3', 's3_4', 's3_5', 's3_6', 's3_7']
 const verify = ['v_1', 'v_2', 'v_3', 'v_4']
-const troubles = ['ts_1', 'ts_2', 'ts_3', 'ts_4', 'ts_5']
+const troubles = ['ts_1', 'ts_2', 'ts_3', 'ts_4', 'ts_5', 'ts_7']
 
 const providers: Array<{ key: GuideMailProvider; title: string; lines: string[] }> = [
-  { key: 'seznam', title: 'mp_seznam', lines: ['mp_seznam_values', 'mp_seznam_app', 'mp_seznam_imap'] },
+  { key: 'seznam', title: 'mp_seznam', lines: ['mp_seznam_values', 'mp_seznam_app', 'mp_seznam_imap', 'mp_seznam_auth'] },
   { key: 'gmail', title: 'mp_gmail', lines: ['mp_gmail_values'] },
   { key: 'microsoft', title: 'mp_ms', lines: ['mp_ms_values'] },
   { key: 'generic', title: 'mp_generic', lines: ['mp_generic_values'] },

@@ -379,11 +379,11 @@ final class BankEmailNoticeRepository
             'INSERT INTO bank_email_processed_messages
                 (supplier_id, imap_account_id, imap_uid, message_id, fallback_hash, message_date, sender, subject,
                  provider_id, provider_code, status, attempts, parsed_payload, bank_statement_id,
-                 bank_transaction_id, matched_invoice_id, error_message)
+                 bank_transaction_id, matched_invoice_id, error_message, auth_method, auth_detail)
              VALUES
                 (:supplier_id, :imap_account_id, :imap_uid, :message_id, :fallback_hash, :message_date, :sender, :subject,
                  :provider_id, :provider_code, :status, :attempts, :parsed_payload, :bank_statement_id,
-                 :bank_transaction_id, :matched_invoice_id, :error_message)'
+                 :bank_transaction_id, :matched_invoice_id, :error_message, :auth_method, :auth_detail)'
         );
         $stmt->execute([
             'supplier_id' => (int) $data['supplier_id'],
@@ -403,6 +403,8 @@ final class BankEmailNoticeRepository
             'bank_transaction_id' => $data['bank_transaction_id'] ?? null,
             'matched_invoice_id' => $data['matched_invoice_id'] ?? null,
             'error_message' => $this->nullable($data['error_message'] ?? null),
+            'auth_method' => $this->nullable($data['auth_method'] ?? null),
+            'auth_detail' => $this->nullable(isset($data['auth_detail']) ? mb_substr((string) $data['auth_detail'], 0, 255) : null),
         ]);
         return (int) $this->db->pdo()->lastInsertId();
     }

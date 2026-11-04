@@ -135,6 +135,8 @@ final class Bootstrap
             \MyInvoice\Service\Bank\EmailNotice\ImapMailboxClientInterface::class => fn (ContainerInterface $c) => new \MyInvoice\Service\Bank\EmailNotice\WebklexImapMailboxClient(
                 $c->get(\MyInvoice\Service\Bank\EmailNotice\EmailNoticeTextNormalizer::class),
             ),
+            // Local DKIM verification of bank e-mail notices; DkimVerifier / EmailAuthenticationVerifier are autowired.
+            \MyInvoice\Service\Bank\EmailNotice\Dkim\DkimKeyResolverInterface::class => fn (ContainerInterface $c) => $c->get(\MyInvoice\Service\Bank\EmailNotice\Dkim\DnsDkimKeyResolver::class),
             \MyInvoice\Service\Bank\EmailNotice\Parser\BankEmailNoticeParserRepository::class => fn (ContainerInterface $c) => new \MyInvoice\Service\Bank\EmailNotice\Parser\BankEmailNoticeParserRepository(
                 $c->get(Connection::class),
                 self::bankEmailNoticeParsers($c, $config),

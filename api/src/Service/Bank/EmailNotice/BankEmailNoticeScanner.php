@@ -16,7 +16,7 @@ final class BankEmailNoticeScanner
         private readonly BankEmailNoticeParserRepository $parsers,
         private readonly ImapMailboxClientInterface $imap,
         private readonly StatementMatcher $matcher,
-        private readonly EmailAuthenticationVerifier $authVerifier = new EmailAuthenticationVerifier(),
+        private readonly EmailAuthenticationVerifier $authVerifier,
     ) {}
 
     /**
@@ -40,6 +40,7 @@ final class BankEmailNoticeScanner
             'known_skipped' => 0,
             'old_skipped' => 0,
             'security_rejected' => 0,
+            'auth_deferred' => 0,
             'errors' => 0,
             'postprocess_errors' => 0,
             'accounts' => [],
@@ -48,7 +49,7 @@ final class BankEmailNoticeScanner
         foreach ($accounts as $settings) {
             $accountSummary = $this->scanAccount($supplierId, $settings, $limitOverride);
             $summary['accounts'][] = $accountSummary;
-            foreach (['fetched', 'processed', 'matched', 'known_skipped', 'old_skipped', 'security_rejected', 'errors', 'postprocess_errors'] as $key) {
+            foreach (['fetched', 'processed', 'matched', 'known_skipped', 'old_skipped', 'security_rejected', 'auth_deferred', 'errors', 'postprocess_errors'] as $key) {
                 $summary[$key] += (int) ($accountSummary[$key] ?? 0);
             }
         }
@@ -79,6 +80,7 @@ final class BankEmailNoticeScanner
                     'known_skipped' => 0,
                     'old_skipped' => 0,
                     'security_rejected' => 0,
+                    'auth_deferred' => 0,
                     'errors' => 1,
                     'postprocess_errors' => 0,
                     'details' => [],
@@ -100,6 +102,7 @@ final class BankEmailNoticeScanner
             'known_skipped' => 0,
             'old_skipped' => 0,
             'security_rejected' => 0,
+            'auth_deferred' => 0,
             'errors' => 0,
             'postprocess_errors' => 0,
             'details' => [],
@@ -123,6 +126,8 @@ final class BankEmailNoticeScanner
                     $summary['old_skipped']++;
                 } elseif ($status === 'security_rejected') {
                     $summary['security_rejected']++;
+                } elseif ($status === 'auth_deferred') {
+                    $summary['auth_deferred']++;
                 } else {
                     $summary['errors']++;
                 }
@@ -178,25 +183,40 @@ final class BankEmailNoticeScanner
             ];
         }
 
-        // Možnost A: ověření autenticity z hlavičky Authentication-Results (DKIM/DMARC).
-        // Fail-open: kontrola se spustí jen když ji admin u účtu zapnul.
-        if (!empty($settings['require_email_auth'])) {
+        // Authenticity check (opt-in per account): a trusted server's verdict when the account pins
+        // its authserv-id, otherwise our own DKIM verification of the raw message. Only mail that some
+        // bank provider would actually take is checked; anything else goes the normal way and ends
+        // as parse_failed without costing a DNS lookup.
+        if (!empty($settings['require_email_auth']) && $this->parsers->supportsMessage($message, $supplierId)) {
             $auth = $this->authVerifier->verify(
                 $message->authResults,
                 $this->authVerifier->domainFromSender($message->sender),
                 isset($settings['email_auth_serv_id']) ? (string) $settings['email_auth_serv_id'] : null,
+                $message->rawHeader,
+                $message->raw,
             );
-            if (!$auth['pass']) {
+            if ($auth->isDeferred()) {
+                // Temporary failure (DNS): leave no record and do not touch the message, so the
+                // next scan examines it again instead of rejecting a genuine notice for good.
+                return [
+                    'status' => 'auth_deferred',
+                    'message_id' => $messageId,
+                    'imap_account_id' => $imapAccountId,
+                    'reason' => $auth->detail,
+                ];
+            }
+            $base += $auth->toPayload();
+            if (!$auth->passed()) {
                 $this->repo->recordMessage($base + [
                     'status' => 'security_rejected',
-                    'error_message' => 'E-mail neprošel ověřením autenticity (DKIM/DMARC): ' . $auth['detail'],
+                    'error_message' => 'E-mail neprošel ověřením autenticity (DKIM/DMARC).',
                 ]);
                 $this->safePostProcess($settings, $message, 'failure');
                 return [
                     'status' => 'security_rejected',
                     'message_id' => $messageId,
                     'imap_account_id' => $imapAccountId,
-                    'reason' => $auth['detail'],
+                    'reason' => $auth->detail,
                 ];
             }
         }
@@ -229,10 +249,10 @@ final class BankEmailNoticeScanner
             );
             $match = $tx['match_result'];
             $matchedInvoiceId = isset($match['invoice_id']) ? (int) $match['invoice_id'] : null;
-            // Spárování je úspěšné i u ODCHOZÍ platby na přijatou fakturu — matcher v tom
-            // případě vrací `purchase_invoice_id` (ne `invoice_id`) se status auto_exact/
-            // auto_partial. Dřív se bral jen `invoice_id`, takže úhrada přijaté faktury
-            // padala na „match_failed" (a IMAP post-process ji řešil jako selhání).
+            // Matching is also successful for an OUTGOING payment of a received invoice: the
+            // matcher then returns `purchase_invoice_id` (not `invoice_id`) with status
+            // auto_exact/auto_partial. Only `invoice_id` used to be read, so paying a received
+            // invoice ended up as "match_failed" (and IMAP post-processing treated it as a failure).
             $matchedPurchaseInvoiceId = isset($match['purchase_invoice_id']) ? (int) $match['purchase_invoice_id'] : null;
             $matchStatus = (string) ($match['status'] ?? 'unmatched');
             $isMatched = $matchStatus !== 'unmatched'
