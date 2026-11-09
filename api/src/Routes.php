@@ -618,6 +618,7 @@ final class Routes
         $app->post   ('/api/databox/boxes/{id:[0-9]+}/verify',                 [DataboxBoxAction::class, 'verify']);
         $app->post   ('/api/databox/boxes/{id:[0-9]+}/sync',                   [DataboxBoxAction::class, 'syncNow']);
         $app->post   ('/api/databox/boxes/{id:[0-9]+}/acknowledge-all',        [DataboxBoxAction::class, 'acknowledgeAll']);
+        $app->post   ('/api/databox/acknowledge-all',                         [DataboxBoxAction::class, 'acknowledgeAll']);
         $app->get    ('/api/databox/email-settings',                          [DataboxEmailAction::class, 'get']);
         $app->put    ('/api/databox/email-settings',                          [DataboxEmailAction::class, 'update']);
         $app->post   ('/api/databox/email-settings/scan',                     [DataboxEmailAction::class, 'scan']);
@@ -625,6 +626,7 @@ final class Routes
         $app->put    ('/api/databox/boxes/{id:[0-9]+}/credentials/{purpose:[a-z]+}',    [DataboxBoxAction::class, 'setCredential']);
         $app->delete ('/api/databox/boxes/{id:[0-9]+}/credentials/{purpose:[a-z]+}',    [DataboxBoxAction::class, 'removeCredential']);
         $app->get    ('/api/databox/boxes/{id:[0-9]+}/messages',               [DataboxMessageAction::class, 'list']);
+        $app->get    ('/api/databox/messages',                                [DataboxMessageAction::class, 'list']);
         $app->get    ('/api/databox/messages/{id:[0-9]+}',                     [DataboxMessageAction::class, 'get']);
         $app->post   ('/api/databox/messages/{id:[0-9]+}/open',                [DataboxMessageAction::class, 'open']);
         $app->get    ('/api/databox/messages/{id:[0-9]+}/attachments/{index:[0-9]+}', [DataboxMessageAction::class, 'attachment']);

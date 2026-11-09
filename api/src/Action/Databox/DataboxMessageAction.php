@@ -43,7 +43,7 @@ final class DataboxMessageAction extends DataboxActionBase
         return $this->run($request, $response, function (int $sid) use ($request, $response, $args): Response {
             $q = $request->getQueryParams();
             $direction = in_array($q['direction'] ?? '', ['received', 'sent'], true) ? (string) $q['direction'] : null;
-            return Json::ok($response, $this->messages->list($sid, (int) $args['id'], [
+            return Json::ok($response, $this->messages->list($sid, isset($args['id']) ? (int) $args['id'] : null, [
                 'direction' => $direction,
                 'unread_only' => ($q['unread'] ?? '') === '1',
                 'tax_office_only' => ($q['tax_office'] ?? '') === '1',

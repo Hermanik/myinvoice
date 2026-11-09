@@ -144,8 +144,9 @@ final class DataboxBoxAction extends DataboxActionBase
     public function acknowledgeAll(Request $request, Response $response, array $args): Response
     {
         return $this->run($request, $response, function (int $sid, int $uid) use ($request, $response, $args): Response {
-            $count = $this->messages->acknowledgeAll($sid, (int) $args['id'], $uid);
-            $this->audit($request, 'databox.acknowledged_all', (int) $args['id'], ['count' => $count]);
+            $boxId = isset($args['id']) ? (int) $args['id'] : null;
+            $count = $this->messages->acknowledgeAll($sid, $boxId, $uid);
+            $this->audit($request, 'databox.acknowledged_all', $boxId, ['count' => $count]);
             return Json::ok($response, ['acknowledged' => $count]);
         });
     }

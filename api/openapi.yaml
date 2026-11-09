@@ -6302,6 +6302,17 @@ paths:
             application/json:
               schema: { type: object, properties: { acknowledged: { type: integer } } }
 
+  /api/v1/databox/acknowledge-all:
+    post:
+      tags: [Databox]
+      summary: Označit přijaté zprávy ve všech schránkách jako vyřízené
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { acknowledged: { type: integer } } }
+
   /api/v1/databox/email-settings:
     parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
@@ -6416,6 +6427,29 @@ paths:
       description: Data ze synchronizace, bez volání ISDS.
       parameters:
         - { in: path, name: id, required: true, schema: { type: integer } }
+        - { in: query, name: direction, schema: { type: string, enum: [received, sent] } }
+        - { in: query, name: unread, schema: { type: string, enum: ['1'] } }
+        - { in: query, name: tax_office, schema: { type: string, enum: ['1'] } }
+        - { in: query, name: q, schema: { type: string } }
+        - { in: query, name: page, schema: { type: integer, default: 1 } }
+        - { in: query, name: per_page, schema: { type: integer, default: 50, maximum: 200 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/DataboxMessage' } }
+                  total: { type: integer }
+
+  /api/v1/databox/messages:
+    get:
+      tags: [Databox]
+      summary: Uložené obálky zpráv ze všech schránek dodavatele
+      description: Stejné filtry jako výpis jedné schránky; zprávy jsou seřazené podle času dodání napříč schránkami (`databox_id` říká, do které patří).
+      parameters:
         - { in: query, name: direction, schema: { type: string, enum: [received, sent] } }
         - { in: query, name: unread, schema: { type: string, enum: ['1'] } }
         - { in: query, name: tax_office, schema: { type: string, enum: ['1'] } }

@@ -17,6 +17,7 @@ const PER_PAGE = 25
 const boxes = ref<DataboxBox[]>([])
 const boxesLoaded = ref(false)
 const watching = ref(false)
+// null = the messages of every box in one list (default when there is more than one box).
 const boxId = ref<number | null>(null)
 const direction = ref<'received' | 'sent'>('received')
 const unread = ref(false)
@@ -36,7 +37,7 @@ const sendableBoxes = computed(() => boxes.value.filter(b => b.connection_mode !
 const pages = computed(() => Math.max(1, Math.ceil(total.value / PER_PAGE)))
 
 async function loadMessages() {
-  if (boxId.value === null) return
+  if (boxes.value.length === 0) return
   loading.value = true
   error.value = ''
   try {
@@ -74,7 +75,7 @@ function resetAndLoad() {
 function applyRouteQuery() {
   const b = Number(route.query.box)
   const active = boxes.value
-  boxId.value = active.find(x => x.id === b)?.id ?? active.find(x => x.is_active)?.id ?? active[0]?.id ?? null
+  boxId.value = active.find(x => x.id === b)?.id ?? (active.length > 1 ? null : active[0]?.id ?? null)
   const f = route.query.filter
   taxOffice.value = f === 'tax_office'
   unread.value = f === 'unread'
@@ -125,7 +126,7 @@ function onChanged(d: MessageDetail) {
 }
 
 async function acknowledgeAll() {
-  if (boxId.value === null || !window.confirm(t('databox.ack_all_confirm'))) return
+  if (!window.confirm(t('databox.ack_all_confirm'))) return
   try {
     const r = await databoxApi.acknowledgeAll(boxId.value)
     toast.success(t('databox.ack_all_done', { count: r.acknowledged }))
@@ -135,6 +136,10 @@ async function acknowledgeAll() {
   }
 }
 
+const boxLabel = (id: number) => {
+  const b = boxes.value.find(x => x.id === id)
+  return b ? boxTitle(b) : ''
+}
 const isUnread = (m: DataboxMessage) => m.direction === 'received' && !m.acknowledged_at
 const party = (m: DataboxMessage) => (m.direction === 'received' ? m.sender_name : m.recipient_name) || '—'
 const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
@@ -160,6 +165,7 @@ const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
     <template v-else-if="boxesLoaded">
       <div class="flex flex-wrap items-center gap-3 mb-3">
         <select v-model="boxId" class="h-9 px-3 border border-neutral-300 rounded-md text-sm bg-surface" :aria-label="t('databox.page.box')">
+          <option v-if="boxes.length > 1" :value="null">{{ t('databox.page.all_boxes') }}</option>
           <option v-for="b in boxes" :key="b.id" :value="b.id">{{ boxTitle(b) }} ({{ b.db_type }} · {{ b.db_id }}){{ b.is_active ? '' : ' – ' + t('common.inactive') }}</option>
         </select>
         <div class="inline-flex rounded-md border border-neutral-300 overflow-hidden text-sm">
@@ -190,6 +196,7 @@ const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
                 <span class="min-w-0 flex-1">
                   <span class="flex flex-wrap items-center gap-2">
                     <span class="font-medium truncate" :class="{ 'font-semibold': isUnread(m) }">{{ party(m) }}</span>
+                    <span v-if="boxId === null && boxLabel(m.databox_id)" class="text-xs px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 border border-neutral-200" data-test="box-chip">{{ boxLabel(m.databox_id) }}</span>
                     <span v-if="m.is_tax_office" class="text-xs px-1.5 py-0.5 rounded bg-danger-50 text-danger-500 border border-danger-500/40">{{ t('databox.tax_office') }}</span>
                     <span v-if="m.personal_delivery" class="text-xs px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-700 border border-neutral-200">{{ t('databox.personal_delivery') }}</span>
                     <span v-if="m.source === 'email'" class="text-xs px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 border border-primary-200" data-test="source-email-badge">{{ t('databox.source.email') }}</span>

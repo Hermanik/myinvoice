@@ -42,11 +42,13 @@ final class DataboxMessageService
      * @param array{direction?:?string, unread_only?:bool, tax_office_only?:bool, search?:?string} $filters
      * @return array{items:list<array<string,mixed>>, total:int}
      */
-    public function list(int $supplierId, int $boxId, array $filters, int $page, int $perPage): array
+    public function list(int $supplierId, ?int $boxId, array $filters, int $page, int $perPage): array
     {
-        $this->service->requireBox($supplierId, $boxId);
+        if ($boxId !== null) {
+            $this->service->requireBox($supplierId, $boxId);
+        }
         $perPage = max(1, min(200, $perPage));
-        $result = $this->messages->list($boxId, $filters, $perPage, (max(1, $page) - 1) * $perPage);
+        $result = $this->messages->list($boxId, $filters, $perPage, (max(1, $page) - 1) * $perPage, $supplierId);
         $result['items'] = array_map(fn (array $m): array => $this->decorate($m), $result['items']);
         return $result;
     }
@@ -192,10 +194,13 @@ final class DataboxMessageService
         $this->messages->acknowledge($messageId, $userId);
     }
 
-    public function acknowledgeAll(int $supplierId, int $boxId, int $userId): int
+    /** $boxId = null acknowledges the received messages of every box of the supplier. */
+    public function acknowledgeAll(int $supplierId, ?int $boxId, int $userId): int
     {
-        $this->service->requireBox($supplierId, $boxId);
-        return $this->messages->acknowledgeAll($boxId, $userId);
+        if ($boxId !== null) {
+            $this->service->requireBox($supplierId, $boxId);
+        }
+        return $this->messages->acknowledgeAll($boxId, $userId, $supplierId);
     }
 
     // ---- internals ----

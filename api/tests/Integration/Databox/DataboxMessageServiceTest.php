@@ -308,4 +308,31 @@ final class DataboxMessageServiceTest extends DataboxIntegrationTestCase
         self::assertSame(3, $this->messageService->acknowledgeAll($this->supplierId, $ctx['box']['id'], $this->userId));
         self::assertSame(0, $this->messageService->list($this->supplierId, $ctx['box']['id'], ['unread_only' => true], 1, 50)['total']);
     }
+
+    public function testTheCombinedViewListsAndAcknowledgesEveryBoxOfTheSupplierOnly(): void
+    {
+        $ctx = $this->syncedBox();
+        $emailBox = $this->connectEmailBox('emxabcn', 'FO');
+        $this->messages->insertFromEmailNotice($emailBox['id'], [
+            'dm_id' => '4209001', 'sender_box_id' => 'abc1234', 'sender_name' => 'Testovací úřad', 'sender_type' => 10,
+            'recipient_box_id' => 'emxabcn', 'recipient_name' => 'Jana Testovací', 'annotation' => 'Oznámení e-mailem',
+            'delivery_time' => new \DateTimeImmutable('2026-11-04 09:00:00'),
+        ], new \DateTimeImmutable('2026-11-04 09:05:00'));
+        $foreign = $this->connectEmailBox('frgabcu', 'FO', $this->otherSupplierId);
+        $this->messages->insertFromEmailNotice($foreign['id'], [
+            'dm_id' => '4209002', 'sender_box_id' => 'abc1234', 'sender_name' => 'Testovací úřad', 'sender_type' => 10,
+            'recipient_box_id' => 'frgabcu', 'recipient_name' => 'Cizí dodavatel', 'annotation' => 'Cizí zpráva',
+            'delivery_time' => new \DateTimeImmutable('2026-11-04 09:00:00'),
+        ], new \DateTimeImmutable('2026-11-04 09:05:00'));
+
+        $all = $this->messageService->list($this->supplierId, null, ['direction' => 'received'], 1, 50);
+        self::assertSame(4, $all['total']);
+        self::assertEqualsCanonicalizing([$ctx['box']['id'], $emailBox['id']], array_values(array_unique(array_column($all['items'], 'databox_id'))));
+        self::assertNotContains('4209002', array_column($all['items'], 'dm_id'));
+        self::assertSame(1, $this->messageService->list($this->supplierId, null, ['search' => 'e-mailem'], 1, 50)['total']);
+
+        self::assertSame(4, $this->messageService->acknowledgeAll($this->supplierId, null, $this->userId));
+        self::assertSame(0, $this->messageService->list($this->supplierId, null, ['unread_only' => true], 1, 50)['total']);
+        self::assertSame(1, $this->messageService->list($this->otherSupplierId, null, ['unread_only' => true], 1, 50)['total']);
+    }
 }
