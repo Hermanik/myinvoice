@@ -147,6 +147,17 @@ html, body {
 
 #app { min-height: 100vh; }
 
+/* Safari (WebKit) draws the value of native date/time inputs at the top of a fixed-height field
+   (h-9 etc.); centring the inner editor fixes it and leaves Chromium/Firefox unchanged. */
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit,
+input[type="month"]::-webkit-datetime-edit {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
 @layer components {
   /*
    * Sticky první sloupec pro list-tabulky.
