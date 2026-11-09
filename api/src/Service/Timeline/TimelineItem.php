@@ -30,6 +30,17 @@ final class TimelineItem
     ];
 
     /**
+     * A note in its sent shape: the code and its parameters (an empty set is an object, so it stays `{}` in the JSON).
+     *
+     * @param string|array{code:string, params?:array<string,mixed>} $note
+     * @return array{code:string, params:array<string,mixed>|\stdClass}
+     */
+    public static function note(string|array $note): array
+    {
+        return is_string($note) ? ['code' => $note, 'params' => new \stdClass()] : ['code' => $note['code'], 'params' => $note['params'] ?? new \stdClass()];
+    }
+
+    /**
      * @param string $type     item type, the i18n key of its title ({@see ObligationTimelineService} documents them)
      * @param array{
      *   start?: ?string, params?: array<string,mixed>, notes?: list<string|array{code:string, params?:array<string,mixed>}>,
@@ -43,10 +54,6 @@ final class TimelineItem
      */
     public static function make(string $key, string $type, string $category, string $dueDate, array $o = []): array
     {
-        $notes = [];
-        foreach ($o['notes'] ?? [] as $note) {
-            $notes[] = is_string($note) ? ['code' => $note, 'params' => new \stdClass()] : ['code' => $note['code'], 'params' => $note['params'] ?? new \stdClass()];
-        }
         return [
             'key'              => $key,
             'type'             => $type,
@@ -54,7 +61,7 @@ final class TimelineItem
             'due_date'         => $dueDate,
             'start_date'       => $o['start'] ?? null,
             'params'           => ($o['params'] ?? []) === [] ? new \stdClass() : $o['params'],
-            'notes'            => $notes,
+            'notes'            => array_map(self::note(...), $o['notes'] ?? []),
             'legal'            => $o['legal'] ?? null,
             'amount'           => $o['amount'] ?? null,
             'amount_estimated' => $o['amount_estimated'] ?? false,

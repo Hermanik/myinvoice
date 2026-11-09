@@ -85,6 +85,12 @@ final class RoleMiddlewareTest extends TestCase
             ['POST', '/api/timeline/custom-items'],
             ['PUT', '/api/timeline/custom-items/5'],
             ['DELETE', '/api/timeline/custom-items/5'],
+            ['GET', '/api/timeline/standing-orders'],
+            ['POST', '/api/timeline/standing-orders'],
+            ['PUT', '/api/timeline/standing-orders/5'],
+            ['DELETE', '/api/timeline/standing-orders/5'],
+            ['GET', '/api/timeline/settings'],
+            ['PUT', '/api/timeline/settings'],
         ] as [$method, $path]) {
             foreach (['admin', 'accountant'] as $role) {
                 $response = $this->middleware()->process($this->request($method, $path, $role), $this->okHandler());

@@ -7,18 +7,18 @@ namespace MyInvoice\Service\Timeline;
 use MyInvoice\Repository\TaxProfileRepository;
 use MyInvoice\Service\Report\CzechWorkingDays;
 use MyInvoice\Service\Report\ReportPeriod;
-use MyInvoice\Service\Vat\VatStatusHistory;
 
 /**
  * Income tax items of a natural person (FO) beyond the return itself, which comes from the tax calendar.
  *
  *   - Warning that the flat-tax regime does not hold for a year (the person owes a regular return and the insurance
- *     statements; what was paid as flat tax is credited).
+ *     statements; what was paid as flat tax is credited). It carries the estimate of the year ({@see TaxYearEstimates}).
  *   - Income tax advances (§ 38a ZDP) for the advance period that follows the deadline of a year's return: the advance
- *     is derived from the last known tax. Over 150 000 Kč it is paid quarterly (1/4 on 15 March, June, September and
+ *     is derived from the tax of that year. Over 150 000 Kč it is paid quarterly (1/4 on 15 March, June, September and
  *     December), over 30 000 Kč twice a year (40 % on 15 June and 15 December), below that not at all. Dates move to the
- *     next working day (§ 33 odst. 4 DŘ). The tax is the optimizer's computation of a closed year with a saved tax
- *     profile; without one the item only reminds to work the advances out from the filed return.
+ *     next working day (§ 33 odst. 4 DŘ). The tax is the estimate of the year — the optimizer's computation from the
+ *     actual income of a closed year, or from the projected income of the current one; without an estimate the item
+ *     only reminds to work the advances out from the filed return.
  *   - Collecting the documents for the deductions and credits claimed in the return (mortgage interest, pension and life
  *     insurance, gifts, children) — a recommendation due on 15 February.
  */
@@ -29,25 +29,25 @@ final class IncomeTaxItems
     private const QUARTERLY_MONTHS = [3, 6, 9, 12];
     private const SEMIANNUAL_MONTHS = [6, 12];
 
-    public function __construct(
-        private readonly TaxYearFacts $facts,
-        private readonly TaxProfileRepository $profiles,
-    ) {}
+    public function __construct(private readonly TaxProfileRepository $profiles) {}
 
     /**
      * @param array<int, array{regime:string, reason:?string, income:?float, limit:?float}> $regimes by year
+     * @param array<int, array<string,mixed>> $estimates estimates by year ({@see TaxYearEstimates})
      * @return list<array<string,mixed>> items due within [$from, $to]
      */
-    public function items(int $supplierId, array $regimes, VatStatusHistory $history, \DateTimeImmutable $now, string $from, string $to): array
+    public function items(int $supplierId, array $regimes, array $estimates, string $from, string $to): array
     {
         $items = [];
         foreach ($regimes as $year => $facts) {
+            $estimate = $estimates[$year] ?? null;
             if ($facts['regime'] === TaxYearFacts::LOST) {
                 $date = "$year-12-31";
                 if ($date >= $from && $date <= $to) {
                     $items[] = TimelineItem::make("flat_tax_lost:$year", 'flat_tax_lost', 'income_tax', $date, [
-                        'params' => ['year' => $year, 'reason' => $facts['reason'], 'income' => $facts['income'], 'limit' => $facts['limit']],
-                        'notes'  => ['flat_tax_lost_insurance'],
+                        'params' => ['year' => $year, 'reason' => $facts['reason'], 'income' => $facts['income'], 'limit' => $facts['limit']]
+                            + ($estimate === null ? [] : ['estimate' => $estimate]),
+                        'notes'  => ['flat_tax_lost_insurance', ...($estimate === null ? [] : TaxYearEstimates::caveatNotes($estimate))],
                         'legal'  => '§ 7a ZDP',
                         'links'  => ['optimizer'],
                         'severity' => 'warning',
@@ -56,7 +56,7 @@ final class IncomeTaxItems
                 }
             }
             if ($facts['regime'] !== TaxYearFacts::FLAT) {
-                array_push($items, ...$this->advances($supplierId, $year, $history, $now, $from, $to), ...$this->deductionDocuments($supplierId, $year, $from, $to));
+                array_push($items, ...$this->advances($year, $estimate, $from, $to), ...$this->deductionDocuments($supplierId, $year, $from, $to));
             }
         }
         return $items;
@@ -65,17 +65,17 @@ final class IncomeTaxItems
     /**
      * Advances paid on the basis of the tax of $baseYear, in the advance period after the deadline of that year's return.
      *
+     * @param array<string,mixed>|null $estimate estimate of $baseYear
      * @return list<array<string,mixed>>
      */
-    private function advances(int $supplierId, int $baseYear, VatStatusHistory $history, \DateTimeImmutable $now, string $from, string $to): array
+    private function advances(int $baseYear, ?array $estimate, string $from, string $to): array
     {
         $periodStart = ReportPeriod::incomeTaxElectronicDeadline($baseYear);
         $periodEnd = ReportPeriod::incomeTaxElectronicDeadline($baseYear + 1);
         if ($periodEnd < $from || $periodStart > $to) {
             return [];
         }
-        $liability = $this->facts->incomeTaxLiability($supplierId, $baseYear, $history, $now);
-        if ($liability === null) {
+        if ($estimate === null) {
             return $periodStart >= $from && $periodStart <= $to ? [TimelineItem::make("tax_advance_info:$baseYear", 'income_tax_advance_info', 'income_tax', $periodStart, [
                 'params' => ['base_year' => $baseYear],
                 'legal'  => '§ 38a ZDP',
@@ -84,7 +84,7 @@ final class IncomeTaxItems
             ])] : [];
         }
 
-        $tax = $liability['tax'];
+        $tax = (float) $estimate['income_tax']['expected'];
         if ($tax <= self::SEMIANNUAL_ABOVE) {
             return []; // below the limit (or a tax bonus) no advances are paid
         }
@@ -101,7 +101,10 @@ final class IncomeTaxItems
                 }
                 $items[] = TimelineItem::make(sprintf('tax_advance:%04d-%02d', $year, $month), 'income_tax_advance', 'income_tax', $date, [
                     'params' => ['base_year' => $baseYear, 'share' => $share, 'frequency' => $frequency, 'tax' => round($tax, 0)],
-                    'notes'  => ['advance_estimate'],
+                    'notes'  => [
+                        ['code' => $estimate['closed'] ? 'advance_estimate' : 'advance_estimate_projected'],
+                        ...($estimate['assumed_profile'] ? [TaxYearEstimates::noProfileNote($baseYear)] : []),
+                    ],
                     'legal'  => '§ 38a ZDP',
                     'amount' => round($tax * $share / 100, 0),
                     'amount_estimated' => true,

@@ -5716,6 +5716,14 @@ paths:
         Kde aplikace nemá data (výše záloh na pojistné, daňová povinnost bez profilu roku) je částka odhad
         (`amount_estimated`) a položka to říká v `notes`.
 
+        Pro rok bez paušálního režimu (ztracený nebo řádný) server odhadne daň z příjmů a pojistné roku
+        (`estimates`, položky `income_tax`, `ins_overview_*`, `flat_tax_lost`): u uzavřeného roku z příjmů
+        zaplacených v roce, u běžícího z nich a z nezaplacených vystavených faktur splatných ve stejném roce.
+        Započítají se zaplacené paušální zálohy (daňová část na daň, ostatní na pojistné) a vyjde doplatek.
+
+        Položky pokryté trvalým příkazem (`/timeline/standing-orders`) mají `done_source: standing_order`
+        a v `params` `paid_on` a `paid_amount`. Termín měsíčního „Vystavit faktury" určuje `settings`.
+
         **Přístup:** jen session role `admin` a `accountant`; role `readonly` a API tokeny dostanou 403.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
@@ -5825,6 +5833,115 @@ paths:
         '200': { description: Smazáno }
         '403': { description: Role readonly nebo API token }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/timeline/standing-orders:
+    get:
+      tags: [Timeline]
+      summary: Pravidelné platby (trvalé příkazy)
+      description: |
+        Trvalé příkazy, kterými vlastník platí zálohy. Aplikace nevidí bankovní účet, a platba trvalým příkazem by
+        se v harmonogramu jevila jako po termínu. Položka harmonogramu (záloha na paušální daň, na sociální
+        a zdravotní pojištění, na daň z příjmů) se trvalým příkazem považuje za zaplacenou v den jeho platby:
+        v nejpozdějším měsíci, v němž `day_of_month` (u kratšího měsíce poslední den) nepřipadá po termínu a je
+        nejvýše 31 dnů před ním, pokud v ten den příkaz platí (`valid_from` – `valid_to`). Když takových příkazů
+        platí víc, vyhrává ten s pozdějším `valid_from`.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: Trvalé příkazy od nejstaršího
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/TimelineStandingOrder' }
+        '403': { description: Role readonly nebo API token }
+    post:
+      tags: [Timeline]
+      summary: Založí trvalý příkaz
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TimelineStandingOrderInput' }
+      responses:
+        '201':
+          description: Vytvořeno
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimelineStandingOrder' }
+        '403': { description: Role readonly nebo API token }
+        '409': { description: 'Chybí migrace 9012 (`migration_required`)' }
+        '422': { description: 'Chyba validace (`validation_failed`, pole v `fields`)' }
+
+  /api/v1/timeline/standing-orders/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: integer } }
+      - $ref: '#/components/parameters/SupplierIdHeader'
+    put:
+      tags: [Timeline]
+      summary: Upraví trvalý příkaz
+      description: 'Chybějící pole zůstanou beze změny.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TimelineStandingOrderInput' }
+      responses:
+        '200':
+          description: Uloženo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimelineStandingOrder' }
+        '403': { description: Role readonly nebo API token }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { description: 'Chyba validace (`validation_failed`)' }
+    delete:
+      tags: [Timeline]
+      summary: Smaže trvalý příkaz
+      responses:
+        '200': { description: Smazáno }
+        '403': { description: Role readonly nebo API token }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/timeline/settings:
+    get:
+      tags: [Timeline]
+      summary: Nastavení harmonogramu
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: Nastavení dodavatele (bez uloženého nastavení výchozí hodnoty)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimelineSettings' }
+        '403': { description: Role readonly nebo API token }
+    put:
+      tags: [Timeline]
+      summary: Změní nastavení harmonogramu
+      description: 'Chybějící pole zůstanou beze změny.'
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TimelineSettings' }
+      responses:
+        '200':
+          description: Uloženo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimelineSettings' }
+        '403': { description: Role readonly nebo API token }
+        '409': { description: 'Chybí migrace 9012 (`migration_required`)' }
+        '422': { description: 'Chyba validace (`validation_failed`)' }
 
   # ── Klienti / vyhledávání — doplňující endpointy ─────────────────────────
   /api/v1/clients/{id}/vat-status:
@@ -7466,6 +7583,11 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/TimelineItem' }
+        estimates:
+          type: array
+          description: 'Odhady let, u kterých ještě zbývá něco doplatit (nezávisle na období)'
+          items: { $ref: '#/components/schemas/TimelineEstimate' }
+        settings: { $ref: '#/components/schemas/TimelineSettings' }
         summary:
           type: object
           properties:
@@ -7496,10 +7618,11 @@ components:
           type: string
           enum: [done, overdue, due_soon, upcoming, info, unverified]
           description: |
-            `done` — hotovo (viz `done_source`); `overdue` — po termínu; `due_soon` — do 7 dnů; `upcoming` — později;
+            `done` — hotovo (viz `done_source`); `overdue` — po termínu; `due_soon` — do 7 dnů; `upcoming` — později
+            (i položka, kterou teprve zaplatí trvalý příkaz);
             `info` — jen informace (nikdy po termínu); `unverified` — aplikace nemá důkaz a termín je víc než 30 dní
             pryč, nic se netvrdí, vlastník má potvrdit.
-        done_source: { type: string, enum: [auto, manual], nullable: true, description: '`auto` = důkaz v aplikaci (podání, platba, faktura), `manual` = ruční značka' }
+        done_source: { type: string, enum: [auto, standing_order, manual], nullable: true, description: '`auto` = důkaz v aplikaci (podání, platba, faktura), `standing_order` = zaplaceno trvalým příkazem (`params.paid_on`, `params.paid_amount`), `manual` = ruční značka' }
         tracked: { type: boolean, description: 'Aplikace umí stav sama zjistit; jinak jen ruční značka' }
         obligation: { type: string, enum: [legal, recommended], description: '`recommended` = doporučení (měsíční fakturace, podklady k odpočtům, vlastní úkol)' }
         severity: { type: string, enum: [normal, warning] }
@@ -7541,6 +7664,71 @@ components:
             note: { type: string, nullable: true }
             url: { type: string, nullable: true }
             done_at: { type: string, nullable: true }
+    TimelineEstimate:
+      type: object
+      description: 'Odhad daně z příjmů a pojistného roku bez paušálního režimu, v celých Kč'
+      properties:
+        year: { type: integer }
+        closed: { type: boolean, description: 'Uzavřený rok: příjem = zaplacený v roce; jinak zaplacený + nezaplacené faktury splatné v roce' }
+        regime: { type: string, enum: [lost, none], description: '`lost` = paušální režim za rok neplatí, `none` = řádný rok' }
+        reason: { type: string, enum: [income, vat_payer], nullable: true }
+        assumed_profile: { type: boolean, description: 'Daňový profil roku není uložen: 60% výdajový paušál a žádné odpočty' }
+        advances_assumed: { type: boolean, description: 'Řádný rok: započtena minimální záloha na pojistné a žádná záloha na daň' }
+        income:
+          type: object
+          properties:
+            paid: { type: integer }
+            unpaid: { type: integer, description: 'Vystavené nezaplacené faktury (issued, sent, reminded) splatné v roce' }
+            total: { type: integer }
+        expenses: { type: integer }
+        income_tax: { $ref: '#/components/schemas/TimelineEstimateComponent' }
+        social: { $ref: '#/components/schemas/TimelineEstimateComponent' }
+        health: { $ref: '#/components/schemas/TimelineEstimateComponent' }
+        credited_months: { type: integer, nullable: true, description: 'Počet měsíců paušálních záloh započtených v roce, který ztratil režim' }
+        standing:
+          type: object
+          nullable: true
+          description: 'Platby paušální daně trvalým příkazem v měsících roku (i budoucí)'
+          properties:
+            months: { type: integer }
+            paid: { type: integer }
+            overpaid: { type: integer, description: 'Kolik z toho je víc než splatná záloha' }
+    TimelineEstimateComponent:
+      type: object
+      properties:
+        expected: { type: integer, description: 'Očekávaná daň / pojistné za rok (daň může být záporná = bonus)' }
+        credited: { type: integer, description: 'Započtené zálohy' }
+        surcharge: { type: integer, description: 'expected − credited; záporné = přeplatek' }
+        due_date: { type: string, format: date, description: 'Daň: termín přiznání; pojistné: 8 dnů po termínu přehledů' }
+    TimelineStandingOrder:
+      type: object
+      properties:
+        id: { type: integer }
+        type: { type: string, enum: [pausal, insurance_social, insurance_health, income_tax_advance] }
+        amount: { type: number }
+        day_of_month: { type: integer, minimum: 1, maximum: 31, description: 'U kratšího měsíce poslední den měsíce' }
+        valid_from: { type: string, format: date }
+        valid_to: { type: string, format: date, nullable: true }
+        note: { type: string, nullable: true }
+    TimelineStandingOrderInput:
+      type: object
+      required: [type, amount, day_of_month, valid_from]
+      properties:
+        type: { type: string, enum: [pausal, insurance_social, insurance_health, income_tax_advance] }
+        amount: { type: number, exclusiveMinimum: 0, maximum: 9999999.99 }
+        day_of_month: { type: integer, minimum: 1, maximum: 31 }
+        valid_from: { type: string, format: date }
+        valid_to: { type: string, format: date, nullable: true }
+        note: { type: string, maxLength: 255, nullable: true }
+    TimelineSettings:
+      type: object
+      properties:
+        invoicing_due:
+          type: string
+          enum: [month_end, working_day_n]
+          default: month_end
+          description: '`month_end` = faktury za měsíc se vystavují poslední den měsíce; `working_day_n` = do N. pracovního dne následujícího měsíce'
+        invoicing_working_day: { type: integer, minimum: 1, maximum: 20, default: 5, description: 'N pro `working_day_n`' }
     TimelineMark:
       type: object
       nullable: true

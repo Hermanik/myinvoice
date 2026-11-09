@@ -160,7 +160,7 @@ final class TaxCalendarService
                 if ($band !== null) {
                     $segments = null;
                     for ($month = 1; $month <= 12; $month++) {
-                        $due = CzechWorkingDays::shiftToWorkingDay(new \DateTimeImmutable(sprintf('%04d-%02d-20', $year, $month)))->format('Y-m-d');
+                        $due = self::pausalDueDate($year, $month);
                         $days = $inRange($due);
                         if ($days === null) {
                             continue;
@@ -181,6 +181,12 @@ final class TaxCalendarService
 
         usort($items, static fn (array $a, array $b): int => [$a['due_date'], $a['type']] <=> [$b['due_date'], $b['type']]);
         return $items;
+    }
+
+    /** The flat-tax advance of a month is due on the 20th, moved to the next working day. */
+    public static function pausalDueDate(int $year, int $month): string
+    {
+        return CzechWorkingDays::shiftToWorkingDay(new \DateTimeImmutable(sprintf('%04d-%02d-20', $year, $month)))->format('Y-m-d');
     }
 
     /**

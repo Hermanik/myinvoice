@@ -7,9 +7,10 @@
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import type { TimelineCategory, TimelineItem, TimelineNote, TimelineStatus } from '@/api/timeline'
+import type { TaxYearEstimate, TimelineCategory, TimelineItem, TimelineNote, TimelineStatus } from '@/api/timeline'
+import TimelineEstimate from '@/components/timeline/TimelineEstimate.vue'
 import { formatDate, formatMonth, formatMoney } from '@/composables/useFormat'
-import { dateFormatters, safeLink, textParams as buildTextParams } from '@/utils/timeline'
+import { coveredByOrder, dateFormatters, formatParams, safeLink, textParams as buildTextParams } from '@/utils/timeline'
 
 const props = defineProps<{ item: TimelineItem; busy: boolean }>()
 // The events carry the item, so the parent can bind one stable handler for all cards instead of a closure per card.
@@ -49,25 +50,32 @@ const CHIP: Record<TimelineCategory, string> = {
   custom: 'bg-neutral-100 text-neutral-600',
 }
 
-/** Parameters of the catalogue texts: the item's own, formatted for display, plus the derived ones. */
-const textParams = computed(() => buildTextParams(props.item, {
+/** Notes that only inform; the others ask the owner to verify or act and are highlighted. */
+const INFO_NOTES = new Set([
+  'standing_order_scheduled', 'standing_order_overpaid', 'estimate_basis', 'estimate_basis_closed', 'estimate_overpaid',
+  'advance_from_statement', 'invoicing_vat_payer',
+])
+
+const formatters = {
   date: formatDate,
-  money: n => formatMoney(n, 'CZK', 0),
+  money: (n: number) => formatMoney(n, 'CZK', 0),
   month: formatMonth,
-  quarter: (q, year) => t('timeline.quarter_label', { q, year }),
-  claim: code => t(`timeline.claim.${code}`),
-}))
+  quarter: (q: number, year: number) => t('timeline.quarter_label', { q, year }),
+  claim: (code: string) => t(`timeline.claim.${code}`),
+}
+/** Parameters of the catalogue texts: the item's own, formatted for display, plus the derived ones. */
+const textParams = computed(() => buildTextParams(props.item, formatters))
 
 const custom = computed(() => props.item.custom ?? null)
 const title = computed(() => custom.value?.title ?? t(`timeline.item.${props.item.type}.title`, textParams.value))
 const what = computed(() => {
   if (custom.value) return custom.value.note ?? ''
-  const variant = props.item.params.reason ?? props.item.params.frequency
+  const variant = props.item.params.reason ?? props.item.params.frequency ?? props.item.params.rule
   const specific = `timeline.item.${props.item.type}.what_${variant}`
   const key = variant && te(specific) ? specific : `timeline.item.${props.item.type}.what`
   return te(key) ? t(key, textParams.value) : ''
 })
-const noteText = (n: TimelineNote) => t(`timeline.note.${n.code}`, { ...textParams.value, ...n.params })
+const noteText = (n: TimelineNote) => t(`timeline.note.${n.code}`, { ...textParams.value, ...formatParams(n.params, formatters) })
 const link = computed(() => safeLink(custom.value?.url))
 
 const dateParts = computed(() => {
@@ -89,6 +97,15 @@ const daysClass = computed(() => DAYS_CLASS[props.item.status] ?? 'text-neutral-
 
 const isDone = computed(() => props.item.status === 'done')
 const autoDone = computed(() => props.item.done_source === 'auto')
+const paidByOrder = computed(() => props.item.done_source === 'standing_order')
+/** A standing order covers the item (paid or still to pay): there is nothing for the owner to tick, unless already ticked. */
+const ordered = computed(() => coveredByOrder(props.item))
+const paidOn = computed(() => {
+  const ymd = props.item.params.paid_on
+  return typeof ymd === 'string' ? dateFormatters(locale.value).dayMonth.format(new Date(`${ymd}T00:00:00Z`)) : ''
+})
+/** The estimate of the year, on the card that announces the lost flat-tax regime. */
+const estimate = computed(() => (props.item.type === 'flat_tax_lost' ? (props.item.params.estimate as TaxYearEstimate | undefined) : undefined))
 const markInfo = computed(() => {
   const m = props.item.mark
   return m && m.done && m.by ? t('timeline.done_by', { by: m.by, at: formatDate(m.at) }) : ''
@@ -135,8 +152,10 @@ function saveNote() {
         <p v-if="what" class="text-sm text-neutral-700 whitespace-pre-line" data-testid="timeline-what"><span v-if="!custom" class="font-medium text-neutral-900">{{ t('timeline.what_label') }}: </span>{{ what }}</p>
 
         <ul v-if="item.notes.length" class="space-y-0.5">
-          <li v-for="n in item.notes" :key="n.code" class="text-xs text-warning-600" :data-note="n.code">{{ noteText(n) }}</li>
+          <li v-for="n in item.notes" :key="n.code" class="text-xs" :class="INFO_NOTES.has(n.code) ? 'text-neutral-600' : 'text-warning-600'" :data-note="n.code">{{ noteText(n) }}</li>
         </ul>
+
+        <TimelineEstimate v-if="estimate" :estimate="estimate" />
 
         <div class="flex items-center gap-x-4 gap-y-1 flex-wrap text-xs text-neutral-500">
           <span v-if="item.amount !== null" class="font-mono text-sm text-neutral-800" data-testid="timeline-amount">
@@ -156,7 +175,8 @@ function saveNote() {
 
         <div class="flex items-center gap-x-4 gap-y-2 flex-wrap pt-1 border-t border-neutral-100">
           <span v-if="autoDone" class="text-xs text-success-600" data-testid="timeline-done-auto">✓ {{ t('timeline.done_auto') }}</span>
-          <label v-else class="inline-flex items-center gap-2 text-sm cursor-pointer select-none" :title="item.tracked ? '' : t('timeline.mark_hint')">
+          <span v-else-if="paidByOrder" class="text-xs text-success-600" data-testid="timeline-done-order">✓ {{ t('timeline.paid_by_order', { date: paidOn }) }}</span>
+          <label v-else-if="!ordered || isDone" class="inline-flex items-center gap-2 text-sm cursor-pointer select-none" :title="item.tracked ? '' : t('timeline.mark_hint')">
             <input type="checkbox" :checked="isDone" :disabled="busy" class="w-4 h-4 accent-success-600"
               data-testid="timeline-done-checkbox" @change="emit('toggle', item, ($event.target as HTMLInputElement).checked)" />
             {{ t('timeline.mark_done') }}
