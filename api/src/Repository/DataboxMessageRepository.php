@@ -105,7 +105,7 @@ final class DataboxMessageRepository
      * the box already has (e.g. from the synchronisation or an uploaded ZFO) is left exactly as it is.
      *
      * @param array{dm_id:string, sender_box_id:string, sender_name:?string, sender_type:?int, recipient_box_id:string,
-     *              recipient_name:?string, annotation:?string, delivery_time:\DateTimeInterface} $notice
+     *              recipient_name:?string, annotation:?string, personal_delivery?:bool, delivery_time:\DateTimeInterface} $notice
      * @param bool $acknowledged the notice is history (its fiction day is over): the message is stored as already dealt with
      * @return array{id:int, is_new:bool, is_tax_office:bool}
      */
@@ -116,14 +116,14 @@ final class DataboxMessageRepository
         $stmt = $this->db->pdo()->prepare(
             "INSERT INTO databox_messages
                 (databox_id, direction, source, dm_id, sender_box_id, sender_name, sender_type, recipient_box_id, recipient_name,
-                 annotation, status, delivery_time, is_tax_office, tax_office_kind, first_seen_at, last_seen_at, acknowledged_at)
-             VALUES (?, 'received', 'email', ?, ?, ?, ?, ?, ?, ?, " . DeliveryDates::STATE_DELIVERED_TO_BOX . ", ?, ?, ?, ?, ?, ?)
+                 annotation, personal_delivery, status, delivery_time, is_tax_office, tax_office_kind, first_seen_at, last_seen_at, acknowledged_at)
+             VALUES (?, 'received', 'email', ?, ?, ?, ?, ?, ?, ?, ?, " . DeliveryDates::STATE_DELIVERED_TO_BOX . ", ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)"
         );
         $stmt->execute([
             $boxId, $notice['dm_id'], $notice['sender_box_id'], $this->cut($notice['sender_name'], 255), $notice['sender_type'],
             $notice['recipient_box_id'], $this->cut($notice['recipient_name'], 255), $this->cut($notice['annotation'], 255),
-            $this->dt($notice['delivery_time']), (int) $class['is_tax_office'], $class['kind'], $ts, $ts, $acknowledged ? $ts : null,
+            (int) ($notice['personal_delivery'] ?? false), $this->dt($notice['delivery_time']), (int) $class['is_tax_office'], $class['kind'], $ts, $ts, $acknowledged ? $ts : null,
         ]);
         // Affected rows: 1 = inserted, 0 = the message was there already.
         return ['id' => (int) $this->db->pdo()->lastInsertId(), 'is_new' => $stmt->rowCount() === 1, 'is_tax_office' => $class['is_tax_office']];
