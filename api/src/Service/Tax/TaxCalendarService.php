@@ -11,6 +11,7 @@ use MyInvoice\Repository\TaxSubmissionRepository;
 use MyInvoice\Service\Report\CzechWorkingDays;
 use MyInvoice\Service\Report\DphPriznaniBuilder;
 use MyInvoice\Service\Report\ReportPeriod;
+use MyInvoice\Service\Vat\VatStatusHistory;
 use MyInvoice\Service\Vat\VatStatusService;
 
 /**
@@ -29,6 +30,9 @@ use MyInvoice\Service\Vat\VatStatusService;
  *     payer on any day of it (§ 7a ZDP does not allow both).
  * VAT items exist only for periods in which the supplier had VAT duties (payer / identified person,
  * decided by the dated status history). A filed/confirmed badge comes from the submission archive.
+ *
+ * {@see items()} serves the dashboard widget and the CRM feed (a window around today, filed items and passed flat-tax
+ * advances dropped); {@see itemsBetween()} returns everything of an explicit date range for the obligations timeline.
  */
 final class TaxCalendarService
 {
@@ -56,19 +60,46 @@ final class TaxCalendarService
      */
     public function items(int $supplierId, \DateTimeImmutable $now, int $daysAhead = 60, int $daysBack = 14, ?array $types = null): array
     {
+        $today = $now->setTime(0, 0);
+        $items = $this->itemsBetween(
+            $supplierId,
+            $now,
+            $today->modify("-{$daysBack} days")->format('Y-m-d'),
+            $today->modify("+{$daysAhead} days")->format('Y-m-d'),
+            $types,
+        );
+
+        // A filed return needs no more attention once its date has passed, and whether a flat-tax advance was
+        // paid is not tracked, so a passed date is not nagged about.
+        return array_values(array_filter(
+            $items,
+            static fn (array $i): bool => $i['type'] === 'pausal'
+                ? $i['days_left'] >= 0
+                : ($i['days_left'] >= 0 || ($i['filing']['status'] ?? 'unfiled') === 'unfiled'),
+        ));
+    }
+
+    /**
+     * Every deadline due within the inclusive date range, filed or not and past or not (the obligations timeline
+     * shows what is done as well). `days_left` is counted from $now.
+     *
+     * @param list<string>|null $types restrict to some item types (dph, kh, sh, income_tax, pausal)
+     * @return list<array<string,mixed>> sorted by due date
+     */
+    public function itemsBetween(int $supplierId, \DateTimeImmutable $now, string $from, string $to, ?array $types = null): array
+    {
         $supplier = $this->supplier($supplierId);
         $today = $now->setTime(0, 0);
         $want = static fn (string $type): bool => $types === null || in_array($type, $types, true);
 
-        // The archive is only read once an item in the window needs its badge.
+        // The archive is only read once an item in the range needs its badge.
         $filed = null;
         $badgeFor = function (string $slot) use (&$filed, $supplierId): array {
             $filed ??= $this->filedIndex($supplierId);
             return $this->badge($filed[$slot] ?? null);
         };
-        $inWindow = static function (string $due) use ($today, $daysAhead, $daysBack): ?int {
-            $days = (int) $today->diff(new \DateTimeImmutable($due))->format('%r%a');
-            return $days >= -$daysBack && $days <= $daysAhead ? $days : null;
+        $inRange = static function (string $due) use ($today, $from, $to): ?int {
+            return $due >= $from && $due <= $to ? (int) $today->diff(new \DateTimeImmutable($due))->format('%r%a') : null;
         };
 
         $history = $this->vatStatus->history($supplierId);
@@ -78,8 +109,8 @@ final class TaxCalendarService
 
         $items = [];
         $currentYear = (int) $today->format('Y');
-        $firstYear = (int) $today->modify("-{$daysBack} days")->format('Y');
-        $lastYear = (int) $today->modify("+{$daysAhead} days")->format('Y');
+        $firstYear = (int) substr($from, 0, 4);
+        $lastYear = (int) substr($to, 0, 4);
         // A period (and a tax year) can be due in the year after its own.
         for ($year = $firstYear - 1; $year <= $lastYear; $year++) {
             if ($want('dph') || $want('kh') || $want('sh')) {
@@ -87,7 +118,7 @@ final class TaxCalendarService
                     foreach ($months as $month) {
                         [$start, $end] = ReportPeriod::range($year, $month, $period);
                         $due = ReportPeriod::filingDeadline($year, $month, $period);
-                        $days = $inWindow($due);
+                        $days = $inRange($due);
                         if ($days === null || !$history->hasVatDutiesBetween($start, $end)) {
                             continue;
                         }
@@ -110,7 +141,7 @@ final class TaxCalendarService
             if ($want('income_tax') && in_array($supplier['taxpayer_type'] ?? '', ['fo', 'po'], true)) {
                 // The main date is the electronic one (§ 136 odst. 2 písm. a) DŘ), the paper one (§ 136 odst. 1) is informative.
                 $due = ReportPeriod::incomeTaxElectronicDeadline($year);
-                $days = $inWindow($due);
+                $days = $inRange($due);
                 if ($days !== null) {
                     $form = $supplier['taxpayer_type'] === 'po' ? 'dppdp9' : 'dpfdp5';
                     $items[] = [
@@ -125,16 +156,13 @@ final class TaxCalendarService
 
             // The flat-tax advance is due in its own year.
             if ($want('pausal') && $year >= $firstYear) {
-                // The per-year tax profile wins; without one the supplier's setting counts from this year on.
-                $band = $flatTaxBands[$year] ?? ($year >= $currentYear ? (string) ($supplier['flat_tax_band'] ?? 'none') : 'none');
-                // A VAT payer cannot be in the flat-tax regime (§ 7a ZDP), whatever band is set.
-                if (in_array($band, PausalSchedule::BANDS, true) && !$history->hasPayerTimeBetween("$year-01-01", "$year-12-31")) {
+                $band = self::flatTaxBandOf($year, $currentYear, $flatTaxBands, (string) ($supplier['flat_tax_band'] ?? 'none'), $history);
+                if ($band !== null) {
                     $segments = null;
                     for ($month = 1; $month <= 12; $month++) {
                         $due = CzechWorkingDays::shiftToWorkingDay(new \DateTimeImmutable(sprintf('%04d-%02d-20', $year, $month)))->format('Y-m-d');
-                        $days = $inWindow($due);
-                        // Whether an advance was paid is not tracked, so a passed date is not nagged about.
-                        if ($days === null || $days < 0) {
+                        $days = $inRange($due);
+                        if ($days === null) {
                             continue;
                         }
                         $segments ??= PausalSchedule::normalize($this->taxConstants->forYear($year)['pausal_monthly'] ?? []);
@@ -151,13 +179,34 @@ final class TaxCalendarService
             }
         }
 
-        // A filed return needs no more attention once its date has passed.
-        $items = array_values(array_filter(
-            $items,
-            static fn (array $i): bool => $i['days_left'] >= 0 || ($i['filing']['status'] ?? 'unfiled') === 'unfiled',
-        ));
         usort($items, static fn (array $a, array $b): int => [$a['due_date'], $a['type']] <=> [$b['due_date'], $b['type']]);
         return $items;
+    }
+
+    /**
+     * The flat-tax band set for a year (none = 'none'): the saved tax profile of the year wins; without one the
+     * supplier's setting counts from the current year on.
+     *
+     * @param array<int,string> $profileBands saved tax-profile band per year
+     */
+    public static function declaredFlatTaxBand(int $year, int $currentYear, array $profileBands, string $supplierBand): string
+    {
+        return $profileBands[$year] ?? ($year >= $currentYear ? $supplierBand : 'none');
+    }
+
+    /**
+     * The flat-tax band that applies to a year, or null when the year is not a flat-tax year. A VAT payer cannot be
+     * in the flat-tax regime (§ 7a ZDP), whatever band is set.
+     *
+     * @param array<int,string> $profileBands saved tax-profile band per year
+     */
+    public static function flatTaxBandOf(int $year, int $currentYear, array $profileBands, string $supplierBand, VatStatusHistory $history): ?string
+    {
+        $band = self::declaredFlatTaxBand($year, $currentYear, $profileBands, $supplierBand);
+        if (!in_array($band, PausalSchedule::BANDS, true) || $history->hasPayerTimeBetween("$year-01-01", "$year-12-31")) {
+            return null;
+        }
+        return $band;
     }
 
     /**

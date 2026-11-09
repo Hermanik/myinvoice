@@ -296,6 +296,7 @@
     "projects": "Projects", "stats": "Sales", "purchase_stats": "Costs", "bank": "Bank", "system": "System", "section_taxes": "Taxes",
     "settings": "Settings", "supplier_current": "Supplier", "suppliers": "Suppliers", "codebooks": "Codebooks", "users": "Users", "emails": "Emails",
     "log": "Activity log", "cron_jobs": "Scheduled jobs", "exports": "Issued exports", "imports": "Imports", "imports_issued": "Imports (issued)", "imports_purchase": "Imports (purchase)", "ai_import": "AI import", "integrations": "External integrations", "crm": "CRM", "reports_dph": "VAT return", "reports_kh": "Control statement", "reports_dph_book": "VAT ledger", "reports_shv": "Recapitulative statement", "reports_oss": "OSS return", "reports_income_tax": "Income tax", "reports_submissions": "Submission archive", "reports_monthly_export": "Bulk export", "tax_optimizer": "Tax optimizer", "registration_deduction": "Deduction on registration", "email_templates": "Email templates", "email_profiles": "Sending profiles", "sent_emails": "Sent emails", "smtp_logs": "SMTP log analysis", "approvals": "Approvals", "updates": "Updates", "myucto_upgrade": "Upgrade to MyÚčto", "api_tokens": "API tokens", "electronic_signatures": "Electronic signatures", "signing_profiles": "Signing profiles", "bank_accounts": "Bank accounts", "bank_email_notices": "Bank notices", "recurring": "Recurring invoices", "price_list": "Price list", "help": "Help", "logout": "Sign out",
+    "timeline": "Timeline",
     "section_sales": "Sales", "section_purchase": "Purchases", "section_finance": "Finance", "section_clients": "Clients",
     "section_documents": "Documents", "documents": "Documents", "databox": "Data boxes", "logbook": "Trip logbook",
     "purchase_invoices": "Received invoices", "purchase_export": "Received exports", "payment_orders": "Payment orders", "vendors": "Vendors",
@@ -2483,7 +2484,7 @@
     "rolling_12m_hint": "Last 12 months (rolling) — informational business metric.",
     "vat_reg_title": "Turnover for VAT registration {year}",
     "vat_reg_over_immediate": "⚠ Exceeded CZK 2,536,500 — VAT payer by law from the day after exceeding.",
-    "vat_reg_over": "⚠ Exceeded CZK 2,000,000 turnover — VAT payer from 1 Jan {year} (register within 10 days of year-end).",
+    "vat_reg_over": "⚠ Exceeded CZK 2,000,000 turnover — VAT payer from 1 Jan {year} (file the registration within 10 working days of exceeding it, § 94 ZDPH).",
     "vat_reg_near": "Approaching the CZK 2,000,000 limit ({pct} %).",
     "vat_reg_ok": "{pct} % of the CZK 2,000,000 limit.",
     "vat_reg_thresholds": "Tested per calendar year: CZK 2,000,000 → payer from 1 Jan · CZK 2,536,500 → immediately",
@@ -5370,5 +5371,191 @@
     "suggest_count": "{n} items proposed.",
     "suggest_add": "Add",
     "suggest_add_all": "Add all"
+  },
+  "timeline": {
+    "title": "Timeline",
+    "subtitle": "What has to be done for taxes, insurance and invoicing – with deadlines and what is already done.",
+    "intro": "Derived from the company's settings and data (VAT status over time, the tax profile of the year, issued invoices, the submission archive). You can follow it yourself or use it to check your accountant's work. Amounts marked \"estimate\" and notes saying \"verify\" should be confirmed with the authority, the insurer or your accountant before paying.",
+    "range_from": "From",
+    "range_to": "To",
+    "preset_rest_and_next": "Rest of the year + next year",
+    "preset_next_90": "Next 90 days",
+    "preset_this_year": "This year",
+    "preset_next_year": "Next year",
+    "filter_status": "Status",
+    "filter_category": "Category",
+    "status_all": "All",
+    "status_todo": "To do",
+    "status_done": "Done",
+    "status_overdue": "Overdue",
+    "badge_done": "Done",
+    "badge_overdue": "Overdue",
+    "badge_due_soon": "Within 7 days",
+    "badge_upcoming": "Upcoming",
+    "badge_info": "Info",
+    "badge_unverified": "Unconfirmed",
+    "done_auto": "Done – verified in the application",
+    "done_manual": "Done – marked by hand",
+    "done_by": "{by}, {at}",
+    "mark_done": "Done",
+    "mark_hint": "The application cannot tell whether this one is done – tick it off yourself.",
+    "add_note": "Note",
+    "note_placeholder": "Note (e.g. when and from which account it was paid)",
+    "note_save": "Save note",
+    "recommended": "Recommendation",
+    "legal_label": "Legal basis",
+    "what_label": "What to do",
+    "estimate": "estimate",
+    "window_from": "from {date}",
+    "quarter_label": "Q{q} {year}",
+    "in_days": "in {n} days",
+    "today": "today",
+    "overdue_days": "{n} days overdue",
+    "today_marker": "Today",
+    "counts": "{total} items · {todo} to do · {overdue} overdue · {done} done",
+    "empty": "Nothing in this period.",
+    "empty_filtered": "No item matches the filter.",
+    "loading": "Loading the timeline…",
+    "add_custom": "Add a custom task",
+    "edit_custom": "Edit custom task",
+    "custom_title": "Title",
+    "custom_due": "Due date",
+    "custom_start": "Window start (optional)",
+    "custom_category": "Category",
+    "custom_note": "Note",
+    "custom_url": "Link (a path in the application or an http/https address)",
+    "custom_required": "Fill in the title and the due date.",
+    "custom_saved": "Task saved.",
+    "custom_deleted": "Task deleted.",
+    "custom_delete_confirm": "Delete the task \"{title}\"?",
+    "custom_open_link": "Open link",
+    "mark_failed": "Saving the mark failed.",
+    "category": {
+      "registration": "Registration",
+      "dph": "VAT",
+      "income_tax": "Income tax",
+      "pausal": "Flat tax",
+      "insurance": "Insurance",
+      "invoicing": "Invoicing",
+      "custom": "Custom"
+    },
+    "claim": {
+      "mortgage": "mortgage interest",
+      "pension": "pension savings",
+      "life": "life insurance",
+      "donations": "donations",
+      "children": "children (tax benefit)",
+      "spouse": "spouse"
+    },
+    "link": {
+      "dph": "VAT return",
+      "kh": "Control statement",
+      "sh": "Recapitulative statement",
+      "income_tax": "Income tax",
+      "optimizer": "Tax optimizer",
+      "submissions": "Submission archive",
+      "vat_status": "VAT status",
+      "new_invoice": "New invoice",
+      "invoices": "Issued invoices"
+    },
+    "item": {
+      "dph": {
+        "title": "VAT return for {period_text}",
+        "what": "File the VAT return electronically (EPO or data box). Generate it on the VAT return page and mark it as filed in the Submission archive afterwards – the item then ticks itself off."
+      },
+      "kh": {
+        "title": "Control statement for {period_text}",
+        "what": "File the control statement by the same date as the VAT return. Generate it on the Control statement page and mark it as filed in the Submission archive afterwards."
+      },
+      "sh": {
+        "title": "Recapitulative statement for {period_text}",
+        "what": "There were supplies to the EU in the period. File the recapitulative statement electronically; generate it on the Recapitulative statement page and mark it as filed in the Submission archive afterwards."
+      },
+      "vat_payment": {
+        "title": "Pay the VAT for {period_text}",
+        "what": "The tax is due on the same day as the return, to the tax office's account with the numeric part of the VAT ID as the variable symbol. The payment is recognised from the bank statement, or you mark it in the Submission archive."
+      },
+      "income_tax": {
+        "title": "Income tax return ({form_label}) for {year}",
+        "what": "File electronically (data box or EPO) by {due}, on paper by {paper_due_date}. If a tax adviser files the return, the deadline is {advisor_due_date} – the power of attorney must reach the tax office by 1 April at the latest."
+      },
+      "pausal": {
+        "title": "Flat-tax advance for {month_text}",
+        "what": "Pay the monthly advance for band {band_no} to the tax office's account by the 20th of the month. The application does not track the payment – tick it off once paid."
+      },
+      "vat_registration": {
+        "title": "VAT registration application",
+        "what": "The turnover for {year} exceeded {limit} on {exceeded_on}. File the registration application through Online finanční úřad (DIS+) or EPO within 10 working days of that day. In field 06 choose § 6 (1) – you then become a payer from {payer_from}. Do not choose § 6 (2) (a), which would make you a payer from the day after the limit was exceeded. State the business bank account."
+      },
+      "vat_registration_expected": {
+        "title": "VAT registration application (estimate)",
+        "what": "Becoming a payer from {payer_from} is planned. {remaining} remain to the limit of {limit} (turnover this year {turnover}). At the current pace you will pass it around {estimated_on}; file the application within 10 working days through Online finanční úřad (DIS+) or EPO and choose § 6 (1) in field 06. The date shown is an estimate."
+      },
+      "vat_limit_immediate": {
+        "title": "Turnover passed {limit} – a payer from the next day",
+        "what": "The turnover passed {limit} on {exceeded_on}. Under § 6 (2) of the VAT Act you become a payer on the following day already; from then on VAT has to be charged. File the application without delay (10 working days) and verify the procedure with the tax office."
+      },
+      "flat_tax_lost": {
+        "title": "The flat-tax regime does not apply for {year}",
+        "what_income": "The income paid in {year} ({income}) exceeded the limit of {limit}. File the regular income tax return and the statements for ČSSZ and the health insurer; the flat-tax advances already paid are credited.",
+        "what_vat_payer": "Becoming a VAT payer in the course of {year} rules out the flat-tax regime. File the regular income tax return and the statements for ČSSZ and the health insurer; the flat-tax advances already paid are credited."
+      },
+      "income_tax_advance": {
+        "title": "Income tax advance ({share} %)",
+        "what_quarterly": "Advances based on the last known tax for {base_year} ({tax}) are paid quarterly, 25 % each (15 March, 15 June, 15 September and 15 December). Pay to the tax office's account.",
+        "what_semiannual": "Advances based on the last known tax for {base_year} ({tax}) are paid twice a year, 40 % each (15 June and 15 December). Pay to the tax office's account."
+      },
+      "income_tax_advance_info": {
+        "title": "Income tax advances – by the tax for {base_year}",
+        "what": "Once the return for {base_year} is filed, check the tax: above CZK 150,000 quarterly advances of 25 % are paid (15 March, 15 June, 15 September, 15 December), above CZK 30,000 two advances of 40 % (15 June, 15 December), up to CZK 30,000 no advances. The application works the amount out once the year is closed and has a tax profile."
+      },
+      "deduction_documents": {
+        "title": "Collect the documents for deductions and credits for {year}",
+        "what": "For the {year} return you will need confirmations of: {claims_text}. Get them by mid-February so you have them at hand when you prepare the return."
+      },
+      "insurance_overview_social": {
+        "title": "Statement for ČSSZ for {year}",
+        "what": "File the self-employed statement of income and expenses with ČSSZ (ČSSZ ePortal or data box). The deadline is a month after the income tax return deadline; through a tax adviser {advisor_due_date}. The statement sets the new advance and any surcharge."
+      },
+      "insurance_overview_health": {
+        "title": "Statement for the health insurer for {year}",
+        "what": "File the self-employed statement of income and expenses with your health insurer. The deadline is a month after the income tax return deadline; through a tax adviser {advisor_due_date}. The statement sets the new advance and any surcharge."
+      },
+      "insurance_surcharge_social": {
+        "title": "Social insurance surcharge for {year}",
+        "what": "If the statement shows a surcharge, pay it within 8 days of filing the statement. The date shown assumes the statement is filed on the last day; if you file earlier, pay earlier."
+      },
+      "insurance_surcharge_health": {
+        "title": "Health insurance surcharge for {year}",
+        "what": "If the statement shows a surcharge, pay it within 8 days of filing the statement. The date shown assumes the statement is filed on the last day; if you file earlier, pay earlier."
+      },
+      "insurance_advance_social": {
+        "title": "Social insurance advance for {month_text}",
+        "what": "Pay the advance to ČSSZ by the 20th of the following month. The payment details are in the ČSSZ ePortal. The application does not track the payment – tick it off once paid."
+      },
+      "insurance_advance_health": {
+        "title": "Health insurance advance for {month_text}",
+        "what": "Pay the advance to your health insurer by the 8th of the following month. The insurer publishes the payment details on its website and in the notice of advances. The application does not track the payment – tick it off once paid."
+      },
+      "invoicing": {
+        "title": "Issue the invoices for {month_text}",
+        "what": "Issue the invoices for the supplies of this month by the 5th working day of the following month. The item ticks itself off as soon as an issued invoice with a taxable-supply date in the month exists."
+      }
+    },
+    "note": {
+      "registration_not_in_history": "The VAT status history (Settings) has no payer from {payer_from} yet. Add it so the application accounts for VAT from that day.",
+      "registration_expected_voluntary": "At the current pace the limit will not be passed by the end of the year – registration from {payer_from} is then voluntary and you choose the filing date yourself.",
+      "income_tax_regime_lost": "The flat-tax regime does not apply for this year, hence the regular return; the flat-tax advances already paid are credited.",
+      "pausal_regime_lost": "The flat-tax regime probably does not apply for this year – keep paying? Verify.",
+      "flat_tax_lost_insurance": "The application does not work out insurance advances after leaving the regime for this year – verify the amounts and dates with ČSSZ and the health insurer.",
+      "vat_payment_amount_unknown": "The amount will be known once the return is filed.",
+      "vat_payment_none": "Zero tax or an excess deduction – nothing to pay.",
+      "advance_minimum": "The amount is the statutory minimum advance for {year}; verify it.",
+      "advance_changes": "Advances change according to the statement; the new amount applies from the month after it is filed.",
+      "advance_secondary": "Secondary activity: social advances are paid only above the decisive amount – verify.",
+      "advance_constants_fallback": "The constants for {year} are not entered yet, the values of {constants_year} were used – verify.",
+      "advance_estimate": "Estimate from the tax optimizer (profile of {base_year}). After the return is filed the advances follow the tax in the return – verify.",
+      "non_working_day": "The date falls on a non-working day. The payment has to be on the account in time – pay on the previous working day."
+    }
   }
 }

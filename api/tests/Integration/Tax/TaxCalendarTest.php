@@ -191,6 +191,31 @@ final class TaxCalendarTest extends TestCase
         self::assertSame('unfiled', $overdue['dph:2099-05']['filing']['status']);
     }
 
+    public function testItemsBetweenKeepsWhatTheDashboardCalendarDrops(): void
+    {
+        $dph = $this->fx->submission('dphdp3', 2099, 5, null);
+        $this->filing->markFiled($this->fx->supplierId, $dph, '2020-01-01 10:00', 'epo', null, null);
+        $now = new \DateTimeImmutable('2099-06-26');
+
+        $between = [];
+        foreach ($this->calendar->itemsBetween($this->fx->supplierId, $now, '2099-06-01', '2099-07-31', ['dph', 'kh']) as $item) {
+            $between[$item['key']] = $item;
+        }
+        // The filed return of May (25. 6.) is past its date: the dashboard drops it, the timeline shows it done.
+        self::assertSame(['dph:2099-05', 'kh:2099-05', 'dph:2099-06', 'kh:2099-06'], array_keys($between));
+        self::assertSame('filed', $between['dph:2099-05']['filing']['status']);
+        self::assertSame(-1, $between['dph:2099-05']['days_left']);
+        self::assertSame(['kh:2099-05', 'dph:2099-06', 'kh:2099-06'], array_keys($this->items('2099-06-26', 40, ['dph', 'kh'])));
+
+        // A flat-tax advance that is past stays in the range as well (nothing tracks its payment).
+        $this->fx->vatHistory([['2000-01-01', 'non_payer']]);
+        $this->fx->configureSupplier(['flat_tax_band' => 'band1']);
+        $pausal = $this->calendar->itemsBetween($this->fx->supplierId, $now, '2099-06-01', '2099-07-31', ['pausal']);
+        self::assertSame(['pausal:2099-06', 'pausal:2099-07'], array_column($pausal, 'key'));
+        self::assertSame(-4, $pausal[0]['days_left'], '20. 6. 2099 is a Saturday: due Monday 22. 6.');
+        self::assertSame(['pausal:2099-07'], array_keys($this->items('2099-06-26', 40, ['pausal'])));
+    }
+
     public function testSouhrnneHlaseniOnlyForPeriodsWithEuSupplies(): void
     {
         self::assertSame([], $this->items('2099-06-10', 30, ['sh']), 'no EU supplies');

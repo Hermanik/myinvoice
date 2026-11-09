@@ -767,6 +767,14 @@ final class Routes
         $app->put   ('/api/tax/registration-deductions/{id:[0-9]+}',         [\MyInvoice\Action\Tax\RegistrationDeductionAction::class, 'update']);
         $app->delete('/api/tax/registration-deductions/{id:[0-9]+}',         [\MyInvoice\Action\Tax\RegistrationDeductionAction::class, 'delete']);
 
+        // Obligations timeline ("Harmonogram"): session only, admin + accountant (RoleMiddleware ACCOUNTANT_RULES)
+        $app->get   ('/api/timeline',                          [\MyInvoice\Action\Timeline\TimelineAction::class, 'list']);
+        $app->put   ('/api/timeline/marks',                    [\MyInvoice\Action\Timeline\TimelineAction::class, 'setMark']);
+        $app->delete('/api/timeline/marks',                    [\MyInvoice\Action\Timeline\TimelineAction::class, 'clearMark']);
+        $app->post  ('/api/timeline/custom-items',             [\MyInvoice\Action\Timeline\TimelineAction::class, 'createCustom']);
+        $app->put   ('/api/timeline/custom-items/{id:[0-9]+}', [\MyInvoice\Action\Timeline\TimelineAction::class, 'updateCustom']);
+        $app->delete('/api/timeline/custom-items/{id:[0-9]+}', [\MyInvoice\Action\Timeline\TimelineAction::class, 'deleteCustom']);
+
         // Bank statements (M5b)
         $app->post ('/api/bank-statements/upload',           [BankStatementAction::class, 'upload']);
         $app->post ('/api/bank-statements/upload-pdf',       [BankStatementAction::class, 'importPdf']);

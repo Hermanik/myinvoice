@@ -5,35 +5,33 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Report;
 
 /**
- * České pracovní dny pro lhůty daňových podání.
+ * Czech working days for tax filing deadlines.
  *
- * § 33 odst. 4 daňového řádu (280/2009 Sb.): připadne-li poslední den lhůty
- * na sobotu, neděli nebo svátek, je posledním dnem lhůty nejblíže následující
- * pracovní den. Bez posunu aplikace chybně hlásila „po termínu" (např.
- * KH 06/2026: 25. 7. 2026 = sobota → skutečný termín pondělí 27. 7. 2026).
+ * § 33 odst. 4 of the Tax Procedure Code (280/2009 Sb.): when the last day of a deadline falls on a Saturday, a Sunday
+ * or a public holiday, the deadline ends on the nearest following working day. Without the shift the application
+ * wrongly reported "overdue" (e.g. KH 06/2026: 25. 7. 2026 is a Saturday, the real deadline is Monday 27. 7. 2026).
  *
- * Svátky dle zákona 245/2000 Sb.: pevné + Velký pátek a Velikonoční pondělí
- * (odvozené z data Velikonoc — anonymní gregoriánský algoritmus, přesný pro
- * celý rozsah let, který výkazy připouštějí).
+ * Public holidays per act 245/2000 Sb.: the fixed ones plus Good Friday and Easter Monday (derived from the date of
+ * Easter — the anonymous Gregorian algorithm, exact for the whole range of years the returns allow).
  */
 final class CzechWorkingDays
 {
-    /** Pevné svátky jako 'm-d' (245/2000 Sb.). */
+    /** Fixed public holidays as 'm-d' (245/2000 Sb.). */
     private const FIXED_HOLIDAYS = [
-        '01-01', // Den obnovy samostatného českého státu / Nový rok
-        '05-01', // Svátek práce
-        '05-08', // Den vítězství
-        '07-05', // Cyril a Metoděj
-        '07-06', // Jan Hus
-        '09-28', // Den české státnosti
-        '10-28', // Vznik samostatného československého státu
-        '11-17', // Den boje za svobodu a demokracii
-        '12-24', // Štědrý den
-        '12-25', // 1. svátek vánoční
-        '12-26', // 2. svátek vánoční
+        '01-01', // Restoration Day of the Independent Czech State / New Year
+        '05-01', // Labour Day
+        '05-08', // Victory Day
+        '07-05', // Saints Cyril and Methodius
+        '07-06', // Jan Hus Day
+        '09-28', // Czech Statehood Day
+        '10-28', // Independent Czechoslovak State Day
+        '11-17', // Struggle for Freedom and Democracy Day
+        '12-24', // Christmas Eve
+        '12-25', // Christmas Day
+        '12-26', // St Stephen's Day
     ];
 
-    /** Posune datum na nejbližší NÁSLEDUJÍCÍ pracovní den (samo o sobě včetně). */
+    /** Moves the date to the nearest FOLLOWING working day (the date itself included). */
     public static function shiftToWorkingDay(\DateTimeImmutable $d): \DateTimeImmutable
     {
         while (!self::isWorkingDay($d)) {
@@ -42,9 +40,29 @@ final class CzechWorkingDays
         return $d;
     }
 
+    /** The date $days working days after $d (the day itself does not count); 0 days = $d unchanged. */
+    public static function addWorkingDays(\DateTimeImmutable $d, int $days): \DateTimeImmutable
+    {
+        while ($days > 0) {
+            $d = $d->modify('+1 day');
+            if (self::isWorkingDay($d)) {
+                $days--;
+            }
+        }
+        return $d;
+    }
+
+    /** The $n-th (1-based) working day of the month containing $anyDayOfMonth. */
+    public static function nthWorkingDayOfMonth(\DateTimeImmutable $anyDayOfMonth, int $n): \DateTimeImmutable
+    {
+        $first = $anyDayOfMonth->modify('first day of this month');
+        // The 1st itself counts when it is a working day, hence start one day earlier.
+        return self::addWorkingDays($first->modify('-1 day'), $n);
+    }
+
     public static function isWorkingDay(\DateTimeImmutable $d): bool
     {
-        // N = ISO den v týdnu (6 sobota, 7 neděle)
+        // N = ISO day of the week (6 Saturday, 7 Sunday)
         if ((int) $d->format('N') >= 6) {
             return false;
         }
@@ -56,15 +74,27 @@ final class CzechWorkingDays
         if (in_array($d->format('m-d'), self::FIXED_HOLIDAYS, true)) {
             return true;
         }
-        $easter = self::easterSunday((int) $d->format('Y'));
-        $ymd = $d->format('Y-m-d');
-        return $ymd === $easter->modify('-2 days')->format('Y-m-d')  // Velký pátek
-            || $ymd === $easter->modify('+1 day')->format('Y-m-d');  // Velikonoční pondělí
+        return in_array($d->format('Y-m-d'), self::easterHolidays((int) $d->format('Y')), true);
     }
 
     /**
-     * Velikonoční neděle (gregoriánský kalendář) — anonymní/Meeusův algoritmus.
-     * Záměrně bez ext-calendar (easter_date), aby helper běžel všude.
+     * Good Friday and Easter Monday of the year as Y-m-d (cached: the timeline asks about hundreds of days).
+     *
+     * @return list<string>
+     */
+    private static function easterHolidays(int $year): array
+    {
+        static $cache = [];
+        if (!isset($cache[$year])) {
+            $easter = self::easterSunday($year);
+            $cache[$year] = [$easter->modify('-2 days')->format('Y-m-d'), $easter->modify('+1 day')->format('Y-m-d')];
+        }
+        return $cache[$year];
+    }
+
+    /**
+     * Easter Sunday (Gregorian calendar) — the anonymous / Meeus algorithm.
+     * Deliberately without ext-calendar (easter_date), so the helper runs everywhere.
      */
     public static function easterSunday(int $year): \DateTimeImmutable
     {

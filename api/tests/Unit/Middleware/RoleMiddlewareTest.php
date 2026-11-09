@@ -75,6 +75,34 @@ final class RoleMiddlewareTest extends TestCase
         self::assertSame(204, $response->getStatusCode());
     }
 
+    /** The obligations timeline is for admin and accountant (reads and marks); readonly users do not get it. */
+    public function testTimelineIsOpenToAdminAndAccountantOnly(): void
+    {
+        foreach ([
+            ['GET', '/api/timeline'],
+            ['PUT', '/api/timeline/marks'],
+            ['DELETE', '/api/timeline/marks'],
+            ['POST', '/api/timeline/custom-items'],
+            ['PUT', '/api/timeline/custom-items/5'],
+            ['DELETE', '/api/timeline/custom-items/5'],
+        ] as [$method, $path]) {
+            foreach (['admin', 'accountant'] as $role) {
+                $response = $this->middleware()->process($this->request($method, $path, $role), $this->okHandler());
+                self::assertSame(204, $response->getStatusCode(), "$role $method $path");
+            }
+            $response = $this->middleware()->process($this->request($method, $path, 'readonly'), $this->okHandler());
+            self::assertSame(403, $response->getStatusCode(), "readonly $method $path");
+        }
+    }
+
+    public function testTimelineRuleDoesNotOpenSiblingPaths(): void
+    {
+        foreach (['/api/timelinex', '/api/admin/timeline'] as $path) {
+            $response = $this->middleware()->process($this->request('GET', $path, 'accountant'), $this->okHandler());
+            self::assertSame(403, $response->getStatusCode(), $path);
+        }
+    }
+
     public function testReadonlyCannotMutateSigningProfilesRoute(): void
     {
         $response = $this->middleware()->process(

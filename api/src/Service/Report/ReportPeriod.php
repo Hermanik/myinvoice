@@ -64,6 +64,17 @@ final class ReportPeriod
         return self::incomeTaxDeadlineOn($taxYear, '05-01');
     }
 
+    /**
+     * Deadline of the income tax return (DPFO/DPPO) for a calendar tax year when the return is filed by a tax adviser or
+     * a lawyer: 1 July of the following year (§ 136 odst. 2 písm. b) DŘ), moved to the next working day. It applies
+     * only to returns covered by a power of attorney filed with the tax office by the end of the regular
+     * (3-month) deadline, i.e. by 1 April.
+     */
+    public static function incomeTaxAdvisorDeadline(int $taxYear): string
+    {
+        return self::incomeTaxDeadlineOn($taxYear, '07-01');
+    }
+
     private static function incomeTaxDeadlineOn(int $taxYear, string $monthDay): string
     {
         return CzechWorkingDays::shiftToWorkingDay(
