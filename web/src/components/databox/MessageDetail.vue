@@ -43,7 +43,9 @@ function apply(d: MessageDetail) {
 const isReceived = computed(() => detail.value?.direction === 'received')
 const capableMissing = computed(() => detail.value?.open.has_capable_login === false)
 const openBlocked = computed(() => detail.value?.open.blocked_reason ?? null)
-const canOpen = computed(() => isReceived.value && !detail.value?.open.stored && !capableMissing.value && !openBlocked.value)
+// A box watched by notification e-mails has no login: its messages can only be opened in the data box portal.
+const emailOnly = computed(() => detail.value?.open.email_only === true)
+const canOpen = computed(() => isReceived.value && !emailOnly.value && !detail.value?.open.stored && !capableMissing.value && !openBlocked.value)
 
 // Opening: warn first when it would deliver the message; only the confirmation path passes acknowledged=true.
 function openClick() {
@@ -83,6 +85,7 @@ async function simple(fn: () => Promise<unknown>, after?: () => void) {
 const acknowledge = () => simple(() => databoxApi.acknowledge(props.messageId), load)
 const loadReceipt = () => simple(async () => apply(await databoxApi.fetchReceipt(props.messageId)))
 
+const PORTAL_URL = 'https://www.datovka.gov.cz'
 const hintKey = (code: string) => `databox.hints.${code}`
 const field = 'text-neutral-500'
 </script>
@@ -102,6 +105,7 @@ const field = 'text-neutral-500'
         <span class="text-xs px-2 py-0.5 border rounded-full" :class="stateBadgeClass(detail.state)">{{ t(`databox.state.${detail.state}`) }}</span>
         <span v-if="detail.is_tax_office" class="text-xs px-2 py-0.5 rounded-full bg-danger-50 text-danger-500 border border-danger-500/40">{{ t('databox.tax_office') }}</span>
         <span v-if="detail.personal_delivery" class="text-xs px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700 border border-neutral-200">{{ t('databox.personal_delivery') }}</span>
+        <span v-if="detail.source === 'email'" class="text-xs px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 border border-primary-200" data-test="source-email-badge">{{ t('databox.source.email') }}</span>
       </div>
       <p class="text-xs text-neutral-600">{{ t(`databox.state_help.${detail.state}`) }}</p>
 
@@ -131,13 +135,21 @@ const field = 'text-neutral-500'
         <p v-if="detail.open.fiction_date && detail.open.undelivered" class="text-xs text-warning-600">
           {{ t('databox.open.fiction_date', { date: formatDate(detail.open.fiction_date) }) }}
         </p>
-        <p v-if="capableMissing && !detail.open.stored" class="rounded-md border border-warning-500/50 bg-warning-50 text-warning-600 px-3 py-2" data-test="no-capable-login">
-          {{ t('databox.open.no_capable_login') }}
-          <router-link to="/admin/settings#databox" class="underline">{{ t('databox.open.go_settings') }}</router-link>
-        </p>
-        <p v-if="openBlocked && !detail.open.stored" class="rounded-md border border-warning-500/50 bg-warning-50 text-warning-600 px-3 py-2" data-test="open-blocked">
-          {{ t(`databox.open.${openBlocked}`) }}
-        </p>
+        <div v-if="emailOnly" class="rounded-md border border-primary-200 bg-primary-50 text-primary-700 px-3 py-2 space-y-2" data-test="email-only-open">
+          <p>{{ t('databox.open.email_only') }}</p>
+          <a :href="PORTAL_URL" target="_blank" rel="noopener" class="inline-flex items-center h-8 px-3 rounded-md bg-primary-600 text-white text-xs hover:bg-primary-700" data-test="portal-link">
+            {{ t('databox.open.portal') }}
+          </a>
+        </div>
+        <template v-else>
+          <p v-if="capableMissing && !detail.open.stored" class="rounded-md border border-warning-500/50 bg-warning-50 text-warning-600 px-3 py-2" data-test="no-capable-login">
+            {{ t('databox.open.no_capable_login') }}
+            <router-link to="/admin/settings#databox" class="underline">{{ t('databox.open.go_settings') }}</router-link>
+          </p>
+          <p v-if="openBlocked && !detail.open.stored" class="rounded-md border border-warning-500/50 bg-warning-50 text-warning-600 px-3 py-2" data-test="open-blocked">
+            {{ t(`databox.open.${openBlocked}`) }}
+          </p>
+        </template>
         <button v-if="canOpen" type="button" :disabled="busy"
           class="cursor-pointer h-9 px-4 rounded-md bg-primary-600 text-white text-sm hover:bg-primary-700 disabled:opacity-50" @click="openClick">
           {{ t('databox.open.button') }}

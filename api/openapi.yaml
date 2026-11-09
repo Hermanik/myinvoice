@@ -6137,19 +6137,32 @@ paths:
         Přihlášení pro synchronizaci by mělo mít v ISDS **jen** právo „Zobrazovat seznamy, historii
         a doručenky“ — se čtecím přihlášením synchronizace odmítne běžet (jeho vypsání seznamu by
         zprávy doručilo), dokud se výslovně nepovolí `allow_delivering_sync`.
+        S `mode: email` se schránka jen sleduje přes e-mailová upozornění systému datových schránek:
+        žádné přihlášení, žádné volání ISDS; ID (kontrolní znak se ověřuje), typ a majitele zadává
+        držitel sám a schránka je vždy z ostrého systému. Takovou schránku synchronizace přeskakuje
+        a každá akce, která by potřebovala přihlášení, skončí chybou `email_only` (422).
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [sync]
-              properties:
-                label: { type: string, maxLength: 100 }
-                environment: { type: string, enum: [production, test], default: production }
-                sync: { $ref: '#/components/schemas/DataboxLoginInput' }
-                action: { $ref: '#/components/schemas/DataboxLoginInput' }
-                allow_delivering_sync: { type: boolean, default: false }
+              oneOf:
+                - type: object
+                  required: [sync]
+                  properties:
+                    label: { type: string, maxLength: 100 }
+                    environment: { type: string, enum: [production, test], default: production }
+                    sync: { $ref: '#/components/schemas/DataboxLoginInput' }
+                    action: { $ref: '#/components/schemas/DataboxLoginInput' }
+                    allow_delivering_sync: { type: boolean, default: false }
+                - type: object
+                  required: [mode, db_id, db_type]
+                  properties:
+                    mode: { type: string, enum: [email] }
+                    label: { type: string, maxLength: 100, description: "Výchozí je majitel, jinak ID schránky." }
+                    db_id: { type: string, minLength: 7, maxLength: 7, example: tpbxbx7 }
+                    db_type: { type: string, enum: [FO, PFO, PO] }
+                    owner_name: { type: string, maxLength: 255 }
       responses:
         '201':
           description: Připojeno
@@ -6288,6 +6301,83 @@ paths:
           content:
             application/json:
               schema: { type: object, properties: { acknowledged: { type: integer } } }
+
+  /api/v1/databox/email-settings:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+    get:
+      tags: [Databox]
+      summary: Nastavení sledování přes e-mailová upozornění
+      description: |
+        Poštovní schránka (jeden z IMAP účtů bankovních avíz), složka, adresa pro upozornění a výsledek poslední kontroly.
+        **IMAP hesla se nikdy nevrací.**
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxEmailSettings' }
+        '403': { description: "Jen admin ze session" }
+    put:
+      tags: [Databox]
+      summary: Uložit nastavení e-mailových upozornění
+      description: Pole, která nepřijdou, se nemění. Zapnout (`enabled`) jde jen s vybraným IMAP účtem.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                imap_account_id: { type: integer, nullable: true }
+                folder: { type: string, maxLength: 190 }
+                enabled: { type: boolean }
+                alert_email: { type: string, nullable: true, description: "Adresa, na kterou jde jeden e-mail za každou novou zprávu; prázdné = bez e-mailů." }
+      responses:
+        '200':
+          description: Uloženo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataboxEmailSettings' }
+        '400': { description: "Neplatný vstup (`validation_failed`)" }
+
+  /api/v1/databox/email-settings/scan:
+    post:
+      tags: [Databox]
+      summary: Zkontrolovat e-maily teď
+      description: |
+        Stejná logika jako cron `cron-databox-email-notices`, i když je kontrola vypnutá. Čte složku bez označování e-mailů,
+        každé upozornění ověří podpisem DKIM (od `notifikace@datovka.gov.cz` nebo `notifikace@mojedatovaschranka.cz`),
+        založí oznámenou zprávu ve schránce příjemce a případně pošle upozornění e-mailem. Do ISDS se nepřihlašuje, nic nedoručí.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: Souhrn běhu a aktuální nastavení
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: object
+                    properties:
+                      status: { type: string, enum: [ok, error] }
+                      message: { type: string, nullable: true }
+                      fetched: { type: integer }
+                      created: { type: integer, description: "Nové zprávy ve schránkách." }
+                      linked: { type: integer }
+                      known_skipped: { type: integer }
+                      ignored: { type: integer }
+                      rejected: { type: integer, description: "Neprošlo ověřením autenticity (DKIM)." }
+                      unknown_box: { type: integer, description: "Upozornění pro schránku, která není přidaná." }
+                      parse_failed: { type: integer }
+                      auth_deferred: { type: integer }
+                      errors: { type: integer }
+                      alerts_sent: { type: integer }
+                      alert_errors: { type: integer }
+                  settings: { $ref: '#/components/schemas/DataboxEmailSettings/properties/settings' }
+                  imap_accounts: { $ref: '#/components/schemas/DataboxEmailSettings/properties/imap_accounts' }
 
   /api/v1/databox/boxes/{id}/lookup:
     get:
@@ -6667,6 +6757,7 @@ components:
         id: { type: integer }
         label: { type: string }
         environment: { type: string, enum: [production, test] }
+        connection_mode: { type: string, enum: [isds, email], description: "email = sledovaná jen přes e-mailová upozornění, bez přihlášení." }
         db_id: { type: string, example: tpbxbx7 }
         db_type: { type: string, example: PFO }
         owner_name: { type: string, nullable: true }
@@ -6681,7 +6772,7 @@ components:
           properties:
             state:
               type: string
-              enum: [ok, opt_in, blocked_delivers, blocked_no_list, unverified, no_credential, login_failed]
+              enum: [ok, opt_in, blocked_delivers, blocked_no_list, unverified, no_credential, login_failed, email_only]
               description: "ok = seznamy bez čtení (nic nedoručí); opt_in = čte a doručuje, majitel souhlasil; blocked_* = synchronizace neběží."
             delivers: { type: boolean }
         credentials:
@@ -6690,6 +6781,31 @@ components:
             sync: { $ref: '#/components/schemas/DataboxCredential' }
             action: { $ref: '#/components/schemas/DataboxCredential' }
 
+    DataboxEmailSettings:
+      type: object
+      properties:
+        settings:
+          type: object
+          properties:
+            imap_account_id: { type: integer, nullable: true }
+            folder: { type: string, example: Datovka }
+            enabled: { type: boolean }
+            alert_email: { type: string, nullable: true }
+            last_scan_at: { type: string, nullable: true }
+            last_scan_status: { type: string, nullable: true, enum: [ok, error] }
+            last_scan_message: { type: string, nullable: true }
+        imap_accounts:
+          type: array
+          description: IMAP účty k výběru (bez hesel).
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              name: { type: string }
+              host: { type: string }
+              username: { type: string }
+              has_password: { type: boolean }
+
     DataboxMessage:
       type: object
       description: Obálka zprávy (bez obsahu).
@@ -6697,6 +6813,7 @@ components:
         id: { type: integer }
         databox_id: { type: integer }
         direction: { type: string, enum: [received, sent] }
+        source: { type: string, enum: [isds, email], description: "email = oznámená e-mailovým upozorněním, ISDS ji zatím nepotvrdilo seznamem zpráv." }
         dm_id: { type: string, description: "Číslo zprávy v ISDS." }
         sender_box_id: { type: string, nullable: true }
         sender_name: { type: string, nullable: true }

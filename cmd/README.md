@@ -27,6 +27,7 @@ samotného skriptu, takže jsou přenositelné mezi `C:\inetpub\wwwroot\…`,
 | `cron-generate-recurring-invoices.{cmd,sh}` | Generování faktur ze šablon pravidelné fakturace; volitelné rovnou vystavení a odeslání klientovi (`--dry-run`) |
 | `cron-refresh-vat-status.{cmd,sh}` | Denní přepočet cache `supplier.is_vat_payer` / `is_identified` z historie plátcovství DPH (přepne stav, když nastane datum v budoucím záznamu) |
 | `cron-databox-sync.{cmd,sh}` | Hodinová synchronizace obálek zpráv v připojených datových schránkách (jen seznamy, bez stahování obsahu; nikdy nedoručuje — viz manuál, kapitola Datové schránky) a vytvoření položek na dashboardu u nových zpráv |
+| `cron-databox-email-notices.{cmd,sh}` | Sledování datových schránek bez přihlášení: čte e-mailová upozornění systému datových schránek přes IMAP, ověří je podpisem DKIM, založí oznámené zprávy a volitelně pošle upozornění e-mailem. Zprávy nikdy nedoručuje (konfigurace v **Nastavení → Datové schránky**) |
 | `cron-refresh-repo-rates.{cmd,sh}` | Měsíční doplnění nových repo sazeb ČNB do (jen přírůstkového) číselníku pro zákonný úrok z prodlení; existující řádky nikdy nepřepisuje |
 | `cron-version-check.{cmd,sh}` | Denní kontrola GitHub Releases API; cachuje poslední dostupnou verzi + release notes pro **Systém → Aktualizace** |
 
@@ -79,6 +80,7 @@ snapshot nic neblokuje — kód mimo něj se uloží i odešle, jen s upozorněn
 | `cron-send-approval-reminders` | 1× denně (pracovní dny) | 09:15, Po–Pá |
 | `cron-generate-recurring-invoices` | 1× denně | 06:30 |
 | `cron-databox-sync` | 1× hodinově | minuta 17 |
+| `cron-databox-email-notices` | každých 30 minut | `*/30 * * * *` |
 | `cron-version-check` | 1× denně | 06:00 |
 | `cron-refresh-vat-status` | 1× denně | 00:05 (přepne cache plátcovství DPH podle historie) |
 | `cron-refresh-repo-rates` | 1× měsíčně | 1. den v měsíci 07:10 (doplní nové repo sazby ČNB pro úrok z prodlení) |
@@ -99,6 +101,7 @@ schtasks /create /tn "MyInvoice Reminders" /tr "C:\inetpub\wwwroot\myinvoice.cz\
 schtasks /create /tn "MyInvoice ApprovalReminders" /tr "C:\inetpub\wwwroot\myinvoice.cz\cmd\cron-send-approval-reminders.cmd" /sc weekly /d MON,TUE,WED,THU,FRI /st 09:15 /ru SYSTEM
 schtasks /create /tn "MyInvoice Recurring"         /tr "C:\inetpub\wwwroot\myinvoice.cz\cmd\cron-generate-recurring-invoices.cmd" /sc daily /st 06:30 /ru SYSTEM
 schtasks /create /tn "MyInvoice DataboxSync"       /tr "C:\inetpub\wwwroot\myinvoice.cz\cmd\cron-databox-sync.cmd"          /sc hourly /mo 1 /ru SYSTEM
+schtasks /create /tn "MyInvoice DataboxEmailNotices" /tr "C:\inetpub\wwwroot\myinvoice.cz\cmd\cron-databox-email-notices.cmd" /sc minute /mo 30 /ru SYSTEM
 schtasks /create /tn "MyInvoice VersionCheck"      /tr "C:\inetpub\wwwroot\myinvoice.cz\cmd\cron-version-check.cmd"           /sc daily /st 06:00 /ru SYSTEM
 schtasks /create /tn "MyInvoice RefreshVatStatus"  /tr "C:\inetpub\wwwroot\myinvoice.cz\cmd\cron-refresh-vat-status.cmd"       /sc daily /st 00:05 /ru SYSTEM
 schtasks /create /tn "MyInvoice RefreshRepoRates" /tr "C:\inetpub\wwwroot\myinvoice.cz\cmd\cron-refresh-repo-rates.cmd"      /sc monthly /d 1 /st 07:10 /ru SYSTEM
@@ -141,6 +144,7 @@ Edituj `crontab -e` (nebo `/etc/cron.d/myinvoice`):
  15  9  *   *   1-5  /var/www/myinvoice.cz/cmd/cron-send-approval-reminders.sh
  30  6  *   *   *    /var/www/myinvoice.cz/cmd/cron-generate-recurring-invoices.sh
  17  *  *   *   *    /var/www/myinvoice.cz/cmd/cron-databox-sync.sh
+*/30 *  *   *   *    /var/www/myinvoice.cz/cmd/cron-databox-email-notices.sh
   0  6  *   *   *    /var/www/myinvoice.cz/cmd/cron-version-check.sh
   5  0  *   *   *    /var/www/myinvoice.cz/cmd/cron-refresh-vat-status.sh
  10  7  1   *   *    /var/www/myinvoice.cz/cmd/cron-refresh-repo-rates.sh

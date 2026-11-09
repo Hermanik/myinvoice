@@ -23,6 +23,10 @@ use Psr\Log\LoggerInterface;
 final class DataboxService
 {
     public const PURPOSES = ['sync', 'action'];
+    public const MODE_ISDS = 'isds';
+    public const MODE_EMAIL = 'email';
+    /** Box types a holder can pick for a box that is watched by e-mail only (nothing tells them apart without a login). */
+    public const EMAIL_BOX_TYPES = ['FO', 'PFO', 'PO'];
 
     public function __construct(
         private readonly DataboxRepository $boxes,
@@ -66,6 +70,7 @@ final class DataboxService
             'id' => $box['id'],
             'label' => $box['label'],
             'environment' => $box['environment'],
+            'connection_mode' => $box['connection_mode'] ?? self::MODE_ISDS,
             'db_id' => $box['db_id'],
             'db_type' => $box['db_type'],
             'owner_name' => $box['owner_name'],
@@ -85,10 +90,13 @@ final class DataboxService
      *
      * @param array<string,mixed> $box
      * @return array{state:string, delivers:bool}
-     *   state: ok | opt_in (reads and delivers, owner agreed) | blocked_delivers | blocked_no_list | unverified | no_credential | login_failed
+     *   state: ok | opt_in (reads and delivers, owner agreed) | blocked_delivers | blocked_no_list | unverified | no_credential | login_failed | email_only
      */
     public function syncState(array $box): array
     {
+        if (self::isEmailOnly($box)) {
+            return ['state' => 'email_only', 'delivers' => false];
+        }
         $sync = $box['credentials']['sync'] ?? null;
         if ($sync === null) {
             return ['state' => 'no_credential', 'delivers' => false];
@@ -113,14 +121,20 @@ final class DataboxService
 
     /**
      * Connect a box. The box ID, type and name come from the login itself (GetOwnerInfoFromLogin2), never from the user.
+     * With `mode` = 'email' no login is involved: the box is only watched through its notification e-mails, so the holder
+     * names it himself ({@see addEmailOnly()}).
      *
-     * @param array{label?:string, environment?:string, sync:array{username:string, password:string},
-     *              action?:?array{username:string, password:string}, allow_delivering_sync?:bool} $input
+     * @param array{mode?:string, label?:string, environment?:string, sync?:array{username:string, password:string},
+     *              action?:?array{username:string, password:string}, allow_delivering_sync?:bool,
+     *              db_id?:string, db_type?:string, owner_name?:?string} $input
      * @return array<string,mixed> public view
      * @throws DataboxException|IsdsException
      */
     public function add(int $supplierId, #[\SensitiveParameter] array $input): array
     {
+        if (($input['mode'] ?? self::MODE_ISDS) === self::MODE_EMAIL) {
+            return $this->addEmailOnly($supplierId, $input);
+        }
         $environment = (string) ($input['environment'] ?? IsdsEnvironment::PRODUCTION);
         if (!IsdsEnvironment::isValid($environment)) {
             throw new DataboxException('validation_failed', 'Neplatné prostředí datových schránek.', 400);
@@ -171,6 +185,67 @@ final class DataboxService
     }
 
     /**
+     * A box watched through ISDS notification e-mails only: nothing is asked of ISDS and no password is stored. The holder
+     * names the box, because only a login could tell its type and owner. Notices exist for the production system only.
+     *
+     * @param array<string,mixed> $input
+     * @return array<string,mixed> public view
+     * @throws DataboxException
+     */
+    private function addEmailOnly(int $supplierId, array $input): array
+    {
+        if (($input['environment'] ?? IsdsEnvironment::PRODUCTION) !== IsdsEnvironment::PRODUCTION) {
+            throw new DataboxException('validation_failed', 'Upozornění e-mailem posílá jen ostrý systém datových schránek.', 400);
+        }
+        $dbId = DataboxId::normalize((string) ($input['db_id'] ?? ''));
+        if (!DataboxId::isValid($dbId)) {
+            throw new DataboxException('validation_failed', 'ID datové schránky není platné (7 znaků s kontrolním znakem).', 400);
+        }
+        $dbType = strtoupper(trim((string) ($input['db_type'] ?? '')));
+        if (!in_array($dbType, self::EMAIL_BOX_TYPES, true)) {
+            throw new DataboxException('validation_failed', 'Zvolte typ schránky (FO, PFO nebo PO).', 400);
+        }
+        if ($this->boxes->findByBoxId($supplierId, IsdsEnvironment::PRODUCTION, $dbId) !== null) {
+            throw new DataboxException('duplicate', 'Tato datová schránka už je připojená.', 409);
+        }
+        $ownerName = trim((string) ($input['owner_name'] ?? ''));
+        $label = trim((string) ($input['label'] ?? ''));
+        if ($label === '') {
+            $label = $ownerName !== '' ? $ownerName : $dbId;
+        }
+        $boxId = $this->boxes->insert(
+            $supplierId,
+            mb_substr($label, 0, 100),
+            IsdsEnvironment::PRODUCTION,
+            $dbId,
+            $dbType,
+            $ownerName !== '' ? mb_substr($ownerName, 0, 255) : null,
+            false,
+            self::MODE_EMAIL,
+        );
+        $this->logger->info('Data box connected by e-mail notices only', ['box_id' => $boxId, 'supplier_id' => $supplierId, 'db_id' => $dbId]);
+        return $this->present($this->boxes->find($boxId));
+    }
+
+    /** True for a box that is watched through notification e-mails only: it has no login and must never be sent to ISDS. @param array<string,mixed> $box */
+    public static function isEmailOnly(array $box): bool
+    {
+        return ($box['connection_mode'] ?? self::MODE_ISDS) === self::MODE_EMAIL;
+    }
+
+    /** Every ISDS action starts here: a box watched by e-mail has nothing to log in with. @param array<string,mixed> $box @throws DataboxException */
+    public function requireIsdsMode(array $box): void
+    {
+        if (self::isEmailOnly($box)) {
+            throw new DataboxException(
+                'email_only',
+                'Tato schránka je sledovaná jen přes e-mailová upozornění, aplikace se do ní nepřihlašuje. Zprávu otevřete na portálu datových schránek (www.datovka.gov.cz).',
+                422,
+            );
+        }
+    }
+
+    /**
      * "Ověřit připojení": log in with every stored login (read-only calls), refresh privileges and password expiry.
      *
      * A login ISDS refused is tried again only after its wait time (5 min, then doubling), so a wrong password cannot be
@@ -182,6 +257,7 @@ final class DataboxService
     {
         $now ??= new \DateTimeImmutable();
         $box = $this->requireBox($supplierId, $boxId);
+        $this->requireIsdsMode($box);
         $results = [];
         foreach ($box['credentials'] as $purpose => $cred) {
             if ($wait = $this->cooldownMessage($cred, $now)) {
@@ -223,6 +299,7 @@ final class DataboxService
         $now ??= new \DateTimeImmutable();
         $this->assertPurpose($purpose);
         $box = $this->requireBox($supplierId, $boxId);
+        $this->requireIsdsMode($box);
         $stored = $box['credentials'][$purpose] ?? null;
         if ($stored !== null && $wait = $this->cooldownMessage($stored, $now)) {
             throw new DataboxException('cooldown', $wait, 429);
@@ -250,7 +327,7 @@ final class DataboxService
     public function removeCredential(int $supplierId, int $boxId, string $purpose): array
     {
         $this->assertPurpose($purpose);
-        $this->requireBox($supplierId, $boxId);
+        $this->requireIsdsMode($this->requireBox($supplierId, $boxId));
         $this->boxes->deleteCredential($boxId, $purpose);
         return $this->present($this->boxes->find($boxId));
     }
@@ -261,7 +338,7 @@ final class DataboxService
      */
     public function update(int $supplierId, int $boxId, array $fields): array
     {
-        $this->requireBox($supplierId, $boxId);
+        $box = $this->requireBox($supplierId, $boxId);
         $update = [];
         if (isset($fields['label'])) {
             $label = trim((string) $fields['label']);
@@ -274,6 +351,7 @@ final class DataboxService
             $update['is_active'] = (bool) $fields['is_active'];
         }
         if (isset($fields['allow_delivering_sync'])) {
+            $this->requireIsdsMode($box);
             $update['allow_delivering_sync'] = (bool) $fields['allow_delivering_sync'];
             // The stored "sync refused" status describes the old setting; the next run writes the real one.
             $update += ['last_sync_status' => null, 'last_sync_message' => null];
@@ -313,6 +391,7 @@ final class DataboxService
      */
     public function accessFor(array $box, string $purpose, bool $ignoreFlag = false): IsdsAccess
     {
+        $this->requireIsdsMode($box);
         $cred = $box['credentials'][$purpose] ?? null;
         if ($cred === null) {
             throw new DataboxException('no_login', 'Pro tuto datovou schránku není uloženo požadované přihlášení.');
@@ -343,6 +422,7 @@ final class DataboxService
      */
     public function accessForRight(array $box, callable $needs, string $missingRight): IsdsAccess
     {
+        $this->requireIsdsMode($box);
         $refused = false;
         foreach (['action', 'sync'] as $purpose) {
             if (!isset($box['credentials'][$purpose])) {

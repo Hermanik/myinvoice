@@ -5024,7 +5024,9 @@
       "fiction_date": "Without opening, the message is delivered by fiction on {date}.",
       "no_capable_login": "No stored login may read received messages - add one in Settings or open the message in the portal.",
       "delivery_time_unknown": "The message has no delivery time, so it cannot be opened without delivering other messages. Open it in the data box portal.",
-      "go_settings": "Open Settings"
+      "go_settings": "Open Settings",
+      "email_only": "The application does not open this message – the box is watched through e-mail notices only. It is delivered when you open it in the data box portal, or by fiction at the latest.",
+      "portal": "Open the data box portal"
     },
     "field": {
       "username": "Username",
@@ -5109,7 +5111,8 @@
       "resend_confirmation_required": "The filing was already sent; confirm the re-send.",
       "unvalidated_confirmation_required": "The XML was not validated against the EPO schema; sending needs its own confirmation.",
       "integrity_failed": "The file to send does not match its checksum. Nothing was sent, prepare the sending again.",
-      "delivery_time_unknown": "The message has no delivery time, so it cannot be opened without delivering other messages. Open it in the data box portal."
+      "delivery_time_unknown": "The message has no delivery time, so it cannot be opened without delivering other messages. Open it in the data box portal.",
+      "email_only": "This box is watched through e-mail notices only, the application does not log in to it."
     },
     "indicator": {
       "ok_title": "Safe for sync",
@@ -5125,7 +5128,9 @@
       "no_credential_title": "No login",
       "no_credential": "No login is stored for sync.",
       "login_failed_title": "Login failed",
-      "login_failed": "The login failed. Fix the password and run Verify connection."
+      "login_failed": "The login failed. Fix the password and run Verify connection.",
+      "email_only_title": "No login",
+      "email_only": "Watched through e-mail notices only – the application does not log in to the box and delivers nothing."
     },
     "purpose": {
       "sync": "For sync",
@@ -5192,6 +5197,48 @@
     "connecting": "Connecting…",
     "add_box": "Add box",
     "add_box_submit": "Connect box",
+    "email": {
+      "title": "E-mail notices from the data box system",
+      "intro": "A box can be watched without logging in to the data box system: the application reads the official \"new data message\" notices the system sends to your mailbox. Reading e-mails delivers nothing, so it starts no legal deadlines.",
+      "how": "First turn on e-mail notices (extended content) in the portal under Nastavení → Notifikace and set up a rule in your mailbox that files them in a folder of their own.",
+      "account": "IMAP account (mailbox)",
+      "account_none": "– choose an IMAP account –",
+      "no_accounts": "No IMAP account is set up yet.",
+      "go_accounts": "Set one up under Bank accounts (e-mail notices)",
+      "folder": "Folder with the notices",
+      "folder_hint": "The mailbox folder where your rule files the data box notices (for example Datovka).",
+      "alert": "Send alerts to e-mail",
+      "alert_hint": "The application sends one e-mail to this address for every new message. Empty = no e-mails.",
+      "enabled": "Check the mailbox automatically (every 30 minutes)",
+      "last_scan": "Last check {date}",
+      "scan_status": {
+        "ok": "ok",
+        "error": "error"
+      },
+      "never_scanned": "No check has been made yet.",
+      "scan_now": "Check now",
+      "saved": "Settings saved.",
+      "summary": "E-mails read: {fetched}, new messages: {created}, already known: {known}, skipped: {ignored}, rejected: {rejected}, for a box that is not added: {unknown}, unreadable: {failed}, alerts sent: {alerts}.",
+      "box_hint": "You name the box yourself – without a login its type and owner cannot be found out. The 7-character box ID is shown in the data box portal.",
+      "box_id": "Data box ID",
+      "box_type": "Box type",
+      "type_FO": "FO – natural person",
+      "type_PFO": "PFO – self-employed person",
+      "type_PO": "PO – legal entity",
+      "box_owner": "Owner",
+      "box_added_next": "The messages of this box appear after the next e-mail check (section E-mail notices from the data box system above)."
+    },
+    "mode": {
+      "title": "How to watch the box",
+      "isds": "By logging in to ISDS (messages and sending)",
+      "email": "E-mail notices only (no login)",
+      "email_hint": "For when no user can be added to ISDS for the application. The application sees only the received messages a notice came for; it delivers, opens and sends nothing.",
+      "email_badge": "E-mail notices only",
+      "email_note": "Watched through e-mail notices only – the application does not log in to the box. Open the messages in the data box portal."
+    },
+    "source": {
+      "email": "from an e-mail notice"
+    },
     "settings": {
       "title": "Data boxes",
       "hint": "Data box (ISDS) logins. Passwords are stored encrypted and never returned. The app never delivers or sends a message on its own.",
@@ -5218,7 +5265,7 @@
       ],
       "refuse_note": "If you enter a login for sync that may read messages (for example the box owner access), the app refuses to sync with it - until you explicitly allow it for the box (the \"Allow sync to deliver messages\" option).",
       "steps_title": "Setting up access in the ISDS portal (step by step)",
-      "steps_intro": "Do this for each box separately (personal and business). The web services cannot be accessed with bank identity (NIA) or the mobile key, so you create a dedicated user with a username and password for the app. The box owner or its administrator may create it.",
+      "steps_intro": "Do this for each box separately (personal and business). The web services cannot be accessed with bank identity (NIA) or the mobile key, so you create a dedicated user with a username and password for the app. The box owner or its administrator may create it. If the holder of the box cannot be added to ISDS as a user of his own box (the portal answers \"Zadaná osoba již je mezi uživateli\"), watch the box through e-mail notices instead (section E-mail notices from the data box system below).",
       "steps": [
         "Sign in to the data box portal at https://www.datovka.gov.cz (with bank identity as usual) and enter the box you want to connect.",
         "Open Settings → Users and click New user on the left.",

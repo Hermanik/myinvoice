@@ -48,7 +48,10 @@ final class DataboxSyncService
     {
         $reports = [];
         foreach ($this->boxes->allActive() as $box) {
-            $reports[] = $this->syncBox($box, $now);
+            // A box watched by notification e-mails has no login; the e-mail scan feeds it ({@see EmailNotice\DataboxEmailNoticeScanner}).
+            if (!DataboxService::isEmailOnly($box)) {
+                $reports[] = $this->syncBox($box, $now);
+            }
         }
         return $reports;
     }
@@ -65,6 +68,11 @@ final class DataboxSyncService
             'box_id' => $boxId, 'label' => (string) $box['label'], 'status' => 'skipped', 'message' => null,
             'received_new' => 0, 'received_new_tax_office' => 0, 'sent_new' => 0, 'updated' => 0, 'receipts' => 0,
         ];
+
+        if (DataboxService::isEmailOnly($box)) {
+            $report['message'] = 'Schránka je sledovaná jen přes e-mailová upozornění, synchronizace s datovými schránkami se nepoužívá.';
+            return $report;
+        }
 
         if ($box['sync_paused_until'] !== null && new \DateTimeImmutable((string) $box['sync_paused_until']) > $now) {
             $report['status'] = 'paused';

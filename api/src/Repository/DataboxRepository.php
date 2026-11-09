@@ -58,13 +58,14 @@ final class DataboxRepository
         return $this->withCredentials($rows);
     }
 
-    public function insert(int $supplierId, string $label, string $environment, string $dbId, string $dbType, ?string $ownerName, bool $allowDeliveringSync): int
+    /** @param 'isds'|'email' $connectionMode */
+    public function insert(int $supplierId, string $label, string $environment, string $dbId, string $dbType, ?string $ownerName, bool $allowDeliveringSync, string $connectionMode = 'isds'): int
     {
         $stmt = $this->db->pdo()->prepare(
-            'INSERT INTO databoxes (supplier_id, label, environment, db_id, db_type, owner_name, allow_delivering_sync)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO databoxes (supplier_id, label, environment, connection_mode, db_id, db_type, owner_name, allow_delivering_sync)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$supplierId, $label, $environment, $dbId, $dbType, $ownerName, (int) $allowDeliveringSync]);
+        $stmt->execute([$supplierId, $label, $environment, $connectionMode, $dbId, $dbType, $ownerName, (int) $allowDeliveringSync]);
         return (int) $this->db->pdo()->lastInsertId();
     }
 

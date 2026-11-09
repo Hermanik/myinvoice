@@ -46,6 +46,9 @@ final class DataboxSafetyTest extends TestCase
             'prepare a send' => ['POST', '/api/databox/messages/prepare'],
             'confirm a send' => ['POST', '/api/databox/messages/send'],
             'submission prefill' => ['GET', '/api/databox/submissions/3/prefill'],
+            'e-mail notice settings' => ['GET', '/api/databox/email-settings'],
+            'save e-mail notice settings' => ['PUT', '/api/databox/email-settings'],
+            'scan the notice mailbox' => ['POST', '/api/databox/email-settings/scan'],
         ];
     }
 
@@ -142,7 +145,7 @@ final class DataboxSafetyTest extends TestCase
 
     public function testNoCronJobOrCliCanSend(): void
     {
-        foreach (['cron-databox-sync.php', 'databox-check.php'] as $script) {
+        foreach (['cron-databox-sync.php', 'cron-databox-email-notices.php', 'databox-check.php'] as $script) {
             $source = (string) file_get_contents(self::SRC . '/../bin/' . $script);
             foreach (['createMessage', 'DataboxSendService', 'SubmissionDataboxService', 'downloadReceived', 'DataboxMessageService'] as $forbidden) {
                 self::assertStringNotContainsString($forbidden, $source, "{$script} must stay read-only and must not reference {$forbidden}");
@@ -240,6 +243,41 @@ final class DataboxSafetyTest extends TestCase
             self::assertFileExists(self::ROOT . '/' . $file);
         }
         self::assertTrue(is_executable(self::ROOT . '/cmd/cron-databox-sync.sh'));
+    }
+
+    public function testTheEmailWatcherIsInTheCronCatalogWithBothWrappers(): void
+    {
+        self::assertContains('cron-databox-email-notices', CronCatalog::scripts());
+        foreach (['api/bin/cron-databox-email-notices.php', 'cmd/cron-databox-email-notices.sh', 'cmd/cron-databox-email-notices.cmd'] as $file) {
+            self::assertFileExists(self::ROOT . '/' . $file);
+        }
+        self::assertTrue(is_executable(self::ROOT . '/cmd/cron-databox-email-notices.sh'));
+    }
+
+    /**
+     * A box watched by notification e-mails is never logged in to: nothing under EmailNotice may reach ISDS or the logins,
+     * and the mailbox is only read (no flag, no move, no "seen").
+     */
+    public function testTheEmailWatcherNeverTalksToIsdsAndNeverTouchesTheMailbox(): void
+    {
+        $files = array_merge(glob(self::SRC . '/Service/Databox/EmailNotice/*.php') ?: [], [self::SRC . '/../bin/cron-databox-email-notices.php']);
+        self::assertNotEmpty($files);
+        foreach ($files as $file) {
+            $source = (string) file_get_contents($file);
+            foreach (['IsdsClient', 'IsdsAccess', 'IsdsTransport', 'accessFor', 'DataboxService', 'DataboxSendService', 'DataboxMessageService', 'createMessage', 'postProcess('] as $forbidden) {
+                self::assertStringNotContainsString($forbidden, $source, basename($file) . ' must not use ' . $forbidden);
+            }
+        }
+        $client = (string) file_get_contents(self::SRC . '/Service/Bank/EmailNotice/WebklexImapMailboxClient.php');
+        self::assertStringContainsString('->leaveUnread()', $client, 'the shared mailbox client reads without marking messages');
+    }
+
+    public function testTheEmailWatcherOnlyImportsAfterTheAuthenticityCheck(): void
+    {
+        $source = (string) file_get_contents(self::SRC . '/Service/Databox/EmailNotice/DataboxEmailNoticeScanner.php');
+        self::assertSame(1, substr_count($source, '->insertFromEmailNotice('), 'a single place creates messages');
+        self::assertLessThan(strpos($source, '->insertFromEmailNotice('), strpos($source, '$this->authenticator->verify('));
+        self::assertLessThan(strpos($source, '->insertFromEmailNotice('), strpos($source, '!$auth->passed()'));
     }
 
     public function testNoSecretIsLoggedOrReturned(): void

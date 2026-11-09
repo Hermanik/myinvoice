@@ -15,6 +15,7 @@ const cls = computed(() => ({
   login_failed: 'border-danger-500/40 bg-danger-50 text-danger-500',
   unverified: 'border-neutral-200 bg-neutral-50 text-neutral-600',
   no_credential: 'border-neutral-200 bg-neutral-50 text-neutral-600',
+  email_only: 'border-primary-200 bg-primary-50 text-primary-700',
 }[props.state]))
 </script>
 

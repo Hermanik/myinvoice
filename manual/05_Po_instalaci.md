@@ -56,6 +56,7 @@ V `cmd/` jsou připravené `.cmd` (Windows Task Scheduler) i `.sh` (Linux cron) 
 | `cron-send-reminders` | 1× denně 09:00, Po–Pá |
 | `cron-refresh-vat-status` | 1× denně 00:05 |
 | `cron-databox-sync` | každou hodinu (minuta 17) |
+| `cron-databox-email-notices` | každých 30 min |
 | `cron-refresh-repo-rates` | 1× měsíčně, 1. den 07:10 (nové repo sazby ČNB pro úrok z prodlení) |
 
 Detaily v `cmd/README.md`.
