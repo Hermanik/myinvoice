@@ -106,6 +106,8 @@ tags:
     description: Kniha jízd — vozidla, jízdy, tankování a daňové souhrny
   - name: MCP
     description: Model Context Protocol server pro AI asistenty (Claude Code, Claude Desktop) nad stejným API tokenem
+  - name: Timeline
+    description: Harmonogram povinností — daně, pojištění a fakturace na časové ose. **Jen ze session** (admin a účetní), API token sem nemá přístup (403).
   - name: Databox
     description: Datové schránky (ISDS) — zprávy, odesílání, podání finančnímu úřadu. **Jen ze session administrátora**, API token sem nemá přístup (403).
 
@@ -5695,6 +5697,135 @@ paths:
         '403': { description: Pouze admin }
         '404': { description: Položka nenalezena (`not_found`) }
 
+  # ── Obligations timeline ("Harmonogram") — session only (admin, accountant) ─
+  /api/v1/timeline:
+    get:
+      tags: [Timeline]
+      summary: Harmonogram povinností dodavatele
+      description: |
+        Všechno, co má vlastník (OSVČ nebo s.r.o.) udělat nebo by měl udělat pro daně, pojištění a fakturaci,
+        v zadaném období, včetně toho, co je hotové. Odvozeno z nastavení a dat dodavatele (plátcovství DPH
+        v čase, daňový profil roku, vystavené faktury, archiv podání) — stejná pravidla pro každého dodavatele.
+
+        Položky: přiznání k DPH, kontrolní a souhrnné hlášení a platba DPH, přihláška k registraci k DPH po
+        překročení obratu 2 000 000 Kč (10 pracovních dnů, § 94 odst. 1 ZDPH), přiznání k dani z příjmů,
+        upozornění na ztrátu paušálního režimu, zálohy na daň z příjmů (§ 38a ZDP), přehledy a zálohy na
+        pojistné OSVČ, podklady pro odpočty, měsíční vystavení faktur a vlastní úkoly uživatele.
+
+        Text položek server neposílá: `type` + `params` + `notes` jsou kódy, které si klient překládá sám.
+        Kde aplikace nemá data (výše záloh na pojistné, daňová povinnost bez profilu roku) je částka odhad
+        (`amount_estimated`) a položka to říká v `notes`.
+
+        **Přístup:** jen session role `admin` a `accountant`; role `readonly` a API tokeny dostanou 403.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+        - { in: query, name: from, schema: { type: string, format: date }, description: 'Začátek období. Výchozí: dnes − 30 dní' }
+        - { in: query, name: to, schema: { type: string, format: date }, description: 'Konec období (včetně). Výchozí: 31. 12. příštího roku. Nejvýše 5 let od `from`' }
+      responses:
+        '200':
+          description: Položky seřazené podle termínu
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Timeline' }
+        '403': { description: 'Role `readonly` nebo API token' }
+        '422': { description: 'Neplatné období (`validation_failed`)' }
+
+  /api/v1/timeline/marks:
+    put:
+      tags: [Timeline]
+      summary: Ruční označení položky harmonogramu
+      description: |
+        Označí vypočtenou položku jako hotovou (např. přiznání podané mimo aplikaci, zaplacená záloha na pojistné)
+        nebo k ní jen uloží poznámku (`done: false`). Automatický důkaz (podané přiznání v archivu, zaplacené DPH,
+        vystavená faktura) má přednost — `done_source` pak zůstane `auto`. Jen admin a účetní.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key: { type: string, maxLength: 120, example: 'ins_social:2027-02', description: 'Klíč položky (`key` z GET /timeline); položky `custom:*` se označují přes /timeline/custom-items' }
+                done: { type: boolean, default: true }
+                note: { type: string, maxLength: 500, nullable: true }
+      responses:
+        '200':
+          description: Uložená značka
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string }
+                  mark: { $ref: '#/components/schemas/TimelineMark' }
+        '403': { description: Role readonly nebo API token }
+        '409': { description: 'Chybí migrace 9011 (`migration_required`)' }
+        '422': { description: Neplatný klíč nebo poznámka (`validation_failed`) }
+    delete:
+      tags: [Timeline]
+      summary: Smaže ruční značku
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+        - { in: query, name: key, required: true, schema: { type: string, maxLength: 120 } }
+      responses:
+        '200': { description: 'Značka smazána (`mark: null`)' }
+        '403': { description: Role readonly nebo API token }
+        '422': { description: Neplatný klíč (`validation_failed`) }
+
+  /api/v1/timeline/custom-items:
+    post:
+      tags: [Timeline]
+      summary: Vlastní úkol v harmonogramu
+      description: 'Jednorázová věc, kterou aplikace nezná (např. „Oznámit klientům DPH a nový účet“). Jen admin a účetní.'
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TimelineCustomItemInput' }
+      responses:
+        '201':
+          description: Vytvořeno
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimelineCustomItem' }
+        '403': { description: Role readonly nebo API token }
+        '422': { description: 'Chyba validace (`validation_failed`, pole v `fields`)' }
+
+  /api/v1/timeline/custom-items/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: integer } }
+      - $ref: '#/components/parameters/SupplierIdHeader'
+    put:
+      tags: [Timeline]
+      summary: Upraví vlastní úkol nebo ho označí jako hotový
+      description: 'Chybějící pole zůstanou beze změny. `done: true` uloží čas a autora dokončení, `done: false` úkol znovu otevře.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TimelineCustomItemInput' }
+      responses:
+        '200':
+          description: Uloženo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimelineCustomItem' }
+        '403': { description: Role readonly nebo API token }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { description: 'Chyba validace (`validation_failed`)' }
+    delete:
+      tags: [Timeline]
+      summary: Smaže vlastní úkol
+      responses:
+        '200': { description: Smazáno }
+        '403': { description: Role readonly nebo API token }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ── Klienti / vyhledávání — doplňující endpointy ─────────────────────────
   /api/v1/clients/{id}/vat-status:
     parameters:
@@ -7326,6 +7457,120 @@ components:
             filed_at: { type: string, nullable: true }
         band: { type: string, description: 'Jen `pausal`: pásmo paušálu' }
         amount: { type: number, description: 'Jen `pausal`: měsíční záloha' }
+    Timeline:
+      type: object
+      properties:
+        today: { type: string, format: date }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TimelineItem' }
+        summary:
+          type: object
+          properties:
+            total: { type: integer }
+            by_status:
+              type: object
+              description: 'Počty podle `status`'
+              additionalProperties: { type: integer }
+            by_category:
+              type: object
+              additionalProperties: { type: integer }
+    TimelineItem:
+      type: object
+      properties:
+        key: { type: string, example: 'ins_social:2027-02', description: 'Stabilní klíč položky (pro ruční značku)' }
+        type:
+          type: string
+          description: 'Typ položky, klíč textu v katalogu klienta'
+          enum: [dph, kh, sh, vat_payment, income_tax, pausal, vat_registration, vat_registration_expected, vat_limit_immediate,
+                 flat_tax_lost, income_tax_advance, income_tax_advance_info, deduction_documents,
+                 insurance_overview_social, insurance_overview_health, insurance_surcharge_social, insurance_surcharge_health,
+                 insurance_advance_social, insurance_advance_health, invoicing, custom]
+        category: { type: string, enum: [dph, income_tax, insurance, pausal, registration, invoicing, custom] }
+        due_date: { type: string, format: date, description: 'Termín (u termínů daňového řádu posunutý na pracovní den)' }
+        start_date: { type: string, format: date, nullable: true, description: 'Začátek okna, ve kterém lze/má se úkol udělat' }
+        days_left: { type: integer, description: 'Záporné = po termínu' }
+        status:
+          type: string
+          enum: [done, overdue, due_soon, upcoming, info, unverified]
+          description: |
+            `done` — hotovo (viz `done_source`); `overdue` — po termínu; `due_soon` — do 7 dnů; `upcoming` — později;
+            `info` — jen informace (nikdy po termínu); `unverified` — aplikace nemá důkaz a termín je víc než 30 dní
+            pryč, nic se netvrdí, vlastník má potvrdit.
+        done_source: { type: string, enum: [auto, manual], nullable: true, description: '`auto` = důkaz v aplikaci (podání, platba, faktura), `manual` = ruční značka' }
+        tracked: { type: boolean, description: 'Aplikace umí stav sama zjistit; jinak jen ruční značka' }
+        obligation: { type: string, enum: [legal, recommended], description: '`recommended` = doporučení (měsíční fakturace, podklady k odpočtům, vlastní úkol)' }
+        severity: { type: string, enum: [normal, warning] }
+        params: { type: object, additionalProperties: true, description: 'Parametry textu (období, rok, částky, data)' }
+        notes:
+          type: array
+          description: 'Upřesnění a upozornění „ověřit“ jako kódy s parametry'
+          items:
+            type: object
+            properties:
+              code: { type: string }
+              params: { type: object, additionalProperties: true }
+        legal: { type: string, nullable: true, example: '§ 14a zákona č. 589/1992 Sb.' }
+        amount: { type: number, nullable: true }
+        amount_estimated: { type: boolean, description: 'Částka je odhad (minimální záloha z konstant roku, daň z optimalizátoru, zbývá do limitu)' }
+        links:
+          type: array
+          items:
+            type: object
+            properties:
+              to: { type: string, description: Stránka aplikace }
+              label: { type: string }
+        filing:
+          type: object
+          nullable: true
+          description: 'Jen DPH, KH, SH a přiznání k dani z příjmů: stav podání v archivu'
+          properties:
+            status: { type: string, enum: [unfiled, filed, confirmed] }
+            submission_id: { type: integer, nullable: true }
+            filed_at: { type: string, nullable: true }
+        mark: { $ref: '#/components/schemas/TimelineMark' }
+        custom:
+          type: object
+          nullable: true
+          description: 'Jen vlastní úkol (`type: custom`)'
+          properties:
+            id: { type: integer }
+            title: { type: string }
+            note: { type: string, nullable: true }
+            url: { type: string, nullable: true }
+            done_at: { type: string, nullable: true }
+    TimelineMark:
+      type: object
+      nullable: true
+      properties:
+        done: { type: boolean }
+        note: { type: string, nullable: true }
+        by: { type: string, nullable: true, description: Jméno uživatele }
+        at: { type: string }
+    TimelineCustomItemInput:
+      type: object
+      properties:
+        title: { type: string, maxLength: 255 }
+        due_date: { type: string, format: date }
+        start_date: { type: string, format: date, nullable: true }
+        category: { type: string, enum: [dph, income_tax, insurance, pausal, registration, invoicing, custom], default: custom }
+        note: { type: string, maxLength: 1000, nullable: true }
+        url: { type: string, maxLength: 500, nullable: true, description: 'Cesta v aplikaci (`/clients`) nebo adresa http(s)' }
+        done: { type: boolean }
+    TimelineCustomItem:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        due_date: { type: string, format: date }
+        start_date: { type: string, format: date, nullable: true }
+        category: { type: string }
+        note: { type: string, nullable: true }
+        url: { type: string, nullable: true }
+        done_at: { type: string, nullable: true }
+        done_by: { type: string, nullable: true }
     ExpenseCategory:
       type: object
       properties:

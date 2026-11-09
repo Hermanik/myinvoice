@@ -264,7 +264,7 @@ final class VatPaymentService
      *
      * @return array<string, list<array<string,mixed>>> slot key => rows
      */
-    private function filedByPeriod(int $supplierId): array
+    public function filedByPeriod(int $supplierId): array
     {
         $byPeriod = [];
         foreach ($this->repo->filedByTypes($supplierId, [self::FORM_CODE]) as $row) {

@@ -44,6 +44,7 @@ final class SettingsAction
         private readonly \MyInvoice\Service\Report\EpoIdentityValidator $epoValidator,
         private readonly \MyInvoice\Repository\UserSupplierRepository $userSuppliers,
         private readonly \MyInvoice\Service\Vat\VatStatusService $vatStatus,
+        private readonly \MyInvoice\Repository\ObligationTimelineRepository $timeline,
     ) {}
 
     /** Aktuální supplier (z X-Supplier-Id middleware). */
@@ -602,6 +603,8 @@ final class SettingsAction
                 $this->userSuppliers->deleteForSupplier($id);
                 // Same reason: the VAT status history cascade does not fire with FK checks off.
                 $this->vatStatus->deleteAllForSupplier($id);
+                // Same for the timeline marks and custom items (migration 9011).
+                $this->timeline->deleteForSupplier($id);
                 $pdo->prepare('DELETE FROM supplier WHERE id = ?')->execute([$id]);
             } finally {
                 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');

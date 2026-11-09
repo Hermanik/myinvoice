@@ -97,6 +97,8 @@ final class RoleMiddleware implements MiddlewareInterface
         // Dokumenty — účetní smí zakládat/upravovat/mazat (do koše) + spravovat složky
         '* #^/api/documents(/|$)#',
         '* #^/api/document-folders(/|$)#',
+        // Obligations timeline (session only): the accountant reads it, ticks items off and manages custom items; readonly gets nothing
+        '* #^/api/timeline(/|$)#',
         // Kniha jízd — účetní smí plnou CRUD (auta, jízdy, tankování, kategorie, import, sken faktur)
         '* #^/api/logbook(/|$)#',
         // Codebooks read-only přes API (admin endpointy mají zvláštní cestu /api/admin/codebooks)

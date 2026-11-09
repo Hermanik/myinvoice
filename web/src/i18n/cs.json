@@ -296,6 +296,7 @@
     "projects": "Zakázky", "stats": "Tržby", "purchase_stats": "Náklady", "bank": "Banka", "system": "Systém", "section_taxes": "Daně",
     "settings": "Nastavení", "supplier_current": "Dodavatel", "suppliers": "Dodavatelé", "codebooks": "Číselníky", "users": "Uživatelé", "emails": "E-maily",
     "log": "Log", "cron_jobs": "Plánované úlohy", "exports": "Export vystavených", "imports": "Importy", "imports_issued": "Import vystavených", "imports_purchase": "Import přijatých", "ai_import": "AI import", "integrations": "Externí integrace", "crm": "CRM", "reports_dph": "DPH přiznání", "reports_kh": "Kontrolní hlášení", "reports_dph_book": "Kniha DPH", "reports_shv": "Souhrnné hlášení", "reports_oss": "OSS přiznání", "reports_income_tax": "Daň z příjmů", "reports_submissions": "Archiv podání", "reports_monthly_export": "Hromadný export", "tax_optimizer": "Daňový optimalizátor", "registration_deduction": "Odpočet při registraci", "email_templates": "E-mail šablony", "email_profiles": "Odesílací profily", "sent_emails": "Odeslané e-maily", "smtp_logs": "SMTP log analýza", "approvals": "Schvalování", "updates": "Aktualizace", "myucto_upgrade": "Přechod na MyÚčto", "api_tokens": "API tokeny", "electronic_signatures": "Elektronické podpisy", "signing_profiles": "Podpisové profily", "bank_accounts": "Bankovní účty", "bank_email_notices": "Bankovní avíza", "recurring": "Pravidelné fakturace", "price_list": "Ceník", "help": "Nápověda", "logout": "Odhlásit",
+    "timeline": "Harmonogram",
     "section_sales": "Prodej", "section_purchase": "Nákup", "section_finance": "Finance", "section_clients": "Klienti",
     "section_documents": "Dokumenty", "documents": "Dokumenty", "databox": "Datové schránky", "logbook": "Kniha jízd",
     "purchase_invoices": "Přijaté faktury", "purchase_export": "Export přijatých", "payment_orders": "Platební příkazy", "vendors": "Dodavatelé",
@@ -5379,5 +5380,191 @@
     "suggest_count": "Navrženo {n} položek.",
     "suggest_add": "Přidat",
     "suggest_add_all": "Přidat vše"
+  },
+  "timeline": {
+    "title": "Harmonogram",
+    "subtitle": "Co je potřeba udělat pro daně, pojištění a fakturaci – s termíny a s tím, co už je hotové.",
+    "intro": "Odvozeno z nastavení a dat firmy (plátcovství DPH v čase, daňový profil roku, vystavené faktury, archiv podání). Můžete se jím řídit sami, nebo podle něj zkontrolovat práci účetní. U částek označených „odhad“ a u poznámek „ověřit“ si údaj před platbou ověřte u úřadu, pojišťovny nebo účetní.",
+    "range_from": "Od",
+    "range_to": "Do",
+    "preset_rest_and_next": "Zbytek roku + příští rok",
+    "preset_next_90": "Příštích 90 dní",
+    "preset_this_year": "Tento rok",
+    "preset_next_year": "Příští rok",
+    "filter_status": "Stav",
+    "filter_category": "Kategorie",
+    "status_all": "Vše",
+    "status_todo": "K udělání",
+    "status_done": "Hotové",
+    "status_overdue": "Po termínu",
+    "badge_done": "Hotovo",
+    "badge_overdue": "Po termínu",
+    "badge_due_soon": "Do 7 dnů",
+    "badge_upcoming": "Nadcházející",
+    "badge_info": "Informace",
+    "badge_unverified": "Nepotvrzeno",
+    "done_auto": "Hotovo – ověřeno v aplikaci",
+    "done_manual": "Hotovo – označeno ručně",
+    "done_by": "{by}, {at}",
+    "mark_done": "Hotovo",
+    "mark_hint": "Aplikace u této položky nevidí, zda je splněná – odškrtněte ji sami.",
+    "add_note": "Poznámka",
+    "note_placeholder": "Poznámka (např. kdy a z jakého účtu se platilo)",
+    "note_save": "Uložit poznámku",
+    "recommended": "Doporučení",
+    "legal_label": "Právní základ",
+    "what_label": "Co udělat",
+    "estimate": "odhad",
+    "window_from": "od {date}",
+    "quarter_label": "{q}. čtvrtletí {year}",
+    "in_days": "za {n} dní",
+    "today": "dnes",
+    "overdue_days": "{n} dní po termínu",
+    "today_marker": "Dnes",
+    "counts": "{total} položek · {todo} k udělání · {overdue} po termínu · {done} hotovo",
+    "empty": "V tomto období nic není.",
+    "empty_filtered": "Filtru neodpovídá žádná položka.",
+    "loading": "Načítám harmonogram…",
+    "add_custom": "Přidat vlastní úkol",
+    "edit_custom": "Upravit vlastní úkol",
+    "custom_title": "Název",
+    "custom_due": "Termín",
+    "custom_start": "Začátek okna (volitelné)",
+    "custom_category": "Kategorie",
+    "custom_note": "Poznámka",
+    "custom_url": "Odkaz (cesta v aplikaci nebo http/https adresa)",
+    "custom_required": "Vyplňte název a termín.",
+    "custom_saved": "Úkol uložen.",
+    "custom_deleted": "Úkol smazán.",
+    "custom_delete_confirm": "Smazat úkol „{title}“?",
+    "custom_open_link": "Otevřít odkaz",
+    "mark_failed": "Uložení značky selhalo.",
+    "category": {
+      "registration": "Registrace",
+      "dph": "DPH",
+      "income_tax": "Daň z příjmů",
+      "pausal": "Paušální daň",
+      "insurance": "Pojištění",
+      "invoicing": "Fakturace",
+      "custom": "Vlastní"
+    },
+    "claim": {
+      "mortgage": "úroky z hypotéky",
+      "pension": "penzijní spoření",
+      "life": "životní pojištění",
+      "donations": "dary",
+      "children": "děti (daňové zvýhodnění)",
+      "spouse": "manžel/ka"
+    },
+    "link": {
+      "dph": "Přiznání k DPH",
+      "kh": "Kontrolní hlášení",
+      "sh": "Souhrnné hlášení",
+      "income_tax": "Daň z příjmů",
+      "optimizer": "Daňový optimalizátor",
+      "submissions": "Archiv podání",
+      "vat_status": "Plátcovství DPH",
+      "new_invoice": "Nová faktura",
+      "invoices": "Vystavené faktury"
+    },
+    "item": {
+      "dph": {
+        "title": "Přiznání k DPH za {period_text}",
+        "what": "Podejte přiznání k DPH elektronicky (EPO nebo datová schránka). V aplikaci ho vygenerujete na stránce DPH přiznání a po podání ho v Archivu podání označíte jako podané – položka se pak odškrtne sama."
+      },
+      "kh": {
+        "title": "Kontrolní hlášení za {period_text}",
+        "what": "Podejte kontrolní hlášení ve stejném termínu jako přiznání k DPH. Vygenerujete ho na stránce Kontrolní hlášení a po podání označíte v Archivu podání."
+      },
+      "sh": {
+        "title": "Souhrnné hlášení za {period_text}",
+        "what": "V období byla plnění do EU. Podejte souhrnné hlášení elektronicky; vygenerujete ho na stránce Souhrnné hlášení a po podání označíte v Archivu podání."
+      },
+      "vat_payment": {
+        "title": "Zaplatit DPH za {period_text}",
+        "what": "Daň je splatná ve stejný den jako termín přiznání, na účet finančního úřadu s variabilním symbolem rovným číselné části DIČ. Platba se pozná z bankovního výpisu, nebo ji označíte v Archivu podání."
+      },
+      "income_tax": {
+        "title": "Přiznání k dani z příjmů ({form_label}) za {year}",
+        "what": "Podejte elektronicky (datová schránka nebo EPO) do {due}, papírově do {paper_due_date}. Podává-li přiznání daňový poradce, je termín {advisor_due_date} – plná moc musí být finančnímu úřadu doručena nejpozději do 1. dubna."
+      },
+      "pausal": {
+        "title": "Záloha na paušální daň za {month_text}",
+        "what": "Zaplaťte měsíční zálohu pro pásmo {band_no} na účet finančního úřadu do 20. dne v měsíci. Aplikace platbu nesleduje – po zaplacení položku odškrtněte."
+      },
+      "vat_registration": {
+        "title": "Přihláška k registraci k DPH",
+        "what": "Obrat za rok {year} překročil {limit} dne {exceeded_on}. Podejte přihlášku k registraci přes Online finanční úřad (DIS+) nebo EPO nejpozději do 10 pracovních dnů od tohoto dne. V poli 06 zvolte § 6 odst. 1 – plátcem se tak stanete od {payer_from}. Nevybírejte § 6 odst. 2 písm. a), kterým byste se stali plátcem už dnem po překročení. Uveďte číslo podnikatelského bankovního účtu."
+      },
+      "vat_registration_expected": {
+        "title": "Přihláška k registraci k DPH (odhad)",
+        "what": "Registrace k DPH od {payer_from} je naplánovaná. Do limitu {limit} zbývá {remaining} (obrat za letošek {turnover}). Při dosavadním tempu ho překročíte kolem {estimated_on}; přihlášku pak podejte do 10 pracovních dnů přes Online finanční úřad (DIS+) nebo EPO a v poli 06 zvolte § 6 odst. 1. Uvedený termín je odhad."
+      },
+      "vat_limit_immediate": {
+        "title": "Obrat přesáhl {limit} – plátcem od následujícího dne",
+        "what": "Obrat překročil {limit} dne {exceeded_on}. Podle § 6 odst. 2 zákona o DPH se plátcem stáváte už dnem následujícím; od té doby je třeba účtovat DPH. Přihlášku podejte neprodleně (lhůta 10 pracovních dnů) a postup si ověřte u finančního úřadu."
+      },
+      "flat_tax_lost": {
+        "title": "Paušální režim za {year} neplatí",
+        "what_income": "Příjmy zaplacené v roce {year} ({income}) překročily limit {limit}. Podejte řádné přiznání k dani z příjmů a přehledy pro ČSSZ a zdravotní pojišťovnu; zaplacené paušální zálohy se započtou.",
+        "what_vat_payer": "Plátcovství DPH v průběhu roku {year} vylučuje paušální režim. Podejte řádné přiznání k dani z příjmů a přehledy pro ČSSZ a zdravotní pojišťovnu; zaplacené paušální zálohy se započtou."
+      },
+      "income_tax_advance": {
+        "title": "Záloha na daň z příjmů ({share} %)",
+        "what_quarterly": "Zálohy podle poslední známé daně za {base_year} ({tax}) se platí čtvrtletně, po 25 % (15. 3., 15. 6., 15. 9. a 15. 12.). Zaplaťte na účet finančního úřadu.",
+        "what_semiannual": "Zálohy podle poslední známé daně za {base_year} ({tax}) se platí dvakrát ročně, po 40 % (15. 6. a 15. 12.). Zaplaťte na účet finančního úřadu."
+      },
+      "income_tax_advance_info": {
+        "title": "Zálohy na daň z příjmů – podle výše daně za {base_year}",
+        "what": "Po podání přiznání za {base_year} zjistěte výši daně: nad 150 000 Kč se platí čtvrtletní zálohy po 25 % (15. 3., 15. 6., 15. 9., 15. 12.), nad 30 000 Kč dvě zálohy po 40 % (15. 6., 15. 12.), do 30 000 Kč se zálohy neplatí. Aplikace výši spočítá, jakmile je rok uzavřený a má vyplněný daňový profil."
+      },
+      "deduction_documents": {
+        "title": "Sesbírat potvrzení pro odpočty a slevy za {year}",
+        "what": "Do přiznání za rok {year} se hodí potvrzení: {claims_text}. Získejte je do poloviny února, ať je máte po ruce, až budete přiznání sestavovat."
+      },
+      "insurance_overview_social": {
+        "title": "Přehled pro ČSSZ za {year}",
+        "what": "Podejte přehled o příjmech a výdajích OSVČ na ČSSZ (ePortál ČSSZ nebo datová schránka). Termín je měsíc po termínu přiznání k dani z příjmů; při podání přes daňového poradce {advisor_due_date}. Z přehledu vyjde nová záloha a případný doplatek."
+      },
+      "insurance_overview_health": {
+        "title": "Přehled pro zdravotní pojišťovnu za {year}",
+        "what": "Podejte přehled o příjmech a výdajích OSVČ své zdravotní pojišťovně. Termín je měsíc po termínu přiznání k dani z příjmů; při podání přes daňového poradce {advisor_due_date}. Z přehledu vyjde nová záloha a případný doplatek."
+      },
+      "insurance_surcharge_social": {
+        "title": "Doplatek sociálního pojistného za {year}",
+        "what": "Vyjde-li z přehledu doplatek, zaplaťte ho do 8 dnů od podání přehledu. Uvedený den platí při podání přehledu v posledním dni lhůty; podáte-li dřív, zaplaťte dřív."
+      },
+      "insurance_surcharge_health": {
+        "title": "Doplatek zdravotního pojistného za {year}",
+        "what": "Vyjde-li z přehledu doplatek, zaplaťte ho do 8 dnů od podání přehledu. Uvedený den platí při podání přehledu v posledním dni lhůty; podáte-li dřív, zaplaťte dřív."
+      },
+      "insurance_advance_social": {
+        "title": "Záloha na sociální pojištění za {month_text}",
+        "what": "Zaplaťte zálohu ČSSZ do 20. dne následujícího měsíce. Platební údaje najdete v ePortálu ČSSZ. Aplikace platbu nesleduje – po zaplacení položku odškrtněte."
+      },
+      "insurance_advance_health": {
+        "title": "Záloha na zdravotní pojištění za {month_text}",
+        "what": "Zaplaťte zálohu své zdravotní pojišťovně do 8. dne následujícího měsíce. Platební údaje má pojišťovna na svém webu a v oznámení o výši záloh. Aplikace platbu nesleduje – po zaplacení položku odškrtněte."
+      },
+      "invoicing": {
+        "title": "Vystavit faktury za {month_text}",
+        "what": "Vystavte faktury za plnění z tohoto měsíce nejpozději do 5. pracovního dne následujícího měsíce. Položka se odškrtne sama, jakmile existuje vystavená faktura s datem zdanitelného plnění v měsíci."
+      }
+    },
+    "note": {
+      "registration_not_in_history": "V historii plátcovství DPH (Nastavení) zatím není plátce od {payer_from}. Doplňte ho, ať aplikace od tohoto dne počítá s DPH.",
+      "registration_expected_voluntary": "Při dosavadním tempu limit do konce roku nepřekročíte – registrace od {payer_from} je pak dobrovolná a termín podání si určíte sami.",
+      "income_tax_regime_lost": "Paušální režim za tento rok neplatí, proto podáváte řádné přiznání; zaplacené paušální zálohy se započtou.",
+      "pausal_regime_lost": "Paušální režim za tento rok pravděpodobně neplatí – pokračovat s platbou? Ověřte.",
+      "flat_tax_lost_insurance": "Zálohy na pojistné po vystoupení z režimu aplikace za tento rok nepočítá – výši a termíny ověřte u ČSSZ a zdravotní pojišťovny.",
+      "vat_payment_amount_unknown": "Částka bude známa po podání přiznání.",
+      "vat_payment_none": "Nulová daň nebo nadměrný odpočet – nic se neplatí.",
+      "advance_minimum": "Částka je zákonné minimum záloh pro rok {year}; ověřte ji.",
+      "advance_changes": "Výše záloh se mění podle přehledu, nová platí od měsíce po jeho podání.",
+      "advance_secondary": "Vedlejší činnost: sociální zálohy se platí jen při překročení rozhodné částky – ověřte.",
+      "advance_constants_fallback": "Konstanty roku {year} zatím nejsou zadané, použity hodnoty roku {constants_year} – ověřte.",
+      "advance_estimate": "Odhad z daňového optimalizátoru (profil roku {base_year}). Po podání přiznání se zálohy řídí daní z přiznání – ověřte.",
+      "non_working_day": "Termín připadá na nepracovní den. Platba musí být na účtu včas – zaplaťte raději předchozí pracovní den."
+    }
   }
 }

@@ -58,6 +58,7 @@ nasazuje). Zbytek je psaný pro běžného uživatele — bez programátorského
 
 ### Daně
 
+43. [Harmonogram](43_Harmonogram.md)
 28. [Daňový průvodce](28_Fakturujeme.md)
 29. [Výkazy DPH](29_Vykazy_DPH.md)
 30. [Kniha DPH](30_Kniha_DPH.md)
