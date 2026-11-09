@@ -176,6 +176,7 @@ final class DataboxEmailNoticeScanner
             'recipient_box_id' => $notice->recipientBoxId,
             'recipient_name' => $notice->recipientName,
             'annotation' => $notice->annotation,
+            'personal_delivery' => $notice->personalDelivery,
             'delivery_time' => $arrivedAt,
         ], $now, $historical);
         $detail = match (true) {

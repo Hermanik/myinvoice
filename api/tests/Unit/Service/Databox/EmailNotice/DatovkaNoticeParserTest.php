@@ -145,4 +145,75 @@ final class DatovkaNoticeParserTest extends TestCase
         self::assertSame('42', $result->notice?->dmId);
         self::assertNull($result->notice?->noticedAt);
     }
+
+    private static function legacyText(string $annotation = 'Změny v oblasti pojistného', string $personal = ''): string
+    {
+        return 'Do datové schránky "Jana Testovací", typ schránky Podnikající fyzická osoba, dorazila nová datová zpráva'
+            . $personal . ' číslo 1029384756 s předmětem "' . $annotation . '". Odesílatelem zprávy je datová schránka'
+            . " \"Úřad Testov (Územní pracoviště)\" (ID schránky: abc1234).\n\nPoučení uživatele o pravidlech notifikace\n";
+    }
+
+    private function parseLegacy(string $text, string $subject = 'Datové schránky: Nová zpráva (schránka: xyz987r)'): DatovkaNoticeParse
+    {
+        return (new DatovkaNoticeParser())->parse($subject, "Content-Type: text/plain; charset=utf-8\r\n\r\n", $text, new \DateTimeImmutable('2024-12-19 07:02:18'));
+    }
+
+    public function testReadsThePre2025PlainTextNotice(): void
+    {
+        $result = $this->parseLegacy(self::legacyText());
+
+        self::assertSame(DatovkaNoticeParse::NOTICE, $result->outcome, $result->detail);
+        $n = $result->notice;
+        self::assertSame(DatovkaNotice::KIND_DATA, $n?->kind);
+        self::assertSame('1029384756', $n?->dmId);
+        self::assertSame('Změny v oblasti pojistného', $n?->annotation);
+        self::assertSame('Úřad Testov (Územní pracoviště)', $n?->senderName);
+        self::assertSame('abc1234', $n?->senderBoxId);
+        self::assertSame('Jana Testovací', $n?->recipientName);
+        self::assertSame('xyz987r', $n?->recipientBoxId, 'the recipient box comes from the subject');
+        self::assertFalse($n?->personalDelivery);
+    }
+
+    public function testAWrappedPre2025SentenceIsJoined(): void
+    {
+        $wrapped = str_replace(' s předmětem', "\ns předmětem", self::legacyText());
+
+        self::assertSame('1029384756', $this->parseLegacy($wrapped)->notice?->dmId);
+    }
+
+    public function testThePre2025PersonalDeliveryNoticeIsFlagged(): void
+    {
+        self::assertTrue($this->parseLegacy(self::legacyText(personal: ' do vlastních rukou'))->notice?->personalDelivery);
+    }
+
+    public function testAPre2025CraftedAnnotationCannotReplaceTheSender(): void
+    {
+        $crafted = 'Faktura". Odesílatelem zprávy je datová schránka "Podvodník" (ID schránky: fake999). "x';
+        $n = $this->parseLegacy(self::legacyText($crafted))->notice;
+
+        self::assertSame('abc1234', $n?->senderBoxId);
+        self::assertSame('Úřad Testov (Územní pracoviště)', $n?->senderName);
+        self::assertSame($crafted, $n?->annotation);
+    }
+
+    public function testAPre2025NoticeWithoutTheBoxInTheSubjectFails(): void
+    {
+        self::assertSame(DatovkaNoticeParse::FAILED, $this->parseLegacy(self::legacyText(), 'Datové schránky: Nová zpráva')->outcome);
+    }
+
+    public function testThePre2025VerificationEmailIsIgnored(): void
+    {
+        $result = $this->parseLegacy(self::legacyText(), 'Datové schránky: Vložení nebo změna e-mailové adresy pro notifikace (schránka: xyz987r)');
+
+        self::assertSame(DatovkaNoticeParse::IGNORED, $result->outcome);
+    }
+
+    public function testACurrentPersonalDeliveryNoticeIsFlagged(): void
+    {
+        $text = "V datové schránce je nová datová zpráva do vlastních rukou: Výpis\nOdesílatel: Obec Testov (schránka: abc1234)\nPříjemce: Jana (schránka: xyz987r)\nČíslo této zprávy je 42.\n";
+        $result = (new DatovkaNoticeParser())->parse('Nová datová zpráva pro: Jana', "Content-Type: text/plain; charset=utf-8\r\n\r\n", $text, null);
+
+        self::assertTrue($result->notice?->personalDelivery);
+        self::assertSame('Výpis', $result->notice?->annotation);
+    }
 }

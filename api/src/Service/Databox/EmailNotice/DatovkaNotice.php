@@ -15,6 +15,7 @@ final readonly class DatovkaNotice
     /**
      * @param self::KIND_* $kind data message from another box, or a system message issued by ISDS itself
      * @param ?\DateTimeImmutable $noticedAt Date header of the e-mail, i.e. when ISDS announced the message
+     * @param bool $personalDelivery the message is addressed "do vlastních rukou" (to the holder's own hands)
      */
     public function __construct(
         public string $kind,
@@ -25,5 +26,6 @@ final readonly class DatovkaNotice
         public string $recipientBoxId,
         public string $dmId,
         public ?\DateTimeImmutable $noticedAt,
+        public bool $personalDelivery = false,
     ) {}
 }
