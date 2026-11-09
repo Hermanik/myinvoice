@@ -165,9 +165,10 @@ final class ObligationTimelineTest extends TestCase
         $expected = $items['vat_registration_expected:2097'];
         self::assertSame(100000.0, $expected['amount'], 'the remaining amount to the limit');
         self::assertTrue($expected['amount_estimated']);
-        // 1 900 000 Kč in 313 days = 6 070 Kč a day: the remaining 100 000 Kč take another 17 days.
-        self::assertSame('2097-11-26', $expected['params']['estimated_on']);
-        self::assertSame(CzechWorkingDays::addWorkingDays(new \DateTimeImmutable('2097-11-26'), 10)->format('Y-m-d'), $expected['due_date']);
+        // 1 900 000 Kč in the ten completed months = 190 000 Kč a month: the November invoices (DUZP at the month end)
+        // carry the turnover over the limit, so the estimate is 30. 11., not a day-by-day pace in the middle of November.
+        self::assertSame('2097-11-30', $expected['params']['estimated_on']);
+        self::assertSame(CzechWorkingDays::addWorkingDays(new \DateTimeImmutable('2097-11-30'), 10)->format('Y-m-d'), $expected['due_date']);
         self::assertSame([], $expected['notes']);
         self::assertArrayNotHasKey('vat_registration:2097', $items);
 

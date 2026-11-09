@@ -94,7 +94,10 @@ final class VatRegistrationItems
 
     /**
      * The registration is already planned (payer from 1 January in the history) but the limit has not been passed yet:
-     * the remaining amount and an estimated deadline from the pace of the year so far.
+     * the remaining amount and an estimated deadline. Turnover counts by DUZP, and services are typically invoiced with
+     * the last day of the month as DUZP, so the estimate is the end of the first month in which the monthly average of the
+     * completed months of the year would carry the turnover over the limit (not a day-by-day pace, which would point to
+     * the middle of a month no invoice is dated in).
      *
      * @param array<string,float> $daily
      * @return array<string,mixed>|null
@@ -102,25 +105,24 @@ final class VatRegistrationItems
     private function expectedItem(array $daily, int $year, float $limit, string $payerFrom, string $today, string $from, string $to): ?array
     {
         $yearStart = "$year-01-01";
-        $yearEnd = "$year-12-31";
+        $monthStart = substr($today, 0, 7) . '-01';
         $sofar = 0.0;
+        $completed = 0.0;
         foreach ($daily as $day => $amount) {
             if ($day >= $yearStart && $day <= $today) {
                 $sofar += $amount;
+                if ($day < $monthStart) {
+                    $completed += $amount;
+                }
             }
         }
         $remaining = max(0.0, $limit - $sofar);
-        $elapsed = (int) (new \DateTimeImmutable($yearStart))->diff(new \DateTimeImmutable($today))->days + 1;
-        $perDay = $sofar / $elapsed;
-        $estimate = $yearEnd;
-        $capped = true;
-        if ($perDay > 0) {
-            $reach = (new \DateTimeImmutable($today))->modify('+' . (int) ceil($remaining / $perDay) . ' days')->format('Y-m-d');
-            if ($reach <= $yearEnd) {
-                $estimate = $reach;
-                $capped = false;
-            }
-        }
+        $currentMonth = (int) substr($today, 5, 2);
+        // The monthly average of the completed months; in January the month so far stands in for it.
+        $perMonth = $currentMonth > 1 ? $completed / ($currentMonth - 1) : $sofar;
+        $month = $perMonth > 0 ? $currentMonth - 1 + max(1, (int) ceil(($limit - $completed) / $perMonth)) : 13;
+        $capped = $month > 12;
+        $estimate = $capped ? "$year-12-31" : (new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month)))->format('Y-m-t');
         $due = CzechWorkingDays::addWorkingDays(new \DateTimeImmutable($estimate), self::APPLICATION_WORKING_DAYS)->format('Y-m-d');
         if ($due < $from || $due > $to) {
             return null;
