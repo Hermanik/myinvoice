@@ -9,6 +9,7 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\ObligationTimelineRepository;
 use MyInvoice\Tests\Support\FilingFixture;
+use MyInvoice\Tests\Support\TimelinePaymentsState;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
@@ -24,6 +25,7 @@ use Slim\Psr7\Response;
 final class TimelineActionTest extends TestCase
 {
     private ?FilingFixture $fx = null;
+    private ?TimelinePaymentsState $payments = null;
     private TimelineAction $action;
     private ObligationTimelineRepository $repo;
     /** @var list<int> */
@@ -38,6 +40,10 @@ final class TimelineActionTest extends TestCase
             self::markTestSkipped('Migrace 9011 (obligations timeline) není aplikovaná.');
         }
         $this->action = $this->fx->container->get(TimelineAction::class);
+        if ($this->repo->hasPaymentTables()) {
+            $this->payments = new TimelinePaymentsState($this->fx->pdo, $this->fx->supplierId);
+            $this->payments->stash();
+        }
         $this->logWatermark = (int) $this->fx->pdo->query('SELECT COALESCE(MAX(id), 0) FROM activity_log')->fetchColumn();
     }
 
@@ -49,6 +55,7 @@ final class TimelineActionTest extends TestCase
             foreach ($this->customIds as $id) {
                 $this->repo->deleteCustom($sid, $id);
             }
+            $this->payments?->restore();
             $this->fx->pdo->prepare("DELETE FROM activity_log WHERE id > ? AND action LIKE 'timeline.%'")->execute([$this->logWatermark]);
             $this->fx->restore();
         }
@@ -174,5 +181,95 @@ final class TimelineActionTest extends TestCase
         self::assertSame(201, $ok->getStatusCode());
         $this->customIds[] = $this->json($ok)['id'];
         self::assertSame('custom', $this->json($ok)['category'], 'the default category');
+    }
+
+    // ── standing orders and settings ────────────────────────────────────────
+
+    private function requirePaymentTables(): void
+    {
+        if ($this->payments === null) {
+            self::markTestSkipped('Migrace 9012 (timeline standing orders) není aplikovaná.');
+        }
+    }
+
+    public function testStandingOrderLifecycle(): void
+    {
+        $this->requirePaymentTables();
+        $created = $this->action->createOrder($this->request('POST', 'admin', [
+            'type' => 'pausal', 'amount' => '9984.00', 'day_of_month' => 12, 'valid_from' => '2099-01-01', 'note' => '  Air Bank  ',
+        ]), new Response());
+        self::assertSame(201, $created->getStatusCode());
+        $order = $this->json($created);
+        self::assertEquals(['pausal', 9984.0, 12, '2099-01-01', null, 'Air Bank'], [$order['type'], $order['amount'], $order['day_of_month'], $order['valid_from'], $order['valid_to'], $order['note']]);
+
+        $listed = $this->json($this->action->listOrders($this->request('GET', 'accountant'), new Response()))['items'];
+        self::assertSame([$order], $listed);
+
+        // An edit that sends only some fields keeps the others.
+        $updated = $this->json($this->action->updateOrder($this->request('PUT', 'admin', ['amount' => 9162, 'valid_to' => '2099-12-31']), new Response(), ['id' => (string) $order['id']]));
+        self::assertEquals([9162.0, 12, '2099-12-31', 'pausal'], [$updated['amount'], $updated['day_of_month'], $updated['valid_to'], $updated['type']]);
+
+        self::assertSame(200, $this->action->deleteOrder($this->request('DELETE', 'admin'), new Response(), ['id' => (string) $order['id']])->getStatusCode());
+        self::assertSame(404, $this->action->deleteOrder($this->request('DELETE', 'admin'), new Response(), ['id' => (string) $order['id']])->getStatusCode());
+        self::assertSame(404, $this->action->updateOrder($this->request('PUT', 'admin', ['amount' => 1]), new Response(), ['id' => (string) $order['id']])->getStatusCode());
+        self::assertSame([], $this->json($this->action->listOrders($this->request('GET', 'admin'), new Response()))['items']);
+    }
+
+    public function testStandingOrderValidation(): void
+    {
+        $this->requirePaymentTables();
+        $bad = $this->action->createOrder($this->request('POST', 'admin', [
+            'type' => 'rent', 'amount' => -5, 'day_of_month' => 32, 'valid_from' => '2099-02-30', 'note' => str_repeat('x', 256),
+        ]), new Response());
+        self::assertSame(422, $bad->getStatusCode());
+        self::assertEqualsCanonicalizing(['type', 'amount', 'day_of_month', 'valid_from', 'note'], array_keys($this->json($bad)['error']['fields']));
+
+        $valid = ['type' => 'insurance_health', 'amount' => 3306, 'day_of_month' => 31, 'valid_from' => '2099-01-01'];
+        foreach ([['amount' => 0], ['amount' => 'abc'], ['amount' => 10000000], ['day_of_month' => 0], ['day_of_month' => 'x'], ['valid_to' => '2098-12-31'], ['valid_to' => 'soon']] as $override) {
+            $res = $this->action->createOrder($this->request('POST', 'admin', $override + $valid), new Response());
+            self::assertSame(422, $res->getStatusCode(), json_encode($override));
+        }
+        $ok = $this->action->createOrder($this->request('POST', 'admin', $valid + ['valid_to' => '2099-01-01']), new Response());
+        self::assertSame(201, $ok->getStatusCode(), 'day 31 is allowed (the last day of a shorter month), the window may be one day');
+        self::assertSame([], array_diff_key($this->json($ok), array_flip(['id', 'type', 'amount', 'day_of_month', 'valid_from', 'valid_to', 'note'])));
+    }
+
+    public function testStandingOrdersAndSettingsAreForAdminAndAccountantOnly(): void
+    {
+        $this->requirePaymentTables();
+        $body = ['type' => 'pausal', 'amount' => 100, 'day_of_month' => 1, 'valid_from' => '2099-01-01'];
+        self::assertSame(403, $this->action->listOrders($this->request('GET', 'readonly'), new Response())->getStatusCode());
+        self::assertSame(403, $this->action->createOrder($this->request('POST', 'readonly', $body), new Response())->getStatusCode());
+        self::assertSame(403, $this->action->getSettings($this->request('GET', 'readonly'), new Response())->getStatusCode());
+        self::assertSame(403, $this->action->saveSettings($this->request('PUT', 'readonly', ['invoicing_due' => 'working_day_n']), new Response())->getStatusCode());
+        self::assertSame([], $this->repo->standingOrders($this->fx->supplierId));
+        self::assertSame(201, $this->action->createOrder($this->request('POST', 'accountant', $body), new Response())->getStatusCode());
+    }
+
+    public function testSettingsDefaultsAreSavedValidatedAndKeptWhenNotSent(): void
+    {
+        $this->requirePaymentTables();
+        self::assertSame(['invoicing_due' => 'month_end', 'invoicing_working_day' => 5], $this->json($this->action->getSettings($this->request('GET', 'admin'), new Response())));
+
+        $saved = $this->json($this->action->saveSettings($this->request('PUT', 'admin', ['invoicing_due' => 'working_day_n', 'invoicing_working_day' => 3]), new Response()));
+        self::assertSame(['invoicing_due' => 'working_day_n', 'invoicing_working_day' => 3], $saved);
+
+        $partial = $this->json($this->action->saveSettings($this->request('PUT', 'admin', ['invoicing_due' => 'month_end']), new Response()));
+        self::assertSame(['invoicing_due' => 'month_end', 'invoicing_working_day' => 3], $partial, 'the working day is kept');
+
+        foreach ([['invoicing_due' => 'never'], ['invoicing_working_day' => 0], ['invoicing_working_day' => 21], ['invoicing_working_day' => 'x']] as $bad) {
+            $res = $this->action->saveSettings($this->request('PUT', 'admin', $bad), new Response());
+            self::assertSame(422, $res->getStatusCode(), json_encode($bad));
+        }
+        self::assertSame(['invoicing_due' => 'month_end', 'invoicing_working_day' => 3], $this->repo->settings($this->fx->supplierId), 'nothing invalid was stored');
+    }
+
+    public function testTheTimelineCarriesTheSettingsAndTheEstimates(): void
+    {
+        $this->requirePaymentTables();
+        $body = $this->json($this->action->list($this->request('GET', 'admin'), new Response()));
+
+        self::assertSame(['invoicing_due' => 'month_end', 'invoicing_working_day' => 5], $body['settings']);
+        self::assertIsArray($body['estimates']);
     }
 }

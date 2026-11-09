@@ -88,17 +88,39 @@ final class TaxProfileRepository
      */
     public function annualIncome(int $supplierId, int $year): float
     {
+        return $this->incomeSum("i.status = 'paid' AND i.paid_at IS NOT NULL AND YEAR(i.paid_at) = ?", $supplierId, $year);
+    }
+
+    /**
+     * Issued, not yet paid invoices (issued / sent / reminded; "overdue" is not a status of its own) whose due date
+     * falls in the year: the income expected to be paid in it, on top of {@see annualIncome()}. Counted the way a
+     * paid invoice is; an invoice already settled by an advance (amount_to_pay fully covered) and a proforma are
+     * not income.
+     */
+    public function unpaidIncomeDueInYear(int $supplierId, int $year): float
+    {
+        return $this->incomeSum(
+            "i.status IN ('issued', 'sent', 'reminded') AND (i.invoice_type = 'credit_note' OR i.amount_to_pay - i.paid_total > 0) AND YEAR(i.due_date) = ?",
+            $supplierId,
+            $year,
+        );
+    }
+
+    /**
+     * Sum of the income documents of a year in CZK, VAT-aware per document ({@see VatStatusSql::amount()}), without
+     * the income marked tax-exempt, by the given conditions on the invoice `i` (one `?` for the year).
+     */
+    private function incomeSum(string $where, int $supplierId, int $year): float
+    {
         $col = VatStatusSql::amount('i');
         $stmt = $this->db->pdo()->prepare(
             "SELECT COALESCE(SUM({$col} * COALESCE(IF(cur.code = 'CZK', 1, i.exchange_rate), 1)), 0)
                FROM invoices i
           LEFT JOIN currencies cur ON cur.id = i.currency_id
               WHERE i.supplier_id = ?
-                AND i.status = 'paid'
-                AND i.paid_at IS NOT NULL
                 AND i.invoice_type IN ('invoice', 'credit_note', 'tax_document')
                 AND COALESCE(i.income_tax_exempt, 0) = 0
-                AND YEAR(i.paid_at) = ?"
+                AND {$where}"
         );
         $stmt->execute([$supplierId, $year]);
         return round((float) $stmt->fetchColumn(), 2);

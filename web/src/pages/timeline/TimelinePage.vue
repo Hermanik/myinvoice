@@ -2,7 +2,9 @@
 /**
  * Harmonogram: everything the owner has to (or should) do for taxes, insurance and invoicing over a date range,
  * newest deadline last, with what is done. One request per range change; the status and category filters work on
- * the loaded items. Manual marks and custom tasks are written through the API and patched into the list.
+ * the loaded items. Manual marks and custom tasks are written through the API and patched into the list; the regular
+ * payments (standing orders) and the timeline settings change what the server computes, so they reload it. Above the
+ * list: the estimated surcharges of a year without the flat-tax regime.
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -15,6 +17,8 @@ import {
 } from '@/api/timeline'
 import { apiErrorMessage } from '@/api/errors'
 import Modal from '@/components/ui/Modal.vue'
+import StandingOrdersModal from '@/components/timeline/StandingOrdersModal.vue'
+import TimelineEstimate from '@/components/timeline/TimelineEstimate.vue'
 import TimelineItemCard from '@/components/timeline/TimelineItemCard.vue'
 import { formatMonth } from '@/composables/useFormat'
 import { useToast } from '@/composables/useToast'
@@ -46,6 +50,8 @@ const data = ref<Timeline | null>(null)
 const loading = ref(true)
 const error = ref('')
 const busyKey = ref<string | null>(null)
+
+const ordersOpen = ref(false)
 
 const statusFilter = ref<StatusFilter>('all')
 const categories = ref<TimelineCategory[]>([])
@@ -150,8 +156,9 @@ async function writeMark(key: string, done: boolean, note: string | null) {
 function applyMark(key: string, mark: TimelineItem['mark']) {
   patchItem(key, i => {
     i.mark = mark
-    // Automatic evidence wins over a mark: only a not-yet-automatically-done item follows the mark.
-    if (i.done_source !== 'auto') {
+    // Evidence wins over a mark (the application's own, or a standing order that paid the item): only an item without
+    // any follows the mark.
+    if (i.done_source !== 'auto' && i.done_source !== 'standing_order') {
       i.done_source = mark?.done ? 'manual' : null
       i.status = statusOf(i, mark?.done ?? false)
     }
@@ -239,11 +246,19 @@ async function removeCustom(item: TimelineItem) {
         <h1 class="text-2xl font-semibold">{{ t('timeline.title') }}</h1>
         <p class="text-sm text-neutral-500 mt-0.5">{{ t('timeline.subtitle') }}</p>
       </div>
-      <button type="button" class="cursor-pointer h-9 px-3 rounded-md bg-primary-600 text-white text-sm hover:bg-primary-700" data-testid="timeline-add" @click="openAdd">
-        + {{ t('timeline.add_custom') }}
-      </button>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button type="button" class="cursor-pointer h-9 px-3 rounded-md border border-neutral-300 bg-surface text-sm text-neutral-700 hover:bg-neutral-50" data-testid="timeline-orders" @click="ordersOpen = true">
+          {{ t('timeline.standing_orders') }}
+        </button>
+        <button type="button" class="cursor-pointer h-9 px-3 rounded-md bg-primary-600 text-white text-sm hover:bg-primary-700" data-testid="timeline-add" @click="openAdd">
+          + {{ t('timeline.add_custom') }}
+        </button>
+      </div>
     </div>
     <p class="text-xs text-neutral-500">{{ t('timeline.intro') }}</p>
+
+    <!-- Estimated surcharges of a year without the flat-tax regime: how much to reserve and by when -->
+    <TimelineEstimate v-for="e in data?.estimates ?? []" :key="e.year" :estimate="e" compact />
 
     <!-- Range, presets and filters -->
     <section class="bg-surface border border-neutral-200 rounded-lg p-4 space-y-3" data-testid="timeline-filters">
@@ -319,6 +334,8 @@ async function removeCustom(item: TimelineItem) {
         </template>
       </ol>
     </template>
+
+    <StandingOrdersModal v-if="ordersOpen && data" :settings="data.settings" @close="ordersOpen = false" @changed="load(true)" />
 
     <!-- Custom task form -->
     <Modal v-if="form" :title="form.id === null ? t('timeline.add_custom') : t('timeline.edit_custom')" width-class="max-w-lg" @close="form = null">

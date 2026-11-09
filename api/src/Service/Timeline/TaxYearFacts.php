@@ -15,8 +15,7 @@ use MyInvoice\Service\Vat\VatStatusHistory;
 
 /**
  * What a tax year means for a natural person: is the supplier in the flat-tax regime (paušální daň) for it, did it
- * lose the regime, or was it a regular year from the start — and, for a closed year, how much income tax the
- * optimizer computes.
+ * lose the regime, or was it a regular year from the start.
  *
  *   flat  the year has a flat-tax band, no VAT payer day and the income did not pass the limit: no income tax
  *         return, no insurance statements, no regular advances (the monthly flat payment covers them)
@@ -25,7 +24,8 @@ use MyInvoice\Service\Vat\VatStatusHistory;
  *         the insurance statements are due; what was paid as flat tax is credited
  *   none  no band for the year (or a band left over on a supplier that is a VAT payer for the whole year)
  *
- * The income is the one the flat-tax limit of the dashboard watches: paid invoices by payment date.
+ * The income is the one the flat-tax limit of the dashboard watches: paid invoices by payment date. The estimated
+ * liability of a year in the regular regime is {@see TaxYearEstimates}.
  */
 final class TaxYearFacts
 {
@@ -45,7 +45,9 @@ final class TaxYearFacts
 
     /**
      * @param list<int> $years
-     * @return array<int, array{regime:string, reason:?string, income:?float, limit:?float}> by year
+     * `band` is the flat-tax band set for the year (null when there is none), also for a year that lost the regime.
+     *
+     * @return array<int, array{regime:string, reason:?string, income:?float, limit:?float, band:?string}> by year
      */
     public function regimes(int $supplierId, string $supplierBand, VatStatusHistory $history, \DateTimeImmutable $now, array $years): array
     {
@@ -54,11 +56,12 @@ final class TaxYearFacts
         $out = [];
         foreach ($years as $year) {
             $declared = TaxCalendarService::declaredFlatTaxBand($year, $currentYear, $profileBands, $supplierBand);
-            $row = ['regime' => self::NONE, 'reason' => null, 'income' => null, 'limit' => null];
+            $row = ['regime' => self::NONE, 'reason' => null, 'income' => null, 'limit' => null, 'band' => null];
             if (!in_array($declared, PausalSchedule::BANDS, true)) {
                 $out[$year] = $row;
                 continue;
             }
+            $row['band'] = $declared;
             $from = "$year-01-01";
             $to = "$year-12-31";
             if (!$history->hasPayerTimeBetween($from, $to)) {
@@ -77,36 +80,8 @@ final class TaxYearFacts
     }
 
     /**
-     * Income tax of a CLOSED year as the optimizer computes it for the regular regime, or null when it cannot be told:
-     * the year is not over, there is no tax profile of the year (the optimizer would only guess the activity and the
-     * deductions), or the income is zero.
-     *
-     * @return array{tax: float, income: float}|null a negative tax is a tax bonus
-     */
-    public function incomeTaxLiability(int $supplierId, int $year, VatStatusHistory $history, \DateTimeImmutable $now): ?array
-    {
-        if ($year >= (int) $now->format('Y')) {
-            return null;
-        }
-        $profile = $this->profiles->find($supplierId, $year);
-        if ($profile === null) {
-            return null;
-        }
-        $income = $this->profiles->annualIncome($supplierId, $year);
-        if ($income <= 0) {
-            return null;
-        }
-        $compare = $this->optimizer->compare(
-            $profile + ['is_vat_payer' => $history->hasPayerTimeBetween("$year-01-01", "$year-12-31")],
-            $income,
-            $this->constants->forYear($year),
-        );
-        return ['tax' => (float) $compare['regular']['income_tax'], 'income' => $income];
-    }
-
-    /**
-     * @param array{regime:string, reason:?string, income:?float, limit:?float} $row
-     * @return array{regime:string, reason:?string, income:?float, limit:?float}
+     * @param array{regime:string, reason:?string, income:?float, limit:?float, band:?string} $row
+     * @return array{regime:string, reason:?string, income:?float, limit:?float, band:?string}
      */
     private function checkIncomeLimit(int $supplierId, int $year, string $band, array $row): array
     {

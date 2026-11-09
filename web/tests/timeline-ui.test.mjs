@@ -4,7 +4,7 @@ import test from 'node:test'
 
 const {
   addDays, presetRange, matchingPreset, matchesStatus, filterItems, countByCategory, buildRows, dateFormatters,
-  statusOf, textParams, safeLink, isYmd, TIMELINE_CATEGORIES,
+  statusOf, coveredByOrder, textParams, formatParams, safeLink, isYmd, TIMELINE_CATEGORIES, STANDING_ORDER_TYPES,
 } = await import('../src/utils/timeline.ts')
 
 const root = new URL('../src/', import.meta.url)
@@ -122,6 +122,15 @@ test('statusOf follows the server rule', () => {
   assert.equal(statusOf({ tracked: true, info: false, days_left: -400 }, false), 'overdue')
 })
 
+test('an item a standing order is going to pay is upcoming however close its date, and done once paid', () => {
+  const covered = { tracked: true, info: false, params: { paid_on: '2026-12-12' } }
+  assert.ok(coveredByOrder(covered))
+  assert.ok(!coveredByOrder({ params: { year: 2026 } }) && !coveredByOrder({}))
+  assert.equal(statusOf({ ...covered, days_left: 3 }, false), 'upcoming', 'not due_soon: the order pays it');
+  assert.equal(statusOf({ ...covered, days_left: 3 }, true), 'done')
+  assert.equal(statusOf({ tracked: true, info: false, days_left: 3, params: {} }, false), 'due_soon', 'without an order the rule is the usual one')
+})
+
 // ── text parameters ───────────────────────────────────────────────────────
 
 const MONTHS = ['leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen', 'září', 'říjen', 'listopad', 'prosinec']
@@ -163,9 +172,19 @@ test('dates and amounts are formatted, other values are left alone', () => {
   assert.equal(p.form_label, 'DPPO')
 })
 
+test('the amounts of the estimates and the standing orders are formatted as money, also in the params of a note', () => {
+  const p = formatParams({ income: 2250000, paid: 2100000, unpaid: 150000, paid_amount: 9984, diff: 822, paid_on: '2026-10-12', year: 2026, base_year: 2026, working_day: 3, estimate: { year: 2026 } }, fmt)
+
+  assert.deepEqual([p.income, p.paid, p.unpaid, p.paid_amount, p.diff], ['2250000 Kč', '2100000 Kč', '150000 Kč', '9984 Kč', '822 Kč'])
+  assert.equal(p.paid_on, 'D(2026-10-12)')
+  assert.deepEqual([p.year, p.base_year, p.working_day], [2026, 2026, 3], 'years and counts are not money')
+  assert.deepEqual(p.estimate, { year: 2026 }, 'a nested estimate is left to its own component')
+})
+
 test('date formatters are built once per language and use the calendar day in UTC', () => {
   assert.equal(dateFormatters('cs'), dateFormatters('cs'))
   assert.notEqual(dateFormatters('cs'), dateFormatters('en'))
+  assert.equal(dateFormatters('cs').dayMonth.format(new Date('2026-10-12T00:00:00Z')), '12. 10.', 'the day of a standing order payment')
   const d = new Date('2026-12-28T00:00:00Z')
   assert.match(dateFormatters('en').weekday.format(d), /Monday/)
   assert.match(dateFormatters('cs').weekday.format(d), /pondělí/)
@@ -203,6 +222,11 @@ test('the API module calls the timeline endpoints', async () => {
   assert.match(api, /post<TimelineCustomItem>\('\/timeline\/custom-items', body\)/)
   assert.match(api, /put<TimelineCustomItem>\(`\/timeline\/custom-items\/\$\{id\}`/)
   assert.match(api, /delete<\{ id: number \}>\(`\/timeline\/custom-items\/\$\{id\}`/)
+  assert.match(api, /get<\{ items: StandingOrder\[\] \}>\('\/timeline\/standing-orders'\)/)
+  assert.match(api, /post<StandingOrder>\('\/timeline\/standing-orders', body\)/)
+  assert.match(api, /put<StandingOrder>\(`\/timeline\/standing-orders\/\$\{id\}`, body\)/)
+  assert.match(api, /delete<\{ id: number \}>\(`\/timeline\/standing-orders\/\$\{id\}`/)
+  assert.match(api, /put<TimelineSettings>\('\/timeline\/settings', body\)/)
 })
 
 test('the page loads once per range change and offers presets, filters, the today marker and the custom task form', async () => {
@@ -230,7 +254,7 @@ test('manual marks go through the API and automatic evidence wins over them', as
   assert.match(page, /timelineApi\.setMark\(key, done, note\)/)
   assert.match(page, /timelineApi\.clearMark\(key\)/)
   assert.match(page, /timelineApi\.updateCustom\(item\.custom\.id, \{ done \}\)/)
-  assert.match(page, /if \(i\.done_source !== 'auto'\)/)
+  assert.match(page, /if \(i\.done_source !== 'auto' && i\.done_source !== 'standing_order'\)/, 'a standing order that paid the item is evidence too')
   assert.match(card, /<span v-if="autoDone"[^>]*data-testid="timeline-done-auto"/)
   assert.match(card, /data-testid="timeline-done-auto"/)
   assert.match(card, /data-testid="timeline-done-checkbox"/)
@@ -238,7 +262,59 @@ test('manual marks go through the API and automatic evidence wins over them', as
   assert.match(card, /rel="noopener noreferrer"/)
 })
 
+test('the page opens the regular payments and shows the estimates of the years without the flat-tax regime', async () => {
+  const page = await read('pages/timeline/TimelinePage.vue')
+  const modal = await read('components/timeline/StandingOrdersModal.vue')
+  const card = await read('components/timeline/TimelineItemCard.vue')
+
+  assert.match(page, /data-testid="timeline-orders"/)
+  assert.match(page, /<StandingOrdersModal v-if="ordersOpen && data" :settings="data\.settings"[^>]*@changed="load\(true\)"/, 'a change reloads the timeline')
+  assert.match(page, /<TimelineEstimate v-for="e in data\?\.estimates \?\? \[\]"[^>]*compact/, 'the summary block at the top')
+  // The card shows the full estimate on the lost flat-tax item, and "paid by standing order" instead of a checkbox prompt.
+  assert.match(card, /item\.type === 'flat_tax_lost'/)
+  assert.match(card, /<span v-else-if="paidByOrder"[^>]*data-testid="timeline-done-order"/)
+  assert.match(card, /t\('timeline\.paid_by_order', \{ date: paidOn \}\)/)
+  assert.match(card, /<label v-else-if="!ordered \|\| isDone"/, 'nothing to tick on an item an order is going to pay')
+  // The modal: the four payment types, the CRUD calls and the settings of the invoicing deadline.
+  for (const call of ['listOrders', 'createOrder', 'updateOrder', 'removeOrder', 'saveSettings']) {
+    assert.match(modal, new RegExp(`timelineApi\\.${call}\\(`), call)
+  }
+  for (const id of ['timeline-orders-modal', 'timeline-order-form', 'timeline-order-save', 'timeline-settings-due', 'timeline-settings-save']) {
+    assert.match(modal, new RegExp(`data-testid="${id}"`), id)
+  }
+  assert.match(modal, /v-for="type in STANDING_ORDER_TYPES"/)
+  assert.match(modal, /day < 1 \|\| day > 31/)
+})
+
+test('the estimate shows the three components with the surcharge and the due date, and the cash to reserve', async () => {
+  const box = await read('components/timeline/TimelineEstimate.vue')
+  const card = await read('components/timeline/TimelineItemCard.vue')
+
+  assert.match(box, /const ROWS = \['income_tax', 'social', 'health'\] as const/)
+  assert.match(box, /Math\.max\(0, props\.estimate\[row\]\.surcharge\)/, 'an overpayment is not an amount to reserve')
+  assert.match(box, /estimate\[row\]\.surcharge < 0 \? t\('timeline\.estimate_box\.overpaid'/)
+  for (const id of ['timeline-estimate-income', 'timeline-estimate-surcharge', 'timeline-estimate-reserve', 'timeline-estimate-standing']) {
+    assert.match(box, new RegExp(`data-testid="${id}"`), id)
+  }
+  // The text variant of an invoicing item follows the deadline rule of the settings.
+  assert.match(card, /params\.reason \?\? props\.item\.params\.frequency \?\? props\.item\.params\.rule/)
+})
+
 // ── catalogue ─────────────────────────────────────────────────────────────
+
+test('the standing order types and the settings have a Czech and an English text', async () => {
+  const [cs, en] = await Promise.all([readJson('i18n/cs.json'), readJson('i18n/en.json')])
+  for (const catalogue of [cs, en]) {
+    assert.deepEqual(Object.keys(catalogue.timeline.order_types).sort(), [...STANDING_ORDER_TYPES].sort())
+    assert.ok(catalogue.timeline.item.invoicing.what_month_end && catalogue.timeline.item.invoicing.what_working_day_n)
+  }
+  assert.deepEqual(
+    [cs.timeline.order_types.pausal, cs.timeline.order_types.insurance_social, cs.timeline.order_types.insurance_health, cs.timeline.order_types.income_tax_advance],
+    ['Paušální daň', 'Sociální pojištění – záloha', 'Zdravotní pojištění – záloha', 'Záloha na daň z příjmů'],
+  )
+  assert.match(cs.timeline.note.invoicing_vat_payer, /do 15 dnů ode dne uskutečnění plnění \(§ 28 odst\. 4 ZDPH\)/)
+  assert.match(cs.timeline.note.pausal_regime_lost, /^Paušální režim za \{year\} neplatí – zálohy plaťte dál, v přiznání a přehledech se započtou/)
+})
 
 test('cs and en carry the same timeline keys', async () => {
   const [cs, en] = await Promise.all([readJson('i18n/cs.json'), readJson('i18n/en.json')])
@@ -263,7 +339,7 @@ test('the catalogue has a title for every item type the API documents, and no ti
 
 test('every note code and link label the server can send has a text', async () => {
   const cs = await readJson('i18n/cs.json')
-  const sources = await Promise.all(['TimelineItem', 'ObligationTimelineService', 'InsuranceItems', 'IncomeTaxItems', 'VatRegistrationItems']
+  const sources = await Promise.all(['TimelineItem', 'ObligationTimelineService', 'InsuranceItems', 'IncomeTaxItems', 'VatRegistrationItems', 'StandingOrders', 'TaxYearEstimates']
     .map(f => readApi(`src/Service/Timeline/${f}.php`)))
   const php = sources.join('\n')
 

@@ -75,6 +75,23 @@ final class ReportPeriod
         return self::incomeTaxDeadlineOn($taxYear, '07-01');
     }
 
+    /**
+     * Deadline of the insurance statements (přehledy OSVČ) of a tax year, for ČSSZ (§ 15 zákona 589/1992 Sb.) and the
+     * health insurer (§ 24 zákona 592/1992 Sb.): one month after the electronic deadline of the income tax return,
+     * on a working day.
+     */
+    public static function insuranceStatementsDeadline(int $taxYear): string
+    {
+        $returnDeadline = new \DateTimeImmutable(self::incomeTaxElectronicDeadline($taxYear));
+        return CzechWorkingDays::shiftToWorkingDay($returnDeadline->modify('+1 month'))->format('Y-m-d');
+    }
+
+    /** The surcharge of the insurance of a tax year is due within 8 days of filing the statements; counted from their deadline. */
+    public static function insuranceSurchargeDeadline(int $taxYear): string
+    {
+        return (new \DateTimeImmutable(self::insuranceStatementsDeadline($taxYear)))->modify('+8 days')->format('Y-m-d');
+    }
+
     private static function incomeTaxDeadlineOn(int $taxYear, string $monthDay): string
     {
         return CzechWorkingDays::shiftToWorkingDay(

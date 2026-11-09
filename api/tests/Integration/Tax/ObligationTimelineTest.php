@@ -205,9 +205,10 @@ final class ObligationTimelineTest extends TestCase
         self::assertSame('2098-04-01', $tax['params']['paper_due_date']);
         self::assertSame('2098-07-01', $tax['params']['advisor_due_date']);
         self::assertSame('dpfdp5', $tax['params']['form']);
-        self::assertSame(['income_tax_regime_lost'], array_column($tax['notes'], 'code'));
+        self::assertSame(['income_tax_regime_lost', 'estimate_basis', 'estimate_no_profile'], array_column($tax['notes'], 'code'), 'the estimate and what it had to assume (no tax profile of 2097)');
         self::assertSame('unfiled', $tax['filing']['status']);
         self::assertSame(['pausal_regime_lost'], array_column($items['pausal:2097-12']['notes'], 'code'));
+        self::assertSame(2097, $items['pausal:2097-12']['params']['year'], 'the text of the note names the year');
         self::assertSame([], $this->keysStartingWith($items, ['pausal:2098']), 'a VAT payer cannot be in the flat-tax regime');
     }
 
@@ -266,15 +267,17 @@ final class ObligationTimelineTest extends TestCase
         self::assertCount(11, $this->keysStartingWith($items, ['ins_health:']));
     }
 
-    public function testIncomeTaxAdvancesAreOnlyAReminderUntilTheBaseYearIsClosed(): void
+    public function testIncomeTaxAdvancesAreOnlyAReminderForAClosedYearWithoutAProfile(): void
     {
         $this->crossTwoMillion();
-        $items = $this->items();
+        // In 2098 the year 2097 is closed, but without a tax profile the optimizer would only guess the activity and
+        // the deductions: the item reminds to work the advances out from the filed return.
+        $items = $this->items('2098-02-10', '2098-01-01', '2098-12-31');
 
         $info = $items['tax_advance_info:2097'];
         self::assertSame('2098-05-02', $info['due_date'], 'right at the deadline of the return');
         self::assertSame('info', $info['status']);
-        self::assertSame([], $this->keysStartingWith($items, ['tax_advance:']), '2097 is not closed yet and has no tax profile');
+        self::assertSame([], $this->keysStartingWith($items, ['tax_advance:']));
     }
 
     /** Income of 2096 (the base year) => [expected frequency, share in %], from the smallest income up. */
@@ -341,19 +344,21 @@ final class ObligationTimelineTest extends TestCase
         self::assertEqualsCanonicalizing(['mortgage', 'children'], $docs['params']['claims']);
     }
 
-    public function testInvoicingIsDoneByAnInvoiceWithADuzpInTheMonth(): void
+    public function testInvoicingIsDueOnTheLastDayOfTheMonthAndDoneByAnInvoiceWithADuzpInIt(): void
     {
         $this->crossTwoMillion();
         $items = $this->items();
 
-        self::assertSame('2097-11-07', $items['invoicing:2097-10']['due_date'], '5th working day of November');
-        self::assertSame('overdue', $items['invoicing:2097-10']['status'], 'no invoice with a DUZP in October');
-        self::assertSame('recommended', $items['invoicing:2097-10']['obligation']);
+        self::assertSame('2097-11-30', $items['invoicing:2097-11']['due_date'], 'the last day of the month: the owner issues invoices on it');
+        self::assertSame('2097-11-01', $items['invoicing:2097-11']['start_date'], 'the whole month is the window');
+        self::assertSame('overdue', $items['invoicing:2097-11']['status'], 'no invoice with a DUZP in November');
+        self::assertSame('recommended', $items['invoicing:2097-11']['obligation']);
         self::assertSame('done', $items['invoicing:2097-12']['status'], 'the invoice of 18. 12.');
         self::assertSame('auto', $items['invoicing:2097-12']['done_source']);
-        self::assertSame('2098-01-08', $items['invoicing:2097-12']['due_date']);
+        self::assertSame('2097-12-31', $items['invoicing:2097-12']['due_date']);
         self::assertSame('upcoming', $items['invoicing:2098-01']['status']);
-        self::assertArrayNotHasKey('invoicing:2097-02', $items, 'before the range');
+        self::assertSame('2098-01-31', $items['invoicing:2098-01']['due_date']);
+        self::assertArrayNotHasKey('invoicing:2097-10', $items, 'due on 31. 10., before the range');
     }
 
     public function testNoInvoicingItemsBeforeTheFirstInvoice(): void
@@ -361,7 +366,7 @@ final class ObligationTimelineTest extends TestCase
         $this->paidSale('2097-12-18', 1000);
         $items = $this->items('2097-12-19', '2097-01-01', '2098-03-31');
 
-        self::assertSame(['invoicing:2097-12', 'invoicing:2098-01', 'invoicing:2098-02'], $this->keysStartingWith($items, ['invoicing:']));
+        self::assertSame(['invoicing:2097-12', 'invoicing:2098-01', 'invoicing:2098-02', 'invoicing:2098-03'], $this->keysStartingWith($items, ['invoicing:']));
     }
 
     // ── status, marks, custom items ─────────────────────────────────────────

@@ -6,6 +6,10 @@ import type { TimelineItem, TimelineStatus } from '../api/timeline'
 export const TIMELINE_CATEGORIES = ['registration', 'dph', 'income_tax', 'pausal', 'insurance', 'invoicing', 'custom'] as const
 export type TimelineCategory = (typeof TIMELINE_CATEGORIES)[number]
 
+/** What a standing order can pay (the `type` of an order; the key of `timeline.order_types.*`). */
+export const STANDING_ORDER_TYPES = ['pausal', 'insurance_social', 'insurance_health', 'income_tax_advance'] as const
+export type StandingOrderType = (typeof STANDING_ORDER_TYPES)[number]
+
 export type StatusFilter = 'all' | 'todo' | 'done' | 'overdue'
 export const RANGE_PRESETS = ['rest_and_next', 'next_90', 'this_year', 'next_year'] as const
 export type RangePreset = (typeof RANGE_PRESETS)[number]
@@ -51,13 +55,19 @@ export function matchingPreset(from: string, to: string, today: string): RangePr
 const DUE_SOON_DAYS = 7
 const UNVERIFIED_AFTER_DAYS = 30
 
+/** A standing order covers the item: it carries the payment day of the order (`paid_on`) in the past or still to come. */
+export function coveredByOrder(item: { params?: Record<string, unknown> }): boolean {
+  return typeof item.params?.paid_on === 'string'
+}
+
 /**
  * Status of an item given whether it is done — the same rule as ObligationTimelineService::status() on the server;
  * used to update the list right after a mark, without another request.
  */
-export function statusOf(item: Pick<TimelineItem, 'days_left' | 'tracked' | 'info'>, done: boolean): TimelineStatus {
+export function statusOf(item: Pick<TimelineItem, 'days_left' | 'tracked' | 'info'> & { params?: Record<string, unknown> }, done: boolean): TimelineStatus {
   if (done) return 'done'
   if (item.info) return 'info'
+  if (coveredByOrder(item)) return 'upcoming' // a standing order is going to pay it
   if (item.days_left < 0) return !item.tracked && item.days_left < -UNVERIFIED_AFTER_DAYS ? 'unverified' : 'overdue'
   return item.days_left <= DUE_SOON_DAYS ? 'due_soon' : 'upcoming'
 }
@@ -128,7 +138,18 @@ export interface TextFormatters {
   claim: (code: string) => string
 }
 
-const MONEY_KEYS = new Set(['limit', 'income', 'turnover', 'remaining', 'tax'])
+const MONEY_KEYS = new Set(['limit', 'income', 'turnover', 'remaining', 'tax', 'paid', 'unpaid', 'paid_amount', 'diff'])
+
+/** Server parameters formatted for display: dates as dates, the amounts named in MONEY_KEYS as CZK. */
+export function formatParams(params: Record<string, unknown>, f: Pick<TextFormatters, 'date' | 'money'>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(params)) {
+    out[k] = typeof v === 'string' && isYmd(v) ? f.date(v)
+      : typeof v === 'number' && MONEY_KEYS.has(k) ? f.money(v)
+      : v
+  }
+  return out
+}
 
 /**
  * Parameters of the catalogue texts of an item: the server's own `params` formatted for display (dates, money in
@@ -137,12 +158,7 @@ const MONEY_KEYS = new Set(['limit', 'income', 'turnover', 'remaining', 'tax'])
  */
 export function textParams(item: Pick<TimelineItem, 'params' | 'due_date'>, f: TextFormatters): Record<string, unknown> {
   const p = item.params
-  const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(p)) {
-    out[k] = typeof v === 'string' && isYmd(v) ? f.date(v)
-      : typeof v === 'number' && MONEY_KEYS.has(k) ? f.money(v)
-      : v
-  }
+  const out = formatParams(p, f)
   out.due = f.date(item.due_date)
   if (typeof p.year === 'number') out.next_year = p.year + 1
   if (typeof p.band === 'string') out.band_no = p.band.replace('band', '')
@@ -159,16 +175,18 @@ export function textParams(item: Pick<TimelineItem, 'params' | 'due_date'>, f: T
   return out
 }
 
-const formatterCache = new Map<string, { month: Intl.DateTimeFormat; weekday: Intl.DateTimeFormat }>()
+type DateFormatters = { month: Intl.DateTimeFormat; weekday: Intl.DateTimeFormat; dayMonth: Intl.DateTimeFormat }
+const formatterCache = new Map<string, DateFormatters>()
 
-/** Short month and long weekday formatters of a UI language, built once instead of once per card. */
-export function dateFormatters(lang: string): { month: Intl.DateTimeFormat; weekday: Intl.DateTimeFormat } {
+/** Short month, long weekday and day-and-month ("12. 10.") formatters of a UI language, built once instead of once per card. */
+export function dateFormatters(lang: string): DateFormatters {
   let f = formatterCache.get(lang)
   if (!f) {
     const loc = lang === 'en' ? 'en-US' : 'cs-CZ'
     f = {
       month: new Intl.DateTimeFormat(loc, { month: 'short', timeZone: 'UTC' }),
       weekday: new Intl.DateTimeFormat(loc, { weekday: 'long', timeZone: 'UTC' }),
+      dayMonth: new Intl.DateTimeFormat(loc, { day: 'numeric', month: 'numeric', timeZone: 'UTC' }),
     }
     formatterCache.set(lang, f)
   }

@@ -768,12 +768,18 @@ final class Routes
         $app->delete('/api/tax/registration-deductions/{id:[0-9]+}',         [\MyInvoice\Action\Tax\RegistrationDeductionAction::class, 'delete']);
 
         // Obligations timeline ("Harmonogram"): session only, admin + accountant (RoleMiddleware ACCOUNTANT_RULES)
-        $app->get   ('/api/timeline',                          [\MyInvoice\Action\Timeline\TimelineAction::class, 'list']);
-        $app->put   ('/api/timeline/marks',                    [\MyInvoice\Action\Timeline\TimelineAction::class, 'setMark']);
-        $app->delete('/api/timeline/marks',                    [\MyInvoice\Action\Timeline\TimelineAction::class, 'clearMark']);
-        $app->post  ('/api/timeline/custom-items',             [\MyInvoice\Action\Timeline\TimelineAction::class, 'createCustom']);
-        $app->put   ('/api/timeline/custom-items/{id:[0-9]+}', [\MyInvoice\Action\Timeline\TimelineAction::class, 'updateCustom']);
-        $app->delete('/api/timeline/custom-items/{id:[0-9]+}', [\MyInvoice\Action\Timeline\TimelineAction::class, 'deleteCustom']);
+        $app->get   ('/api/timeline',                             [\MyInvoice\Action\Timeline\TimelineAction::class, 'list']);
+        $app->put   ('/api/timeline/marks',                       [\MyInvoice\Action\Timeline\TimelineAction::class, 'setMark']);
+        $app->delete('/api/timeline/marks',                       [\MyInvoice\Action\Timeline\TimelineAction::class, 'clearMark']);
+        $app->post  ('/api/timeline/custom-items',                [\MyInvoice\Action\Timeline\TimelineAction::class, 'createCustom']);
+        $app->put   ('/api/timeline/custom-items/{id:[0-9]+}',    [\MyInvoice\Action\Timeline\TimelineAction::class, 'updateCustom']);
+        $app->delete('/api/timeline/custom-items/{id:[0-9]+}',    [\MyInvoice\Action\Timeline\TimelineAction::class, 'deleteCustom']);
+        $app->get   ('/api/timeline/standing-orders',             [\MyInvoice\Action\Timeline\TimelineAction::class, 'listOrders']);
+        $app->post  ('/api/timeline/standing-orders',             [\MyInvoice\Action\Timeline\TimelineAction::class, 'createOrder']);
+        $app->put   ('/api/timeline/standing-orders/{id:[0-9]+}', [\MyInvoice\Action\Timeline\TimelineAction::class, 'updateOrder']);
+        $app->delete('/api/timeline/standing-orders/{id:[0-9]+}', [\MyInvoice\Action\Timeline\TimelineAction::class, 'deleteOrder']);
+        $app->get   ('/api/timeline/settings',                    [\MyInvoice\Action\Timeline\TimelineAction::class, 'getSettings']);
+        $app->put   ('/api/timeline/settings',                    [\MyInvoice\Action\Timeline\TimelineAction::class, 'saveSettings']);
 
         // Bank statements (M5b)
         $app->post ('/api/bank-statements/upload',           [BankStatementAction::class, 'upload']);
