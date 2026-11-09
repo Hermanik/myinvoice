@@ -152,6 +152,24 @@ abstract class DataboxIntegrationTestCase extends TestCase
         return $box;
     }
 
+    /** Have tearDown remove a box the test created without {@see connectBox()} / {@see connectEmailBox()}. */
+    protected function trackBox(int $boxId): void
+    {
+        $this->createdBoxes[] = $boxId;
+    }
+
+    /**
+     * Connect a box that is watched by notification e-mails only (no login); removed in tearDown.
+     *
+     * @return array<string,mixed> public view
+     */
+    protected function connectEmailBox(string $dbId = DatovkaNoticeFixtures::RECIPIENT_BOX, string $dbType = 'PFO', ?int $supplierId = null): array
+    {
+        $box = $this->service->add($supplierId ?? $this->supplierId, ['mode' => 'email', 'label' => 'E-mail box', 'db_id' => $dbId, 'db_type' => $dbType]);
+        $this->trackBox($box['id']);
+        return $box;
+    }
+
     protected function scriptLogin(string $owner, string $user): void
     {
         $this->isds->queue('GetOwnerInfoFromLogin2', DataboxFixtures::xml($owner));

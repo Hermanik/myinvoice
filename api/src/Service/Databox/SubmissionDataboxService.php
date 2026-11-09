@@ -62,7 +62,8 @@ final class SubmissionDataboxService
         $submission = $this->requireSubmission($supplierId, $submissionId);
         $supplier = $this->supplierRow($supplierId);
         $office = $this->officeFor($submission, $supplier);
-        $boxes = $this->service->listPublic($supplierId);
+        // A box watched by notification e-mails only has no login: nothing can be sent from it.
+        $boxes = array_filter($this->service->listPublic($supplierId), static fn (array $box): bool => !DataboxService::isEmailOnly($box));
 
         $candidates = [];
         foreach ($boxes as $box) {

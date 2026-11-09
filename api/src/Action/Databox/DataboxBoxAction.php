@@ -21,7 +21,8 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  * Connected data boxes (Settings -> Datové schránky) - session + admin only.
  *
  *   GET    /api/databox/boxes                              list
- *   POST   /api/databox/boxes                              connect a box (box ID / type are resolved from the login)
+ *   POST   /api/databox/boxes                              connect a box (box ID / type are resolved from the login;
+ *                                                          {mode:'email', db_id, db_type, label?, owner_name?} watches it by notification e-mails only)
  *   GET    /api/databox/boxes/{id}
  *   PUT    /api/databox/boxes/{id}                         label, is_active, allow_delivering_sync
  *   DELETE /api/databox/boxes/{id}?confirm_delete_messages=1
@@ -63,14 +64,20 @@ final class DataboxBoxAction extends DataboxActionBase
     {
         return $this->run($request, $response, function (int $sid) use ($request, $response): Response {
             $body = $this->body($request);
-            $box = $this->service->add($sid, [
+            $box = $this->service->add($sid, ($body['mode'] ?? 'isds') === 'email' ? [
+                'mode' => 'email',
+                'label' => (string) ($body['label'] ?? ''),
+                'db_id' => (string) ($body['db_id'] ?? ''),
+                'db_type' => (string) ($body['db_type'] ?? ''),
+                'owner_name' => (string) ($body['owner_name'] ?? ''),
+            ] : [
                 'label' => (string) ($body['label'] ?? ''),
                 'environment' => (string) ($body['environment'] ?? 'production'),
                 'sync' => ['username' => (string) ($body['sync']['username'] ?? ''), 'password' => (string) ($body['sync']['password'] ?? '')],
                 'action' => isset($body['action']) ? ['username' => (string) ($body['action']['username'] ?? ''), 'password' => (string) ($body['action']['password'] ?? '')] : null,
                 'allow_delivering_sync' => (bool) ($body['allow_delivering_sync'] ?? false),
             ]);
-            $this->audit($request, 'databox.connected', $box['id'], ['db_id' => $box['db_id'], 'db_type' => $box['db_type'], 'environment' => $box['environment']]);
+            $this->audit($request, 'databox.connected', $box['id'], ['db_id' => $box['db_id'], 'db_type' => $box['db_type'], 'environment' => $box['environment'], 'mode' => $box['connection_mode']]);
             return Json::ok($response, $box, 201);
         });
     }

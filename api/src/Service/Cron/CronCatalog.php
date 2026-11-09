@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Cron;
 
 /**
- * Katalog plánovaných úloh — jeden zdroj pravdy pro:
- *   - api/bin/cron-*.php (jméno běhu)
- *   - cmd/cron-*.{cmd,sh} (wrappery)
- *   - UI Systém → Plánované úlohy (doporučená frekvence, max stáří)
+ * Catalogue of scheduled jobs - the single source of truth for:
+ *   - api/bin/cron-*.php (job name)
+ *   - cmd/cron-*.{cmd,sh} (wrappers)
+ *   - UI System -> Scheduled jobs (recommended frequency, max age)
  *
- * Pokud poslední úspěšný běh (`last_ok_at`) je starší než `max_age_hours`,
- * UI hlásí varování ("cron nejede" nebo "selhává"). Hodnoty mají bezpečnou
- * rezervu (víkend, výpadek hostingu, holiday).
+ * If the last successful run (`last_ok_at`) is older than `max_age_hours`, the UI
+ * shows a warning ("cron is not running" or "keeps failing"). The values leave a
+ * safe margin (weekend, hosting outage, holiday).
  */
 final class CronCatalog
 {
@@ -28,8 +28,8 @@ final class CronCatalog
      *   requires_config?:string
      * }>
      *
-     * `requires_config` (volitelné) = cfg klíč adresáře, bez kterého úloha nemá
-     * co dělat (scan vypnutý). UI ji pak skryje, dokud není nastaven (CronJobsAction).
+     * `requires_config` (optional) = the cfg key of a directory without which the job
+     * has nothing to do (scan disabled). The UI hides the job until it is set (CronJobsAction).
      */
     public static function all(): array
     {
@@ -142,6 +142,16 @@ final class CronCatalog
                 'recommended' => 'hourly_17',
                 'linux_cron' => '17 * * * *',
                 'windows_schtasks' => '/sc hourly /mo 1',
+                'max_age_hours' => 4,
+                'weekdays_only' => false,
+                'critical' => false,
+            ],
+            [
+                // Reads the ISDS notification e-mails of boxes watched without a login; never delivers messages.
+                'script' => 'cron-databox-email-notices',
+                'recommended' => 'every_30_min',
+                'linux_cron' => '*/30 * * * *',
+                'windows_schtasks' => '/sc minute /mo 30',
                 'max_age_hours' => 4,
                 'weekdays_only' => false,
                 'critical' => false,

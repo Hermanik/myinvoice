@@ -35,6 +35,7 @@ use MyInvoice\Action\Admin\Import\AnthropicCredentialsAction;
 use MyInvoice\Action\Admin\Import\AiExtractPdfAction;
 use MyInvoice\Action\Crm\CrmDashboardAction;
 use MyInvoice\Action\Databox\DataboxBoxAction;
+use MyInvoice\Action\Databox\DataboxEmailAction;
 use MyInvoice\Action\Databox\DataboxMessageAction;
 use MyInvoice\Action\Databox\DataboxSendAction;
 use MyInvoice\Action\Report\DphPriznaniAction;
@@ -617,6 +618,9 @@ final class Routes
         $app->post   ('/api/databox/boxes/{id:[0-9]+}/verify',                 [DataboxBoxAction::class, 'verify']);
         $app->post   ('/api/databox/boxes/{id:[0-9]+}/sync',                   [DataboxBoxAction::class, 'syncNow']);
         $app->post   ('/api/databox/boxes/{id:[0-9]+}/acknowledge-all',        [DataboxBoxAction::class, 'acknowledgeAll']);
+        $app->get    ('/api/databox/email-settings',                          [DataboxEmailAction::class, 'get']);
+        $app->put    ('/api/databox/email-settings',                          [DataboxEmailAction::class, 'update']);
+        $app->post   ('/api/databox/email-settings/scan',                     [DataboxEmailAction::class, 'scan']);
         $app->get    ('/api/databox/boxes/{id:[0-9]+}/lookup',                 [DataboxBoxAction::class, 'lookup']);
         $app->put    ('/api/databox/boxes/{id:[0-9]+}/credentials/{purpose:[a-z]+}',    [DataboxBoxAction::class, 'setCredential']);
         $app->delete ('/api/databox/boxes/{id:[0-9]+}/credentials/{purpose:[a-z]+}',    [DataboxBoxAction::class, 'removeCredential']);

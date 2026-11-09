@@ -1,0 +1,24 @@
+{% extends '_layout.txt.twig' %}
+
+{% block content %}
+NOVÁ ZPRÁVA V DATOVÉ SCHRÁNCE
+=============================
+
+Dobrý den,
+
+do datové schránky {{ box_label|raw }} ({{ box_db_id }}) dorazila nová zpráva{% if is_tax_office %} od finančního úřadu{% endif %}.
+Upozornění vzniklo z e-mailové notifikace systému datových schránek, aplikace se do schránky nepřihlásila.
+
+Věc:             {{ annotation|default('(bez věci)')|raw }}
+Odesílatel:      {{ sender_name|default('—')|raw }} ({{ sender_box_id }})
+Číslo zprávy:    {{ dm_id }}
+Dorazila:        {{ arrived_at }}
+Doručí se fikcí: {{ fiction_date }}
+
+ZPRÁVA ZATÍM NENÍ DORUČENA. Doručená bude, až ji někdo oprávněný otevře na portálu datových schránek, nejpozději však {{ fiction_date }} (fikce doručení po 10 dnech). Od doručení běží případné zákonné lhůty.
+
+Portál datových schránek: {{ portal_link }}
+{% if app_link %}
+Zobrazit v aplikaci: {{ app_link }}
+{% endif %}
+{% endblock %}

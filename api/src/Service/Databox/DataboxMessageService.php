@@ -80,6 +80,7 @@ final class DataboxMessageService
     {
         $message = $this->requireMessage($supplierId, $messageId);
         $box = $this->requireStoredBox((int) $message['databox_id']);
+        $this->service->requireIsdsMode($box);
 
         if ($message['has_zfo']) {
             $this->messages->acknowledge($messageId, $userId);
@@ -257,6 +258,8 @@ final class DataboxMessageService
 
         return [
             'stored' => (bool) $message['has_zfo'],
+            // A box watched by e-mail has no login: the message can only be opened in the data box portal.
+            'email_only' => DataboxService::isEmailOnly($box),
             'needs_acknowledgement' => $needsLogin,
             // Without the delivery time the login cannot be narrowed to this one message, and a wider listing would
             // deliver (start the legal deadlines of) other undelivered messages as well: such a message is not opened here.

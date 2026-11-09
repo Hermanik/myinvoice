@@ -89,6 +89,13 @@ schránky nebo její administrátor.
 > schránky, použij jiný postup vydání přístupu (poštou, Czech POINT) nebo zavolej na
 > infolinku datových schránek **954 200 200**.
 
+> [!NOTE]
+> **Držitel schránky se jako další uživatel své vlastní schránky přidat nedá.** Portál
+> odpoví *„Zadaná osoba již je mezi uživateli"* a omezený účet pro aplikaci tak
+> nevznikne. Přihlášení vlastníka do aplikace zadávat nechceš (viz upozornění níže),
+> proto je tu druhá cesta, která žádné přihlášení nepotřebuje:
+> [sledování přes e-mailová upozornění](#sledovani-bez-prihlaseni-e-mailova-upozorneni).
+
 > [!WARNING]
 > **Nikdy nezadávej do aplikace přístupové údaje vlastníka schránky** a aplikaci
 > provozuj jen na serveru, který máš plně pod kontrolou. Provozní řád ISDS říká, že
@@ -134,6 +141,87 @@ vždy čtena automaticky). Ve výchozím stavu je vypnutá.
 **Odebrat** schránku smaže i uložené zprávy a doručenky — aplikace se před tím
 výslovně zeptá.
 
+## Sledování bez přihlášení: e-mailová upozornění
+
+Schránku lze hlídat i **bez jakéhokoliv přihlášení do ISDS**. Systém datových schránek
+umí o každé nové zprávě poslat **upozornění e-mailem**; aplikace tyto e-maily čte přes
+IMAP a zprávy z nich zakládá ve schránce.
+
+**Proč to existuje.** Držitel schránky se nemůže přidat jako vlastní „pověřená osoba"
+(portál odpoví *„Zadaná osoba již je mezi uživateli"*), takže pro něj nejde založit
+omezeného uživatele jen se seznamy. Přihlášení vlastníka do aplikace by naopak při
+každém vypsání seznamu zprávy **doručilo**. E-mailové upozornění nedoručí nikdy nic —
+čtení pošty není přihlášení do schránky.
+
+### Nastavení v portálu ISDS
+
+1. Přihlas se do portálu **https://www.datovka.gov.cz**, vstup do schránky a otevři
+   **Nastavení → Notifikace → Notifikace e-mailem**.
+2. Zadej e-mailovou adresu, kterou aplikace přečte přes IMAP (viz dále). Portál na ni
+   pošle e-mail s jednorázovým kódem — zadej ho v portálu. Aplikace tento e-mail
+   **nikdy nečte ani neukládá**.
+3. Zaškrtni upozornění na **novou zprávu**, na zprávu **do vlastních rukou** a na
+   **nedodanou odeslanou zprávu**.
+4. Jako obsah vol **Rozšířený obsah** — jen ten uvádí odesílatele, věc a číslo zprávy,
+   které aplikace potřebuje.
+
+### Poštovní schránka
+
+- Aplikace použije **některý z IMAP účtů, které už máš nastavené pro bankovní avíza**
+  (**Finance → Bankovní účty → e-mailová avíza**); hesla zůstávají tam a do tohoto
+  nastavení se nekopírují. Jeden účet může sloužit oběma účelům.
+- V poštovní schránce si udělej **pravidlo**, které e-maily od
+  `notifikace@datovka.gov.cz` (starší upozornění přišla z `notifikace@mojedatovaschranka.cz`)
+  ukládá do **samostatné složky**, třeba *Datovka*. Aplikace čte při každém běhu
+  posledních 100 e-mailů ve složce.
+
+### Nastavení v aplikaci
+
+1. **Systém → Nastavení → Datové schránky → Přidat schránku** a vol **Jen e-mailová
+   upozornění (bez přihlášení)**. Zadej **ID schránky** (7 znaků, najdeš ho v portálu;
+   kontrolní znak se ověřuje), **typ** (FO, PFO, PO) a volitelně název a majitele — bez
+   přihlášení je aplikace zjistit nemůže. Schránka je vždy z ostrého systému.
+2. V části **E-mailová upozornění z datovky** vyber **IMAP účet** a **složku**,
+   volitelně **adresu pro upozornění** a zaškrtni **Kontrolovat poštu automaticky**.
+   Tlačítko **Zkontrolovat teď** poštu přečte hned a ukáže souhrn (přečteno, nové zprávy,
+   odmítnuto …).
+3. Automatickou kontrolu dělá úloha `cron-databox-email-notices` (každých 30 minut,
+   viz [Po instalaci a CLI](05_Po_instalaci.md)).
+
+### Co aplikace s e-mailem udělá
+
+- Poštu **jen čte**: e-maily neoznačuje jako přečtené, nepřesouvá ani nesmaže.
+- **Ověří, že upozornění opravdu poslal systém datových schránek.** E-mail musí přijít
+  z `notifikace@datovka.gov.cz` nebo `notifikace@mojedatovaschranka.cz` a mít platný
+  **podpis DKIM** té samé domény. Podvržený nebo upravený e-mail se **odmítne a nikdy
+  se neimportuje**. Nejde-li dočasně ověřit podpis (výpadek DNS), zkusí to aplikace
+  při dalším běhu znovu.
+- Z upozornění založí **přijatou zprávu** ve schránce uvedené jako příjemce. Zpráva je
+  ve stavu **V schránce** (není doručena), má štítek **z e-mailového upozornění**, u
+  finančního úřadu je zvýrazněná červeně a objeví se na dashboardu jako u zpráv
+  ze synchronizace. Datum doručení fikcí se počítá z času e-mailu.
+- Je-li zadaná **adresa pro upozornění**, pošle na ni **jeden e-mail za každou novou
+  zprávu**: věc (u finančního úřadu s předponou *[Finanční úřad]*), odesílatele, číslo
+  zprávy, kdy dorazila, kdy se doručí fikcí, odkaz do aplikace a na portál. E-mail
+  výslovně říká, že zpráva **není doručena**, dokud ji někdo neotevře v portálu.
+  Selže-li odeslání, zpráva zůstane založená a chyba se ukáže v souhrnu.
+- Každý e-mail se zpracuje **jednou**. Upozornění na schránku, kterou jsi ještě nepřidal,
+  se zapamatuje a načte se, jakmile schránku přidáš.
+
+### Co to umí a co ne
+
+- **Nikdy nic nedoručí** — nepřihlašuje se. Lhůty začnou běžet, až zprávu otevřeš
+  v portálu, nebo ji doručí fikce.
+- Vidí **jen přijaté zprávy, o kterých přišlo upozornění**. Vypadne-li upozornění
+  (vypnuté notifikace, špatné pravidlo, spam), zpráva v aplikaci chybí. Odeslané zprávy
+  ani změnu stavu (doručení, přečtení) aplikace neuvidí — zpráva zůstane *V schránce*,
+  dokud ji sám neoznačíš jako vyřízenou.
+- **Neotevře obsah ani přílohy, nic neodešle** a nenačítá doručenky. Místo tlačítka
+  *Otevřít a stáhnout* je u zprávy odkaz na portál datových schránek. Synchronizaci
+  na pozadí tato schránka přeskakuje, akce vyžadující přihlášení odmítne.
+- Režim schránky se po založení nemění. Chceš-li ji později připojit přihlášením,
+  odeber ji a přidej znovu (uložené zprávy se smažou).
+
 ## Synchronizace na pozadí
 
 Úloha `cron-databox-sync` (hodinově, viz [Po instalaci a CLI](05_Po_instalaci.md))
@@ -159,6 +247,8 @@ zprávu poslal, věc, datum dodání, stav. **Obsah ani přílohy nestahuje.**
 
 ## Stránka Datové schránky
 
+- Zprávy ze schránky sledované **jen přes e-mailová upozornění** mají štítek
+  **z e-mailového upozornění** a místo *Otevřít a stáhnout* odkaz na portál datových schránek.
 - **Přepínač schránek** nahoře, záložky **Přijaté** a **Odeslané**, filtr
   *Nepřečtené* a *Od finančního úřadu*, hledání podle věci / odesílatele / čísla zprávy.
 - **Stav zprávy** v seznamu:
@@ -285,6 +375,9 @@ Lhůta pro podání se plní dnem, kdy zpráva **dojde** správci daně — odes
 - Zprávy a podepsané soubory jsou uložené v databázi aplikace, tedy i v **zálohách
   databáze**. Příloha se vždy nabízí ke stažení, nikdy se nezobrazuje přímo v prohlížeči.
 - Server komunikuje s ISDS přes HTTPS (TLS 1.2+) s ověřením certifikátu.
+- E-mailová upozornění se berou jen z ověřeného odesílatele a s platným podpisem DKIM;
+  hlavička *Authentication-Results* se nebere v úvahu, protože ji může napsat kdokoliv.
+  E-maily s ověřovacím kódem aplikace nečte, neukládá ani nezapisuje do logu.
 
 ## Příkazová řádka
 
@@ -310,6 +403,10 @@ až s `--allow-delivery`. Nikdy nestahuje obsah ani nic neodesílá.
 | *Zpráva dosud nebyla doručena* (kód 1222) | Zprávu lze stáhnout až po doručení. Otevři ji tlačítkem v aplikaci (s potvrzením), nebo v portálu. |
 | *Určena do vlastních rukou* (kód 1178) | Přečti ji v oficiálním portálu, nebo přidej přihlášení s právem „…do vlastních rukou". |
 | *Chybí právo …* | Přihlášení nemá potřebné právo v ISDS; uprav práva v portálu a spusť **Ověřit připojení**. |
+| *Odmítnuto pro neplatný podpis* (e-mailová upozornění) | E-mail neprošel ověřením DKIM: nepřišel od systému datových schránek, nebo ho cestou upravil mezilehlý server (některé přeposílací služby mění obsah). Používej přímé doručení na IMAP schránku. |
+| *Upozornění pro schránku, která není přidaná* | Upozornění je pro jinou schránku, než máš v aplikaci. Přidej ji (**Přidat schránku → Jen e-mailová upozornění**), načte se při dalším běhu. |
+| *Nečitelných upozornění* | E-mail má tvar, který aplikace nezná. Zpráva se nezaložila; zkontroluj ji v portálu. |
+| Zpráva z portálu v aplikaci chybí (e-mailová upozornění) | Zkontroluj, že je v ISDS zapnutá notifikace, že pravidlo ukládá e-mail do správné složky a že složka a IMAP účet v nastavení sedí; **Zkontrolovat teď** ukáže, co se z pošty přečetlo. |
 | *Kód 3008 / 3009* | ISDS omezuje počet souběžných požadavků; zkus to za chvíli. |
 | *Odstávka (HTTP 503)* | Plánovaná odstávka ISDS; synchronizace se opakuje v další hodině. |
 

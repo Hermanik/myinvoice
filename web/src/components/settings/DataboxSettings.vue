@@ -7,6 +7,7 @@ import { databoxErrorMessage } from '@/utils/databox'
 import BoxCard from '@/components/databox/BoxCard.vue'
 import AddBoxForm from '@/components/databox/AddBoxForm.vue'
 import IsdsHelp from '@/components/databox/IsdsHelp.vue'
+import EmailNoticeSettings from '@/components/databox/EmailNoticeSettings.vue'
 
 const { t, te } = useI18n()
 const toast = useToast()
@@ -53,6 +54,7 @@ onMounted(load)
 
     <div class="mt-4 space-y-4">
       <IsdsHelp />
+      <EmailNoticeSettings />
       <AddBoxForm v-if="adding" @created="onCreated" @cancel="adding = false" />
       <div v-if="boxes === null" class="text-sm text-neutral-500">{{ t('common.loading') }}</div>
       <p v-else-if="boxes.length === 0 && !adding" class="text-sm text-neutral-500">{{ t('databox.settings.empty') }}</p>

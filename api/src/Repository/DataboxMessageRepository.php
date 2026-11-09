@@ -15,7 +15,7 @@ use MyInvoice\Service\Databox\TaxOfficeMessageClassifier;
 final class DataboxMessageRepository
 {
     /** Columns of a list row: everything but the bulky delivery_info_xml. */
-    private const LIST_COLUMNS = 'm.id, m.databox_id, m.direction, m.dm_id, m.sender_box_id, m.sender_name, m.sender_type,
+    private const LIST_COLUMNS = 'm.id, m.databox_id, m.direction, m.source, m.dm_id, m.sender_box_id, m.sender_name, m.sender_type,
         m.recipient_box_id, m.recipient_name, m.annotation, m.to_hands, m.sender_ref_number, m.recipient_ref_number,
         m.sender_ident, m.recipient_ident, m.personal_delivery, m.allow_subst_delivery, m.message_type, m.status,
         m.attachment_size_kb, m.delivery_time, m.acceptance_time, m.is_tax_office, m.tax_office_kind, m.first_seen_at,
@@ -76,6 +76,8 @@ final class DataboxMessageRepository
             $updates[] = "{$column} = COALESCE(VALUES({$column}), {$column})";
         }
         $updates[] = 'last_seen_at = VALUES(last_seen_at)';
+        // A message first announced by e-mail is now confirmed by the data box system itself.
+        $updates[] = "source = 'isds'";
 
         $stmt = $this->db->pdo()->prepare(
             'INSERT INTO databox_messages (' . implode(', ', array_keys($row)) . ') VALUES (' . implode(', ', array_fill(0, count($row), '?')) . ')'
@@ -84,6 +86,34 @@ final class DataboxMessageRepository
         $stmt->execute(array_values($row));
         // Affected rows: 1 = inserted, 2 = updated, 0 = identical values.
         return ['id' => (int) $this->db->pdo()->lastInsertId(), 'is_new' => $stmt->rowCount() === 1, 'is_tax_office' => $isTaxOffice];
+    }
+
+    /**
+     * Record a received message announced by a notification e-mail. Everything the e-mail does not say stays empty. A message
+     * the box already has (e.g. from the synchronisation) is left exactly as it is.
+     *
+     * @param array{dm_id:string, sender_box_id:string, sender_name:?string, sender_type:?int, recipient_box_id:string,
+     *              recipient_name:?string, annotation:?string, delivery_time:\DateTimeInterface} $notice
+     * @return array{id:int, is_new:bool, is_tax_office:bool}
+     */
+    public function insertFromEmailNotice(int $boxId, array $notice, \DateTimeImmutable $now): array
+    {
+        $class = TaxOfficeMessageClassifier::classify($notice);
+        $ts = $now->format('Y-m-d H:i:s');
+        $stmt = $this->db->pdo()->prepare(
+            "INSERT INTO databox_messages
+                (databox_id, direction, source, dm_id, sender_box_id, sender_name, sender_type, recipient_box_id, recipient_name,
+                 annotation, status, delivery_time, is_tax_office, tax_office_kind, first_seen_at, last_seen_at)
+             VALUES (?, 'received', 'email', ?, ?, ?, ?, ?, ?, ?, " . DeliveryDates::STATE_DELIVERED_TO_BOX . ", ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)"
+        );
+        $stmt->execute([
+            $boxId, $notice['dm_id'], $notice['sender_box_id'], $this->cut($notice['sender_name'], 255), $notice['sender_type'],
+            $notice['recipient_box_id'], $this->cut($notice['recipient_name'], 255), $this->cut($notice['annotation'], 255),
+            $this->dt($notice['delivery_time']), (int) $class['is_tax_office'], $class['kind'], $ts, $ts,
+        ]);
+        // Affected rows: 1 = inserted, 0 = the message was there already.
+        return ['id' => (int) $this->db->pdo()->lastInsertId(), 'is_new' => $stmt->rowCount() === 1, 'is_tax_office' => $class['is_tax_office']];
     }
 
     /**

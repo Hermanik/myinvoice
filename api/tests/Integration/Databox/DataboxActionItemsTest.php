@@ -84,6 +84,33 @@ final class DataboxActionItemsTest extends DataboxIntegrationTestCase
         self::assertSame([], $this->databoxItems());
     }
 
+    public function testAMessageAnnouncedByEmailRaisesTheSameItemsAndNothingElse(): void
+    {
+        $box = $this->connectEmailBox();
+        $at = new \DateTimeImmutable('2026-11-09 10:00:00');
+        $insert = fn (string $dmId, string $sender, string $annotation) => $this->messages->insertFromEmailNotice($box['id'], [
+            'dm_id' => $dmId, 'sender_box_id' => 'abc1234', 'sender_name' => $sender, 'sender_type' => null,
+            'recipient_box_id' => $box['db_id'], 'recipient_name' => 'Jana', 'annotation' => $annotation,
+            'delivery_time' => new \DateTimeImmutable('2026-11-09 09:30:00'),
+        ], $at);
+        $tax = $insert('1001', 'Finanční úřad pro Testovací kraj', 'Výzva k podání kontrolního hlášení');
+        $insert('1002', 'Obec Testov', 'Pozvánka');
+
+        $items = $this->databoxItems();
+
+        self::assertTrue($tax['is_tax_office']);
+        self::assertSame('high', $items['databox_tax_office']['severity']);
+        self::assertSame(1, $items['databox_tax_office']['count']);
+        self::assertSame('/databox?box=' . $box['id'] . '&filter=tax_office', $items['databox_tax_office']['link']);
+        self::assertStringContainsString('Výzva k podání kontrolního hlášení', $items['databox_tax_office']['hint']);
+        self::assertSame(1, $items['databox_unread']['count']);
+        self::assertArrayNotHasKey('databox_sync_error', $items, 'a box without a login never has a broken sync');
+        self::assertArrayNotHasKey('databox_password_expiry', $items);
+
+        $this->messageService->acknowledgeAll($this->supplierId, $box['id'], $this->userId);
+        self::assertSame([], $this->databoxItems());
+    }
+
     public function testABrokenSyncIsReportedSoTheOwnerFixesTheLogin(): void
     {
         $box = $this->connectBox();

@@ -64,6 +64,7 @@ final class DataboxSendService
         $now ??= new \DateTimeImmutable();
         $this->outbox->purgeExpired($now);
         $box = $this->service->requireBox($supplierId, $boxId);
+        $this->service->requireIsdsMode($box);
         if (!$box['is_active']) {
             throw new DataboxException('box_inactive', 'Datová schránka je vypnutá.', 409);
         }

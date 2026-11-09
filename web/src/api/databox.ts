@@ -2,7 +2,9 @@ import { api } from '@/api/client'
 
 export type DataboxEnvironment = 'production' | 'test'
 export type DataboxType = 'FO' | 'PFO' | 'PO' | string
-export type SyncState = 'ok' | 'opt_in' | 'blocked_delivers' | 'blocked_no_list' | 'unverified' | 'no_credential' | 'login_failed'
+export type SyncState = 'ok' | 'opt_in' | 'blocked_delivers' | 'blocked_no_list' | 'unverified' | 'no_credential' | 'login_failed' | 'email_only'
+/** `email` = watched through the notification e-mails of the data box system only: no login, no ISDS call. */
+export type ConnectionMode = 'isds' | 'email'
 export type MessageState = 'in_box' | 'fiction' | 'delivered' | 'undeliverable' | 'erased' | 'rejected' | 'other' | 'unknown'
 
 export interface DataboxCredential {
@@ -26,6 +28,7 @@ export interface DataboxBox {
   id: number
   label: string | null
   environment: DataboxEnvironment
+  connection_mode: ConnectionMode
   db_id: string | null
   db_type: DataboxType | null
   owner_name: string | null
@@ -60,6 +63,46 @@ export interface CreateBoxBody {
   allow_delivering_sync?: boolean
 }
 
+/** A box watched by notification e-mails only; the holder names it, nothing is looked up. */
+export interface CreateEmailBoxBody {
+  mode: 'email'
+  label?: string
+  db_id: string
+  db_type: 'FO' | 'PFO' | 'PO'
+  owner_name?: string
+}
+
+export interface EmailImapAccount { id: number; name: string; host: string; username: string; has_password: boolean }
+
+export interface EmailNoticeSettings {
+  imap_account_id: number | null
+  folder: string
+  enabled: boolean
+  alert_email: string | null
+  last_scan_at: string | null
+  last_scan_status: 'ok' | 'error' | null
+  last_scan_message: string | null
+}
+
+export interface EmailSettingsResponse { settings: EmailNoticeSettings; imap_accounts: EmailImapAccount[] }
+
+export interface EmailScanSummary {
+  status: 'ok' | 'error'
+  message: string | null
+  fetched: number
+  created: number
+  linked: number
+  known_skipped: number
+  ignored: number
+  rejected: number
+  unknown_box: number
+  parse_failed: number
+  auth_deferred: number
+  alerts_sent: number
+  alert_errors: number
+  errors: number
+}
+
 export interface TaxOfficeHint {
   code: 'kh_change_17d' | 'kh_file_5d'
   law: string
@@ -71,6 +114,8 @@ export interface DataboxMessage {
   id: number
   databox_id: number
   direction: 'received' | 'sent'
+  /** `email` = announced by a notification e-mail, not (yet) confirmed by the data box system itself */
+  source: 'isds' | 'email'
   dm_id: string
   sender_box_id: string | null
   sender_name: string | null
@@ -105,6 +150,8 @@ export interface MessageDetail extends DataboxMessage {
   receipt: null | { events: Array<{ time: string; text: string }> }
   open: {
     stored: boolean
+    /** The box has no login (watched by e-mail): the message can only be opened in the data box portal. */
+    email_only: boolean
     needs_acknowledgement: boolean
     undelivered: boolean
     fiction_date: string | null
@@ -197,7 +244,7 @@ export function databoxDownloadUrl(path: string): string {
 // endpoint is SendConfirmModal.vue, after the user confirmed the prepared summary.
 export const databoxApi = {
   listBoxes: () => api.get<DataboxBox[]>('/databox/boxes').then(r => r.data),
-  createBox: (body: CreateBoxBody) => api.post<DataboxBox>('/databox/boxes', body).then(r => r.data),
+  createBox: (body: CreateBoxBody | CreateEmailBoxBody) => api.post<DataboxBox>('/databox/boxes', body).then(r => r.data),
   updateBox: (id: number, body: { label?: string; is_active?: boolean; allow_delivering_sync?: boolean }) =>
     api.put<DataboxBox>(`/databox/boxes/${id}`, body).then(r => r.data),
   deleteBox: (id: number, confirmDeleteMessages = false) =>
@@ -213,6 +260,12 @@ export const databoxApi = {
     api.post<{ acknowledged: number }>(`/databox/boxes/${id}/acknowledge-all`).then(r => r.data),
   lookup: (id: number, q: string) =>
     api.get<{ status_code: string | null; boxes: LookupBox[] }>(`/databox/boxes/${id}/lookup`, { params: { q } }).then(r => r.data),
+
+  emailSettings: () => api.get<EmailSettingsResponse>('/databox/email-settings').then(r => r.data),
+  saveEmailSettings: (body: Partial<Pick<EmailNoticeSettings, 'imap_account_id' | 'folder' | 'enabled' | 'alert_email'>>) =>
+    api.put<EmailSettingsResponse>('/databox/email-settings', body).then(r => r.data),
+  scanEmail: () =>
+    api.post<EmailSettingsResponse & { summary: EmailScanSummary }>('/databox/email-settings/scan').then(r => r.data),
 
   listMessages: (boxId: number, p: MessageListParams) =>
     api.get<MessageList>(`/databox/boxes/${boxId}/messages`, {

@@ -31,6 +31,8 @@ const selectedId = ref<number | null>(null)
 const composing = ref(false)
 
 const currentBox = computed(() => boxes.value.find(b => b.id === boxId.value) ?? null)
+// A box watched by notification e-mails has no login, so nothing can be sent from it.
+const sendableBoxes = computed(() => boxes.value.filter(b => b.connection_mode !== 'email'))
 const pages = computed(() => Math.max(1, Math.ceil(total.value / PER_PAGE)))
 
 async function loadMessages() {
@@ -145,7 +147,7 @@ const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
         <h1 class="text-2xl font-semibold">{{ t('databox.page.title') }}</h1>
         <p class="text-sm text-neutral-500 mt-0.5">{{ t('databox.page.subtitle') }}</p>
       </div>
-      <button v-if="boxes.some(b => b.is_active)" type="button" class="cursor-pointer h-9 px-4 rounded-md bg-primary-600 text-white text-sm hover:bg-primary-700" @click="composing = true">
+      <button v-if="sendableBoxes.some(b => b.is_active)" type="button" class="cursor-pointer h-9 px-4 rounded-md bg-primary-600 text-white text-sm hover:bg-primary-700" @click="composing = true">
         {{ t('databox.compose.button') }}
       </button>
     </div>
@@ -190,6 +192,7 @@ const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
                     <span class="font-medium truncate" :class="{ 'font-semibold': isUnread(m) }">{{ party(m) }}</span>
                     <span v-if="m.is_tax_office" class="text-xs px-1.5 py-0.5 rounded bg-danger-50 text-danger-500 border border-danger-500/40">{{ t('databox.tax_office') }}</span>
                     <span v-if="m.personal_delivery" class="text-xs px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-700 border border-neutral-200">{{ t('databox.personal_delivery') }}</span>
+                    <span v-if="m.source === 'email'" class="text-xs px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 border border-primary-200" data-test="source-email-badge">{{ t('databox.source.email') }}</span>
                   </span>
                   <span class="block text-sm text-neutral-700 truncate">{{ m.annotation || t('databox.detail.no_subject') }}</span>
                 </span>
@@ -211,6 +214,6 @@ const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
       </div>
     </template>
 
-    <ComposeModal v-if="composing" :boxes="boxes" :initial-box-id="boxId" @close="composing = false" @sent="loadMessages" />
+    <ComposeModal v-if="composing" :boxes="sendableBoxes" :initial-box-id="boxId" @close="composing = false" @sent="loadMessages" />
   </div>
 </template>

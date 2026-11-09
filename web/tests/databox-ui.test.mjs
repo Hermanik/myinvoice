@@ -21,7 +21,8 @@ const allSources = async () => {
   return Promise.all(files.map(async f => ({ file: f.slice(fileURLToPath(root).length), src: await readFile(f, 'utf8') })))
 }
 const settingsFiles = ['components/settings/DataboxSettings.vue', 'components/databox/BoxCard.vue', 'components/databox/AddBoxForm.vue',
-  'components/databox/CredentialForm.vue', 'components/databox/CredentialRow.vue', 'components/databox/IsdsHelp.vue', 'components/databox/PermissionIndicator.vue']
+  'components/databox/CredentialForm.vue', 'components/databox/CredentialRow.vue', 'components/databox/IsdsHelp.vue', 'components/databox/PermissionIndicator.vue',
+  'components/databox/EmailNoticeSettings.vue']
 
 test('the databox route is admin only and the sidebar entry is gated by isAdmin', async () => {
   const router = await read('router/index.ts')
@@ -120,4 +121,53 @@ test('TaxSubmissions offers the data box send only to admins, inside the filing 
   assert.match(modal, /<SendConfirmModal/)
   const confirm = await read('components/databox/SendConfirmModal.vue')
   assert.match(confirm, /data-test="filing-outcome"/)
+})
+
+test('the e-mail notice mode: settings section, add-box choice, badge and portal link instead of the open button', async () => {
+  const settings = await read('components/settings/DataboxSettings.vue')
+  assert.match(settings, /<EmailNoticeSettings\s*\/>/)
+
+  const section = await read('components/databox/EmailNoticeSettings.vue')
+  assert.match(section, /databoxApi\.emailSettings\(\)/)
+  assert.match(section, /databoxApi\.saveEmailSettings\(body\(\)\)/)
+  assert.match(section, /databoxApi\.scanEmail\(\)/)
+  assert.match(section, /data-test="email-scan-now"/)
+  assert.match(section, /v-model="enabled" type="checkbox"/)
+  assert.doesNotMatch(section, /type="password"/, 'the IMAP password stays in the bank notice settings')
+
+  // Adding a box: the e-mail choice sends no logins and hides every password field.
+  const form = await read('components/databox/AddBoxForm.vue')
+  assert.match(form, /value="email"/)
+  assert.match(form, /mode: 'email',\s+label:/)
+  assert.match(form, /if \(mode\.value === 'email'\) return submitEmail\(\)/)
+  assert.equal([...form.matchAll(/<fieldset v-if="mode === 'isds'"/g)].length, 2, 'both login blocks are ISDS only')
+  const emailSubmit = form.slice(form.indexOf('function submitEmail'), form.indexOf('const canSubmit'))
+  assert.doesNotMatch(emailSubmit, /syncUser|syncPass|actionPass/, 'no login goes into an e-mail box')
+
+  // A box watched by e-mail has no login actions.
+  const card = await read('components/databox/BoxCard.vue')
+  assert.match(card, /const emailOnly = computed\(\(\) => props\.box\.connection_mode === 'email'\)/)
+  assert.match(card, /<button v-if="!emailOnly" type="button" :class="btn" :disabled="busy" @click="verify">/)
+  assert.match(card, /<button v-if="!emailOnly" type="button" :class="btn" :disabled="busy \|\| !box\.is_active" @click="syncNow">/)
+
+  // Messages: badge in the list and the detail, portal link instead of "Otevřít a stáhnout".
+  const page = await read('pages/databox/DataboxPage.vue')
+  assert.match(page, /v-if="m\.source === 'email'"[^>]*data-test="source-email-badge"/)
+  assert.match(page, /<ComposeModal v-if="composing" :boxes="sendableBoxes"/, 'nothing can be sent from a box without a login')
+  const detail = await read('components/databox/MessageDetail.vue')
+  assert.match(detail, /v-if="detail\.source === 'email'"[^>]*data-test="source-email-badge"/)
+  assert.match(detail, /const canOpen = computed\(\(\) => isReceived\.value && !emailOnly\.value &&/)
+  assert.match(detail, /const PORTAL_URL = 'https:\/\/www\.datovka\.gov\.cz'/)
+  assert.match(detail, /<a :href="PORTAL_URL"[^>]*data-test="portal-link"/)
+  assert.match(detail, /<div v-if="emailOnly"[^>]*data-test="email-only-open"/)
+})
+
+test('the e-mail notice texts exist in both languages', async () => {
+  const [cs, en] = await Promise.all([read('i18n/cs.json'), read('i18n/en.json')].map(p => p.then(JSON.parse)))
+  for (const d of [cs.databox, en.databox]) {
+    for (const k of ['title', 'intro', 'account', 'folder', 'alert', 'enabled', 'scan_now', 'summary', 'box_id', 'box_type']) assert.ok(d.email[k], `email.${k}`)
+    assert.ok(d.source.email && d.mode.email && d.mode.email_badge && d.open.portal && d.open.email_only && d.errors.email_only)
+    assert.ok(d.indicator.email_only && d.indicator.email_only_title)
+  }
+  assert.match(cs.databox.source.email, /e-mailov/)
 })

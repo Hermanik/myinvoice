@@ -5033,7 +5033,9 @@
       "fiction_date": "Bez otevření se zpráva doručí fikcí dne {date}.",
       "no_capable_login": "Žádné uložené přihlášení nemá právo číst přijaté zprávy – doplňte v Nastavení nebo otevřete v portálu.",
       "delivery_time_unknown": "U zprávy chybí čas dodání, takže ji nelze otevřít bez doručení dalších zpráv. Otevřete ji na portálu datových schránek.",
-      "go_settings": "Otevřít Nastavení"
+      "go_settings": "Otevřít Nastavení",
+      "email_only": "Tuto zprávu aplikace neotevírá – schránka se sleduje jen přes e-mailová upozornění. Doručí se, až ji otevřete na portálu datových schránek, nejpozději fikcí.",
+      "portal": "Otevřít portál datových schránek"
     },
     "field": {
       "username": "Uživatelské jméno",
@@ -5118,7 +5120,8 @@
       "resend_confirmation_required": "Podání už bylo odesláno, je nutné potvrdit opětovné odeslání.",
       "unvalidated_confirmation_required": "XML nebylo ověřeno proti schématu EPO, odeslání vyžaduje samostatné potvrzení.",
       "integrity_failed": "Odesílaný soubor neodpovídá kontrolnímu součtu. Nic se neodeslalo, připravte odeslání znovu.",
-      "delivery_time_unknown": "U zprávy chybí čas dodání, takže ji nelze otevřít bez doručení dalších zpráv. Otevřete ji na portálu datových schránek."
+      "delivery_time_unknown": "U zprávy chybí čas dodání, takže ji nelze otevřít bez doručení dalších zpráv. Otevřete ji na portálu datových schránek.",
+      "email_only": "Schránka je sledovaná jen přes e-mailová upozornění, aplikace se do ní nepřihlašuje."
     },
     "indicator": {
       "ok_title": "Bezpečné pro synchronizaci",
@@ -5134,7 +5137,9 @@
       "no_credential_title": "Bez přihlášení",
       "no_credential": "Pro synchronizaci není uloženo žádné přihlášení.",
       "login_failed_title": "Přihlášení selhalo",
-      "login_failed": "Přihlášení se nezdařilo. Opravte heslo a spusťte Ověřit připojení."
+      "login_failed": "Přihlášení se nezdařilo. Opravte heslo a spusťte Ověřit připojení.",
+      "email_only_title": "Bez přihlášení",
+      "email_only": "Sledováno jen přes e-mailová upozornění – aplikace se do schránky nepřihlašuje a nic nedoručí."
     },
     "purpose": {
       "sync": "Pro synchronizaci",
@@ -5201,6 +5206,48 @@
     "connecting": "Připojuji…",
     "add_box": "Přidat schránku",
     "add_box_submit": "Připojit schránku",
+    "email": {
+      "title": "E-mailová upozornění z datovky",
+      "intro": "Schránku lze hlídat i bez přihlášení do systému datových schránek: aplikace čte oficiální e-mailová upozornění „Nová datová zpráva“, která systém posílá do vaší pošty. Čtení e-mailů nic nedoručí, takže nespustí žádné lhůty.",
+      "how": "Nejdřív v portálu v Nastavení → Notifikace zapněte upozornění e-mailem (rozšířený obsah) a v poštovní schránce nastavte pravidlo, které je ukládá do samostatné složky.",
+      "account": "IMAP účet (poštovní schránka)",
+      "account_none": "– vyberte IMAP účet –",
+      "no_accounts": "Zatím není nastavený žádný IMAP účet.",
+      "go_accounts": "Nastavit v Bankovních účtech (e-mailová avíza)",
+      "folder": "Složka s upozorněními",
+      "folder_hint": "Složka v poštovní schránce, kam pravidlo ukládá upozornění datových schránek (třeba Datovka).",
+      "alert": "Posílat upozornění na e-mail",
+      "alert_hint": "Při každé nové zprávě pošle aplikace jeden e-mail na tuto adresu. Prázdné = bez e-mailů.",
+      "enabled": "Kontrolovat poštu automaticky (každých 30 minut)",
+      "last_scan": "Poslední kontrola {date}",
+      "scan_status": {
+        "ok": "v pořádku",
+        "error": "chyba"
+      },
+      "never_scanned": "Zatím nebyla provedena žádná kontrola.",
+      "scan_now": "Zkontrolovat teď",
+      "saved": "Nastavení uloženo.",
+      "summary": "Přečteno e-mailů: {fetched}, nové zprávy: {created}, už známé: {known}, přeskočeno: {ignored}, odmítnuto: {rejected}, pro nepřidanou schránku: {unknown}, nečitelných: {failed}, odeslaných upozornění: {alerts}.",
+      "box_hint": "Schránku pojmenujete sami – bez přihlášení se její typ ani majitel nedají zjistit. ID schránky (7 znaků) najdete v portálu datových schránek.",
+      "box_id": "ID datové schránky",
+      "box_type": "Typ schránky",
+      "type_FO": "FO – fyzická osoba",
+      "type_PFO": "PFO – podnikající fyzická osoba",
+      "type_PO": "PO – právnická osoba",
+      "box_owner": "Majitel",
+      "box_added_next": "Zprávy se v této schránce objeví po nejbližší kontrole e-mailů (část E-mailová upozornění z datovky nahoře)."
+    },
+    "mode": {
+      "title": "Jak schránku sledovat",
+      "isds": "Přihlášením do ISDS (zprávy i odesílání)",
+      "email": "Jen e-mailová upozornění (bez přihlášení)",
+      "email_hint": "Vhodné, když do ISDS nejde přidat uživatele pro aplikaci. Aplikace uvidí jen přijaté zprávy, o kterých přišlo upozornění; nic nedoručí, neotevře ani neodešle.",
+      "email_badge": "Jen e-mailová upozornění",
+      "email_note": "Sledováno jen přes e-mailová upozornění – aplikace se do schránky nepřihlašuje. Zprávy otevřete na portálu datových schránek."
+    },
+    "source": {
+      "email": "z e-mailového upozornění"
+    },
     "settings": {
       "title": "Datové schránky",
       "hint": "Přístupy do datových schránek (ISDS). Hesla se ukládají šifrovaně a nikdy se nevracejí. Zprávy aplikace nikdy sama nedoručí ani neodešle.",
@@ -5227,7 +5274,7 @@
       ],
       "refuse_note": "Pokud k synchronizaci zadáte přihlášení, které zprávy číst smí (například přístup vlastníka schránky), aplikace s ním synchronizovat odmítne – dokud to ve schránce výslovně nepovolíte (volba „Povolit doručování synchronizací“).",
       "steps_title": "Založení přístupu v portálu ISDS (krok za krokem)",
-      "steps_intro": "Postup udělejte pro každou schránku zvlášť (osobní i podnikatelskou). Do webových služeb se nejde přihlásit bankovní identitou (NIA) ani mobilním klíčem, proto pro aplikaci založíte vlastního uživatele se jménem a heslem. Založit ho smí vlastník schránky nebo její administrátor.",
+      "steps_intro": "Postup udělejte pro každou schránku zvlášť (osobní i podnikatelskou). Do webových služeb se nejde přihlásit bankovní identitou (NIA) ani mobilním klíčem, proto pro aplikaci založíte vlastního uživatele se jménem a heslem. Založit ho smí vlastník schránky nebo její administrátor. Nejde-li do ISDS přidat jako uživatele samotného držitele schránky (portál odpoví „Zadaná osoba již je mezi uživateli“), použijte místo toho sledování přes e-mailová upozornění (sekce E-mailová upozornění z datovky níže).",
       "steps": [
         "Přihlaste se do portálu datových schránek na https://www.datovka.gov.cz (jako obvykle bankovní identitou) a vstupte do schránky, kterou chcete připojit.",
         "Otevřete Nastavení → Uživatelé a vlevo klikněte na Nový uživatel.",
