@@ -4961,6 +4961,7 @@
       "no_boxes": "Zatím není připojená žádná datová schránka.",
       "go_settings": "Připojit v Nastavení",
       "box": "Datová schránka",
+      "all_boxes": "Všechny schránky",
       "box_inactive": "Schránka je vypnutá – synchronizace i odesílání jsou zastavené, uložené zprávy zůstávají.",
       "empty": "Žádné zprávy."
     },

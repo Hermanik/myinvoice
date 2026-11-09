@@ -4952,6 +4952,7 @@
       "no_boxes": "No data box is connected yet.",
       "go_settings": "Connect in Settings",
       "box": "Data box",
+      "all_boxes": "All boxes",
       "box_inactive": "This box is deactivated - sync and sending are stopped, stored messages are kept.",
       "empty": "No messages."
     },

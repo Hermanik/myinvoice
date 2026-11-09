@@ -256,8 +256,9 @@ export const databoxApi = {
     api.delete<DataboxBox>(`/databox/boxes/${id}/credentials/${purpose}`).then(r => r.data),
   syncBox: (id: number) =>
     api.post<{ report: SyncReport; box: DataboxBox }>(`/databox/boxes/${id}/sync`).then(r => r.data),
-  acknowledgeAll: (id: number) =>
-    api.post<{ acknowledged: number }>(`/databox/boxes/${id}/acknowledge-all`).then(r => r.data),
+  /** `id` = null acknowledges the received messages of every box. */
+  acknowledgeAll: (id: number | null) =>
+    api.post<{ acknowledged: number }>(id === null ? '/databox/acknowledge-all' : `/databox/boxes/${id}/acknowledge-all`).then(r => r.data),
   lookup: (id: number, q: string) =>
     api.get<{ status_code: string | null; boxes: LookupBox[] }>(`/databox/boxes/${id}/lookup`, { params: { q } }).then(r => r.data),
 
@@ -267,8 +268,9 @@ export const databoxApi = {
   scanEmail: () =>
     api.post<EmailSettingsResponse & { summary: EmailScanSummary }>('/databox/email-settings/scan').then(r => r.data),
 
-  listMessages: (boxId: number, p: MessageListParams) =>
-    api.get<MessageList>(`/databox/boxes/${boxId}/messages`, {
+  /** `boxId` = null lists the messages of every box of the supplier together. */
+  listMessages: (boxId: number | null, p: MessageListParams) =>
+    api.get<MessageList>(boxId === null ? '/databox/messages' : `/databox/boxes/${boxId}/messages`, {
       params: {
         direction: p.direction,
         unread: p.unread ? 1 : undefined,

@@ -41,6 +41,8 @@ final class DataboxSafetyTest extends TestCase
         return [
             'list boxes' => ['GET', '/api/databox/boxes'],
             'add a box' => ['POST', '/api/databox/boxes'],
+            'messages of all boxes' => ['GET', '/api/databox/messages'],
+            'acknowledge all boxes' => ['POST', '/api/databox/acknowledge-all'],
             'message detail' => ['GET', '/api/databox/messages/12'],
             'open a message' => ['POST', '/api/databox/messages/12/open'],
             'prepare a send' => ['POST', '/api/databox/messages/prepare'],

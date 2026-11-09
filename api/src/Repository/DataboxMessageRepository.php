@@ -117,13 +117,14 @@ final class DataboxMessageRepository
     }
 
     /**
+     * @param ?int $boxId one box, or null for every box of $supplierId (the combined view)
      * @param array{direction?:?string, unread_only?:bool, tax_office_only?:bool, search?:?string} $filters
+     * @param ?int $supplierId when set, only boxes of this supplier are listed (tenant scope in SQL)
      * @return array{items:list<array<string,mixed>>, total:int}
      */
-    public function list(int $boxId, array $filters, int $limit, int $offset): array
+    public function list(?int $boxId, array $filters, int $limit, int $offset, ?int $supplierId = null): array
     {
-        $where = ['m.databox_id = ?'];
-        $params = [$boxId];
+        [$where, $params] = $this->boxScope($boxId, $supplierId);
         if (!empty($filters['direction'])) {
             $where[] = 'm.direction = ?';
             $params[] = $filters['direction'];
@@ -281,14 +282,38 @@ final class DataboxMessageRepository
             ->execute([$this->userOrNull($userId), $messageId]);
     }
 
-    public function acknowledgeAll(int $boxId, int $userId): int
+    public function acknowledgeAll(?int $boxId, int $userId, ?int $supplierId = null): int
     {
+        [$where, $params] = $this->boxScope($boxId, $supplierId);
         $stmt = $this->db->pdo()->prepare(
-            "UPDATE databox_messages SET acknowledged_at = NOW(), acknowledged_by = ?
-              WHERE databox_id = ? AND direction = 'received' AND acknowledged_at IS NULL"
+            "UPDATE databox_messages m SET m.acknowledged_at = NOW(), m.acknowledged_by = ?
+              WHERE " . implode(' AND ', $where) . " AND m.direction = 'received' AND m.acknowledged_at IS NULL"
         );
-        $stmt->execute([$this->userOrNull($userId), $boxId]);
+        $stmt->execute([$this->userOrNull($userId), ...$params]);
         return $stmt->rowCount();
+    }
+
+    /**
+     * WHERE parts limiting messages to one box and/or the boxes of one supplier.
+     *
+     * @return array{0:list<string>, 1:list<int>}
+     */
+    private function boxScope(?int $boxId, ?int $supplierId): array
+    {
+        if ($boxId === null && $supplierId === null) {
+            throw new \InvalidArgumentException('A box or a supplier is required.');
+        }
+        $where = [];
+        $params = [];
+        if ($boxId !== null) {
+            $where[] = 'm.databox_id = ?';
+            $params[] = $boxId;
+        }
+        if ($supplierId !== null) {
+            $where[] = 'm.databox_id IN (SELECT id FROM databoxes WHERE supplier_id = ?)';
+            $params[] = $supplierId;
+        }
+        return [$where, $params];
     }
 
     /**
