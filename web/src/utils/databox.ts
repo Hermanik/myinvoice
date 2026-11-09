@@ -1,5 +1,6 @@
 import { apiErrorMessage } from '@/api/errors'
 import type { MessageState } from '@/api/databox'
+import { formatDate } from '@/composables/useFormat'
 
 export function formatDateTime(s: string | null | undefined): string {
   if (!s) return '—'
@@ -11,11 +12,25 @@ export function stateBadgeClass(state: MessageState): string {
   switch (state) {
     case 'in_box': return 'bg-warning-50 text-warning-600 border-warning-500/40'
     case 'fiction':
+    case 'delivered_presumed':
     case 'delivered': return 'bg-success-50 text-success-600 border-success-500/40'
     case 'undeliverable':
     case 'rejected': return 'bg-danger-50 text-danger-500 border-danger-500/40'
     default: return 'bg-neutral-100 text-neutral-600 border-neutral-200'
   }
+}
+
+type Translate = (key: string, params?: Record<string, unknown>) => string
+type WithState = { state: MessageState; presumed_delivery_date?: string | null }
+
+/** Label of the delivery state; "delivered at the latest {date}" carries the day. */
+export function stateLabel(m: WithState, t: Translate): string {
+  return t(`databox.state.${m.state}`, { date: formatDate(m.presumed_delivery_date) })
+}
+
+/** Explanation of the delivery state, with the same day for the presumed one. */
+export function stateHelp(m: WithState, t: Translate): string {
+  return t(`databox.state_help.${m.state}`, { date: formatDate(m.presumed_delivery_date) })
 }
 
 export function boxTitle(b: { label: string | null; owner_name?: string | null; db_id: string | null }): string {

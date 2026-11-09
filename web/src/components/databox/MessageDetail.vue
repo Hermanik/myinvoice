@@ -5,7 +5,7 @@ import { databoxApi, type MessageDetail } from '@/api/databox'
 import { formatDate } from '@/composables/useFormat'
 import { useToast } from '@/composables/useToast'
 import { formatBytes } from '@/components/documents/docFormat'
-import { databoxErrorMessage, errorCode, formatDateTime, stateBadgeClass } from '@/utils/databox'
+import { databoxErrorMessage, errorCode, formatDateTime, stateBadgeClass, stateHelp, stateLabel } from '@/utils/databox'
 import OpenConfirmModal from './OpenConfirmModal.vue'
 
 const props = defineProps<{ messageId: number }>()
@@ -44,7 +44,8 @@ const isReceived = computed(() => detail.value?.direction === 'received')
 const capableMissing = computed(() => detail.value?.open.has_capable_login === false)
 const openBlocked = computed(() => detail.value?.open.blocked_reason ?? null)
 // A box watched by notification e-mails has no login: its messages can only be opened in the data box portal.
-const emailOnly = computed(() => detail.value?.open.email_only === true)
+// A message already stored (uploaded as a ZFO) needs no opening at all.
+const emailOnly = computed(() => detail.value?.open.email_only === true && !detail.value.open.stored)
 const canOpen = computed(() => isReceived.value && !emailOnly.value && !detail.value?.open.stored && !capableMissing.value && !openBlocked.value)
 
 // Opening: warn first when it would deliver the message; only the confirmation path passes acknowledged=true.
@@ -102,12 +103,15 @@ const field = 'text-neutral-500'
 
     <template v-if="detail">
       <div class="flex flex-wrap items-center gap-2">
-        <span class="text-xs px-2 py-0.5 border rounded-full" :class="stateBadgeClass(detail.state)">{{ t(`databox.state.${detail.state}`) }}</span>
+        <span class="text-xs px-2 py-0.5 border rounded-full" :class="stateBadgeClass(detail.state)">{{ stateLabel(detail, t) }}</span>
         <span v-if="detail.is_tax_office" class="text-xs px-2 py-0.5 rounded-full bg-danger-50 text-danger-500 border border-danger-500/40">{{ t('databox.tax_office') }}</span>
         <span v-if="detail.personal_delivery" class="text-xs px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700 border border-neutral-200">{{ t('databox.personal_delivery') }}</span>
         <span v-if="detail.source === 'email'" class="text-xs px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 border border-primary-200" data-test="source-email-badge">{{ t('databox.source.email') }}</span>
+        <span v-else-if="detail.source === 'zfo'" class="text-xs px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 border border-primary-200" data-test="source-zfo-badge">{{ t('databox.source.zfo') }}</span>
       </div>
-      <p class="text-xs text-neutral-600">{{ t(`databox.state_help.${detail.state}`) }}</p>
+      <p class="text-xs text-neutral-600">{{ stateHelp(detail, t) }}</p>
+      <!-- Known from the notification e-mail only: the way to the exact state is a receipt / message uploaded from the portal. -->
+      <p v-if="detail.state === 'delivered_presumed'" class="text-xs text-neutral-600" data-test="presumed-help">{{ t('databox.zfo.presumed_hint') }}</p>
 
       <dl class="grid grid-cols-[9rem_1fr] gap-y-1">
         <dt :class="field">{{ t('databox.detail.sender') }}</dt><dd>{{ detail.sender_name || '—' }} <code class="text-xs">{{ detail.sender_box_id }}</code></dd>
@@ -179,7 +183,7 @@ const field = 'text-neutral-500'
         </button>
       </div>
 
-      <div v-if="!isReceived && detail.receipt?.events?.length">
+      <div v-if="detail.receipt?.events?.length">
         <h3 class="font-medium mb-1">{{ t('databox.detail.receipt_events') }}</h3>
         <ul class="text-xs space-y-0.5">
           <li v-for="(ev, i) in detail.receipt.events" :key="i"><span class="text-neutral-500">{{ formatDateTime(ev.time) }}</span> – {{ ev.text }}</li>

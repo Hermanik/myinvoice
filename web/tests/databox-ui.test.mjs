@@ -171,3 +171,61 @@ test('the e-mail notice texts exist in both languages', async () => {
   }
   assert.match(cs.databox.source.email, /e-mailov/)
 })
+
+test('the ZFO upload: button on the page, drag and drop modal, one request per file, result per file, badge', async () => {
+  const page = await read('pages/databox/DataboxPage.vue')
+  assert.match(page, /<button v-if="boxes\.length > 0"[^>]*data-test="zfo-import-button" @click="importingZfo = true"/)
+  assert.match(page, /<ZfoImportModal v-if="importingZfo" @close="importingZfo = false" @imported="loadMessages"/)
+  assert.match(page, /v-else-if="m\.source === 'zfo'"[^>]*data-test="source-zfo-badge"/)
+  const detail = await read('components/databox/MessageDetail.vue')
+  assert.match(detail, /v-else-if="detail\.source === 'zfo'"[^>]*data-test="source-zfo-badge"/)
+  assert.match(detail, /<div v-if="detail\.receipt\?\.events\?\.length">/, 'the receipt events show for received messages too')
+
+  const modal = await read('components/databox/ZfoImportModal.vue')
+  assert.match(modal, /data-test="zfo-dropzone"/)
+  assert.match(modal, /@drop\.prevent="onDrop"/)
+  assert.match(modal, /<input ref="picker" type="file" multiple/)
+  // One file per request, appended as files[] like the compose form does, and a failure of one file does not stop the others.
+  assert.match(modal, /fd\.append\('files\[\]', f\)/)
+  assert.equal([...modal.matchAll(/databoxApi\.importZfo\(/g)].length, 1)
+  assert.match(modal, /catch \(e\) \{\s+results\.value\.push\(failed\(f\.name, databoxErrorMessage\(e, t, te\)\)\)/)
+  assert.match(modal, /data-test="zfo-result"/)
+  assert.doesNotMatch(modal, /onMounted|setTimeout|setInterval/, 'uploads only on the click')
+  assert.match(modal, /:disabled="!canUpload"/)
+
+  const api = await read('api/databox.ts')
+  assert.match(api, /importZfo: \(form: FormData\) =>\s+api\.post<\{ results: ZfoImportResult\[\] \}>\('\/databox\/import-zfo'/)
+  const sources = await allSources()
+  assert.deepEqual(sources.filter(s => /importZfo\(/.test(s.src) && s.file !== 'api/databox.ts').map(s => s.file), ['components/databox/ZfoImportModal.vue'])
+})
+
+test('the presumed delivery state: label with the day, same colour as a delivered message, explanation and hint in the detail', async () => {
+  const util = await read('utils/databox.ts')
+  assert.match(util, /case 'delivered_presumed':\s+case 'delivered': return 'bg-success-50/)
+  assert.match(util, /return t\(`databox\.state\.\$\{m\.state\}`, \{ date: formatDate\(m\.presumed_delivery_date\) \}\)/)
+  for (const file of ['pages/databox/DataboxPage.vue', 'components/databox/MessageDetail.vue']) {
+    const src = await read(file)
+    assert.match(src, /stateLabel\((m|detail), t\)/, file)
+    assert.doesNotMatch(src, /t\(`databox\.state\.\$\{/, `${file} must label the state through stateLabel() (the presumed state carries a date)`)
+  }
+  const detail = await read('components/databox/MessageDetail.vue')
+  assert.match(detail, /stateHelp\(detail, t\)/)
+  assert.match(detail, /v-if="detail\.state === 'delivered_presumed'"[^>]*data-test="presumed-help"/)
+})
+
+test('the ZFO and presumed delivery texts exist in both languages', async () => {
+  const [cs, en] = await Promise.all([read('i18n/cs.json'), read('i18n/en.json')].map(p => p.then(JSON.parse)))
+  for (const d of [cs.databox, en.databox]) {
+    for (const k of ['button', 'title', 'help_where', 'help_scope', 'help_delivers', 'help_integrity', 'drop', 'drop_hint', 'too_big', 'too_many', 'upload', 'uploading', 'results', 'signer', 'summary', 'presumed_hint']) assert.ok(d.zfo[k], `zfo.${k}`)
+    for (const o of ['created', 'updated', 'duplicate', 'rejected']) assert.ok(d.zfo.outcome[o], `zfo.outcome.${o}`)
+    for (const k of ['message', 'receipt']) assert.ok(d.zfo.kind[k], `zfo.kind.${k}`)
+    assert.ok(d.source.zfo && d.state.delivered_presumed && d.state_help.delivered_presumed)
+    assert.match(d.state.delivered_presumed, /\{date\}/)
+    assert.match(d.state_help.delivered_presumed, /\{date\}/)
+    assert.match(d.email.summary, /\{historical\}/)
+  }
+  assert.equal(cs.databox.source.zfo, 'ze ZFO')
+  assert.match(cs.databox.zfo.help_where, /Stáhnout zprávu/)
+  assert.match(cs.databox.zfo.help_where, /Stáhnout doručenku/)
+  assert.match(cs.databox.zfo.help_delivers, /doručí/)
+})

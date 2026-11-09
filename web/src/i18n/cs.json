@@ -4978,6 +4978,7 @@
       "in_box": "V schránce, nedoručeno",
       "fiction": "Doručeno fikcí",
       "delivered": "Doručeno",
+      "delivered_presumed": "Doručeno (nejpozději {date})",
       "undeliverable": "Nedoručitelná",
       "erased": "Smazáno",
       "rejected": "Odmítnuto",
@@ -4988,6 +4989,7 @@
       "in_box": "Zpráva dorazila do schránky, ale právně ještě není doručená. Doručí se přihlášením oprávněného uživatele nebo automaticky fikcí po 10 dnech.",
       "fiction": "Uplynulo 10 dní od dodání – zpráva je právně doručená fikcí.",
       "delivered": "Zpráva je právně doručená (přihlásil se oprávněný uživatel).",
+      "delivered_presumed": "Aplikace zná zprávu jen z e-mailového upozornění, takže neví, jestli ji někdo otevřel dřív v portálu. Nejpozději {date} se zpráva doručila fikcí (10 dní od dodání do schránky).",
       "undeliverable": "Schránka adresáta byla znepřístupněna, zpráva se nedoručila.",
       "erased": "Zpráva byla v ISDS smazána.",
       "rejected": "Zpráva byla odmítnuta (například kvůli viru).",
@@ -5228,7 +5230,7 @@
       "never_scanned": "Zatím nebyla provedena žádná kontrola.",
       "scan_now": "Zkontrolovat teď",
       "saved": "Nastavení uloženo.",
-      "summary": "Přečteno e-mailů: {fetched}, nové zprávy: {created}, už známé: {known}, přeskočeno: {ignored}, odmítnuto: {rejected}, pro nepřidanou schránku: {unknown}, nečitelných: {failed}, odeslaných upozornění: {alerts}.",
+      "summary": "Přečteno e-mailů: {fetched}, nové zprávy: {created} (z toho historických, bez upozornění: {historical}), už známé: {known}, přeskočeno: {ignored}, odmítnuto: {rejected}, pro nepřidanou schránku: {unknown}, nečitelných: {failed}, odeslaných upozornění: {alerts}.",
       "box_hint": "Schránku pojmenujete sami – bez přihlášení se její typ ani majitel nedají zjistit. ID schránky (7 znaků) najdete v portálu datových schránek.",
       "box_id": "ID datové schránky",
       "box_type": "Typ schránky",
@@ -5247,7 +5249,36 @@
       "email_note": "Sledováno jen přes e-mailová upozornění – aplikace se do schránky nepřihlašuje. Zprávy otevřete na portálu datových schránek."
     },
     "source": {
-      "email": "z e-mailového upozornění"
+      "email": "z e-mailového upozornění",
+      "zfo": "ze ZFO"
+    },
+    "zfo": {
+      "button": "Nahrát ZFO",
+      "title": "Nahrát ZFO z datové schránky",
+      "help_where": "V portálu datových schránek (www.datovka.gov.cz) otevřete detail zprávy a zvolte Stáhnout zprávu (podepsané ZFO) nebo Stáhnout doručenku. Soubory pak sem přetáhněte nebo vyberte.",
+      "help_scope": "Takto doplníte i odeslané zprávy (o těch žádné e-mailové upozornění nepřijde) a starší zprávy z doby před připojením schránky. Zpráva odeslaná s XML archivovaného výkazu se spáruje s výkazem a doručenka k ní podání potvrdí.",
+      "help_delivers": "Pozor: stažením dosud nedoručené přijaté zprávy v portálu se zpráva doručí (začnou běžet lhůty). Nahráním souboru do aplikace se nic nedoručuje.",
+      "help_integrity": "Aplikace ověří, že soubor po stažení nikdo nezměnil (podpis ZFO). Řetězec certifikátů neověřuje, nahrávejte proto jen soubory, které jste sami stáhli z portálu.",
+      "drop": "Přetáhněte sem soubory ZFO nebo klikněte pro výběr",
+      "drop_hint": "Můžete nahrát víc souborů najednou, každý nejvýše {max}.",
+      "too_big": "Soubor je větší než 25 MB.",
+      "too_many": "Najednou lze nahrát nejvýše {max} souborů.",
+      "upload": "Nahrát",
+      "uploading": "Nahrávám…",
+      "results": "Výsledek",
+      "outcome": {
+        "created": "Nové",
+        "updated": "Doplněno",
+        "duplicate": "Už nahráno",
+        "rejected": "Odmítnuto"
+      },
+      "kind": {
+        "message": "zpráva",
+        "receipt": "doručenka"
+      },
+      "signer": "Podepsal: {signer}",
+      "summary": "Nové: {created}, doplněné: {updated}, už nahrané: {duplicate}, odmítnuté: {rejected}.",
+      "presumed_hint": "Přesný stav zjistíte nahráním doručenky nebo zprávy (ZFO) z portálu – tlačítkem Nahrát ZFO nahoře."
     },
     "settings": {
       "title": "Datové schránky",

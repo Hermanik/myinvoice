@@ -4969,6 +4969,7 @@
       "in_box": "In the box, not delivered",
       "fiction": "Delivered by fiction",
       "delivered": "Delivered",
+      "delivered_presumed": "Delivered (at the latest {date})",
       "undeliverable": "Undeliverable",
       "erased": "Erased",
       "rejected": "Rejected",
@@ -4979,6 +4980,7 @@
       "in_box": "The message reached the box but is not legally delivered yet. It is delivered when an authorized user logs in, or automatically by fiction after 10 days.",
       "fiction": "10 days have passed since arrival - the message is legally delivered by fiction.",
       "delivered": "The message is legally delivered (an authorized user logged in).",
+      "delivered_presumed": "The application knows this message from the e-mail notice only, so it cannot tell whether somebody opened it earlier in the portal. It was delivered by fiction on {date} at the latest (10 days after it arrived in the box).",
       "undeliverable": "The recipient box was made inaccessible; the message was not delivered.",
       "erased": "The message was erased in ISDS.",
       "rejected": "The message was rejected (for example because of a virus).",
@@ -5219,7 +5221,7 @@
       "never_scanned": "No check has been made yet.",
       "scan_now": "Check now",
       "saved": "Settings saved.",
-      "summary": "E-mails read: {fetched}, new messages: {created}, already known: {known}, skipped: {ignored}, rejected: {rejected}, for a box that is not added: {unknown}, unreadable: {failed}, alerts sent: {alerts}.",
+      "summary": "E-mails read: {fetched}, new messages: {created} (of which historical, without alert: {historical}), already known: {known}, skipped: {ignored}, rejected: {rejected}, for a box that is not added: {unknown}, unreadable: {failed}, alerts sent: {alerts}.",
       "box_hint": "You name the box yourself – without a login its type and owner cannot be found out. The 7-character box ID is shown in the data box portal.",
       "box_id": "Data box ID",
       "box_type": "Box type",
@@ -5238,7 +5240,36 @@
       "email_note": "Watched through e-mail notices only – the application does not log in to the box. Open the messages in the data box portal."
     },
     "source": {
-      "email": "from an e-mail notice"
+      "email": "from an e-mail notice",
+      "zfo": "from a ZFO"
+    },
+    "zfo": {
+      "button": "Upload ZFO",
+      "title": "Upload ZFO from the data box",
+      "help_where": "In the data box portal (www.datovka.gov.cz) open the message detail and choose Download message (signed ZFO) or Download delivery receipt. Then drop or pick the files here.",
+      "help_scope": "This also adds sent messages (no e-mail notice ever comes for those) and older messages from before the box was connected. A message sent with the XML of an archived report is matched to the report, and its delivery receipt confirms the filing.",
+      "help_delivers": "Careful: downloading a received message that is not delivered yet in the portal delivers it (legal deadlines start). Uploading a file to the application delivers nothing.",
+      "help_integrity": "The application checks that nobody changed the file after it was downloaded (the ZFO signature). It does not verify the certificate chain, so upload only files you downloaded from the portal yourself.",
+      "drop": "Drop ZFO files here or click to choose",
+      "drop_hint": "You can upload several files at once, each up to {max}.",
+      "too_big": "The file is larger than 25 MB.",
+      "too_many": "At most {max} files can be uploaded at once.",
+      "upload": "Upload",
+      "uploading": "Uploading…",
+      "results": "Result",
+      "outcome": {
+        "created": "New",
+        "updated": "Completed",
+        "duplicate": "Already uploaded",
+        "rejected": "Rejected"
+      },
+      "kind": {
+        "message": "message",
+        "receipt": "receipt"
+      },
+      "signer": "Signed by: {signer}",
+      "summary": "New: {created}, completed: {updated}, already uploaded: {duplicate}, rejected: {rejected}.",
+      "presumed_hint": "Upload the delivery receipt or the message (ZFO) from the portal to learn the exact state – use the Upload ZFO button above."
     },
     "settings": {
       "title": "Data boxes",

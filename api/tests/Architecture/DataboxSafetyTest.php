@@ -51,6 +51,7 @@ final class DataboxSafetyTest extends TestCase
             'e-mail notice settings' => ['GET', '/api/databox/email-settings'],
             'save e-mail notice settings' => ['PUT', '/api/databox/email-settings'],
             'scan the notice mailbox' => ['POST', '/api/databox/email-settings/scan'],
+            'import signed ZFO files' => ['POST', '/api/databox/import-zfo'],
         ];
     }
 
@@ -280,6 +281,37 @@ final class DataboxSafetyTest extends TestCase
         self::assertSame(1, substr_count($source, '->insertFromEmailNotice('), 'a single place creates messages');
         self::assertLessThan(strpos($source, '->insertFromEmailNotice('), strpos($source, '$this->authenticator->verify('));
         self::assertLessThan(strpos($source, '->insertFromEmailNotice('), strpos($source, '!$auth->passed()'));
+    }
+
+    /**
+     * The ZFO upload works on files the owner hands over: it never reaches ISDS, never uses a login and stores nothing before the
+     * signature has verified. A tax filing is only ever recorded through the filing bridge, on a checksum match.
+     */
+    public function testTheZfoImportNeverTalksToIsdsAndStoresOnlyVerifiedFiles(): void
+    {
+        $files = array_merge(glob(self::SRC . '/Service/Databox/Zfo/*.php') ?: [], [self::SRC . '/Service/Databox/DataboxZfoImportService.php']);
+        self::assertNotEmpty(glob(self::SRC . '/Service/Databox/Zfo/*.php'));
+        foreach ($files as $file) {
+            $source = (string) file_get_contents($file);
+            foreach (['IsdsClient', 'IsdsAccess', 'IsdsTransport', 'accessFor', 'DataboxService', 'DataboxSendService', 'createMessage', 'downloadReceived'] as $forbidden) {
+                self::assertStringNotContainsString($forbidden, $source, basename($file) . ' must not use ' . $forbidden);
+            }
+        }
+
+        $import = (string) file_get_contents(self::SRC . '/Service/Databox/DataboxZfoImportService.php');
+        $verify = strpos($import, '$this->verifier->verify(');
+        self::assertNotFalse($verify);
+        self::assertLessThan(strpos($import, '$this->store('), $verify, 'nothing is stored before the signature verified');
+        self::assertSame(1, substr_count($import, '->upsertEnvelope('), 'a single place writes the envelope');
+        self::assertSame(1, substr_count($import, '->filings->sent('), 'a filing is recorded only through the filing bridge');
+        self::assertStringNotContainsString('->markFiled(', $import);
+        self::assertStringContainsString('submissionsByXmlHash(', $import, 'the only evidence for a filing is the checksum of the archived XML');
+
+        $verifier = (string) file_get_contents(self::SRC . '/Service/Databox/Zfo/ZfoSignatureVerifier.php');
+        self::assertStringContainsString('openssl_cms_verify(', $verifier);
+        self::assertStringContainsString('OPENSSL_ENCODING_DER', $verifier);
+        self::assertStringNotContainsString('OPENSSL_CMS_NOSIGS', $verifier, 'the signature is always checked');
+        self::assertStringNotContainsString('OPENSSL_CMS_NO_CONTENT_VERIFY', $verifier, 'so is the digest of the content');
     }
 
     public function testNoSecretIsLoggedOrReturned(): void

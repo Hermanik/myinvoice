@@ -189,11 +189,42 @@ final class DataboxEmailNoticeScannerTest extends DataboxIntegrationTestCase
         self::assertSame('2026-11-09 10:00:00', $settings['last_scan_at']);
     }
 
-    private function sourceOf(int $messageId): string
+    public function testANoticeWhoseFictionDayIsOverIsHistoryNoAlertAndNoDashboardItem(): void
     {
-        $stmt = $this->db->pdo()->prepare('SELECT source FROM databox_messages WHERE id = ?');
-        $stmt->execute([$messageId]);
-        return (string) $stmt->fetchColumn();
+        $box = $this->connectEmailBox();
+        $unreadBefore = $this->messages->unreadSummary($this->supplierId);
+        // Put into the box Mon 19.10.2026 -> fiction Thu 29.10.2026, long before the scan on 9.11.2026.
+        $this->mailbox->fill([$this->genuine(['message_id' => '<h-1@example.invalid>', 'date' => 'Mon, 19 Oct 2026 09:30:00 +0200'])]);
+
+        $summary = $this->scan();
+
+        self::assertSame(1, $summary['created']);
+        self::assertSame(1, $summary['historical']);
+        self::assertSame(0, $summary['alerts_sent']);
+        self::assertSame([], $this->alert->sent, 'no alert e-mail for history');
+        self::assertSame('historical', $summary['details'][0]['reason']);
+        $message = $this->stored($box['id']);
+        self::assertNotNull($message, 'the message is stored');
+        self::assertNotNull($message['acknowledged_at'], 'dealt with: no dashboard item');
+        self::assertSame(4, $message['status'], 'the stored state is what the notice said');
+        self::assertSame($unreadBefore, $this->messages->unreadSummary($this->supplierId));
+        self::assertSame('historical', $this->logRow('<h-1@example.invalid>')['detail']);
+        self::assertSame('delivered_presumed', $this->messageService->detail($this->supplierId, $message['id'])['state']);
+    }
+
+    public function testANoticeStillInsideItsFictionPeriodIsNewsEvenOnTheLastDay(): void
+    {
+        $box = $this->connectEmailBox();
+        // Put into the box Fri 30.10.2026 -> fiction Mon 9.11.2026 = the day of the scan: not over yet.
+        $this->mailbox->fill([$this->genuine(['message_id' => '<h-2@example.invalid>', 'date' => 'Fri, 30 Oct 2026 09:30:00 +0100'])]);
+
+        $summary = $this->scan();
+
+        self::assertSame(1, $summary['created']);
+        self::assertSame(0, $summary['historical']);
+        self::assertCount(1, $this->alert->sent);
+        self::assertNull($this->stored($box['id'])['acknowledged_at']);
+        self::assertSame('created', $this->logRow('<h-2@example.invalid>')['detail']);
     }
 
     public function testTheMailboxIsReadWithoutTouchingIt(): void

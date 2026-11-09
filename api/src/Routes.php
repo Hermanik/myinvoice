@@ -633,6 +633,7 @@ final class Routes
         $app->get    ('/api/databox/messages/{id:[0-9]+}/zfo',                 [DataboxMessageAction::class, 'zfo']);
         $app->post   ('/api/databox/messages/{id:[0-9]+}/acknowledge',         [DataboxMessageAction::class, 'acknowledge']);
         $app->post   ('/api/databox/messages/{id:[0-9]+}/receipt',             [DataboxMessageAction::class, 'refreshReceipt']);
+        $app->post   ('/api/databox/import-zfo',                              [DataboxMessageAction::class, 'importZfo']);
         $app->post   ('/api/databox/messages/prepare',                         [DataboxSendAction::class, 'prepare']);
         $app->post   ('/api/databox/messages/send',                            [DataboxSendAction::class, 'send']);
         $app->get    ('/api/databox/submissions/links',                        [DataboxSendAction::class, 'submissionLinks']);

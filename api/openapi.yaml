@@ -6377,6 +6377,7 @@ paths:
                       message: { type: string, nullable: true }
                       fetched: { type: integer }
                       created: { type: integer, description: "Nové zprávy ve schránkách." }
+                      historical: { type: integer, description: "Z nových zpráv ty, jejichž doručení fikcí už uplynulo: uložené jako vyřízené, bez upozornění e-mailem (v detailu `reason: historical`)." }
                       linked: { type: integer }
                       known_skipped: { type: integer }
                       ignored: { type: integer }
@@ -6559,6 +6560,50 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DataboxMessageDetail' }
+
+  /api/v1/databox/import-zfo:
+    post:
+      tags: [Databox]
+      summary: Nahrát podepsané ZFO (zpráva nebo doručenka) z portálu
+      description: |
+        Doplní schránky o zprávy a doručenky stažené v portálu datových schránek (**Stáhnout zprávu** / **Stáhnout doručenku**):
+        odeslané zprávy, zprávy z doby před zapojením schránky a stav zprávy po e-mailovém upozornění. Funguje u schránek v každém
+        režimu. Do datových schránek se nepřihlašuje a nic nedoručí.
+
+        Každý soubor se zpracuje zvlášť a výsledek je v poli `results` ve stejném pořadí; chyba jednoho souboru nezastaví ostatní.
+        Soubor se přijme, jen když (1) je to ZFO (DER CMS SignedData) s platným podpisem (ověřuje se **integrita**, řetězec
+        certifikátů ne), (2) obsahuje datovou zprávu nebo doručenku a (3) příjemcem (zpráva je tam *přijatá*) nebo odesílatelem
+        (je *odeslaná*) je schránka dodavatele. Podepsaná data jsou rozhodující: přepíší obálku, časy a stav (stav nikdy
+        nejde zpět) a zpráva dostane `source: zfo`; zpráva, kterou už potvrdil seznam obálek z ISDS, zůstává `isds`. Přijatá zpráva, která je už doručená, se při
+        založení označí jako vyřízená.
+
+        Odeslaná zpráva, jejíž příloha je XML se stejným SHA-256 jako archivovaný výkaz, se k výkazu přiřadí a výkaz se označí
+        jako podaný datovou schránkou (čas = čas dodání, číslo podání = číslo zprávy); doručenka ho potvrdí. Bez shody kontrolního
+        součtu se nepřiřadí nic.
+
+        Limity: soubor nejvýše 25 MB (a limit PHP `post_max_size` pro celý požadavek), nejvýše 50 souborů.
+        Pouze webová relace administrátora; API token dostane 403.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files: { type: array, maxItems: 50, items: { type: string, format: binary } }
+      responses:
+        '200':
+          description: Výsledek pro každý soubor
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items: { $ref: '#/components/schemas/DataboxZfoImportResult' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/v1/databox/messages/prepare:
     post:
@@ -6847,7 +6892,7 @@ components:
         id: { type: integer }
         databox_id: { type: integer }
         direction: { type: string, enum: [received, sent] }
-        source: { type: string, enum: [isds, email], description: "email = oznámená e-mailovým upozorněním, ISDS ji zatím nepotvrdilo seznamem zpráv." }
+        source: { type: string, enum: [isds, email, zfo], description: "email = oznámená e-mailovým upozorněním, ISDS ji zatím nepotvrdilo seznamem zpráv; zfo = založená nebo doplněná nahraným podepsaným ZFO." }
         dm_id: { type: string, description: "Číslo zprávy v ISDS." }
         sender_box_id: { type: string, nullable: true }
         sender_name: { type: string, nullable: true }
@@ -6857,7 +6902,8 @@ components:
         personal_delivery: { type: boolean }
         allow_subst_delivery: { type: boolean, nullable: true }
         status: { type: integer, nullable: true, description: "4 dodáno do schránky, 5 doručeno fikcí, 6 doručeno přihlášením, 7 přečteno, 8 nedoručitelná." }
-        state: { type: string, enum: [in_box, fiction, delivered, undeliverable, erased, rejected, other, unknown] }
+        state: { type: string, enum: [in_box, fiction, delivered, delivered_presumed, undeliverable, erased, rejected, other, unknown], description: "`delivered_presumed` = zpráva zná jen e-mailové upozornění (`source: email`, uložený `status` zůstává 4) a doba pro doručení fikcí už uplynula; nejpozději `presumed_delivery_date` byla doručena. Nepočítá se mezi nedoručené." }
+        presumed_delivery_date: { type: string, format: date, nullable: true, description: "Vyplněno jen u `state: delivered_presumed`." }
         delivery_time: { type: string, nullable: true, description: "Dodání do schránky." }
         acceptance_time: { type: string, nullable: true, description: "Právní doručení (přihlášením nebo fikcí)." }
         is_tax_office: { type: boolean }
@@ -6920,6 +6966,27 @@ components:
                 size_bytes: { type: integer }
                 sha256: { type: string }
                 stored_at: { type: string }
+
+    DataboxZfoImportResult:
+      type: object
+      properties:
+        name: { type: string, description: "Název nahraného souboru (bez cesty)." }
+        outcome: { type: string, enum: [created, updated, duplicate, rejected] }
+        reason: { type: string, description: "Česká věta: co se uložilo, nebo proč se soubor odmítl." }
+        kind: { type: string, nullable: true, enum: [message, receipt] }
+        dm_id: { type: string, nullable: true }
+        direction: { type: string, nullable: true, enum: [received, sent] }
+        databox_id: { type: integer, nullable: true }
+        message_id: { type: integer, nullable: true }
+        signer: { type: string, nullable: true, description: "Subjekt certifikátu, kterým je soubor zapečetěn (CN a organizace). Řetězec certifikátů se neověřuje." }
+        filing:
+          type: object
+          nullable: true
+          description: Jen u odeslané zprávy s XML podobným podání EPO.
+          properties:
+            submission_id: { type: integer, nullable: true }
+            status: { type: string, enum: [recorded, kept, not_recorded, linked, no_match], description: "recorded = výkaz označen jako podaný; kept = už byl podaný dříve; not_recorded = nešlo označit (viz message); linked = zpráva odmítnuta ISDS, jen přiřazeno; no_match = žádný archivovaný výkaz se stejným SHA-256." }
+            message: { type: string, nullable: true }
 
     DataboxPrepared:
       type: object

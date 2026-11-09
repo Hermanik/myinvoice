@@ -4,9 +4,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { databoxApi, type DataboxBox, type DataboxMessage, type MessageDetail } from '@/api/databox'
 import { useToast } from '@/composables/useToast'
-import { boxTitle, databoxErrorMessage, formatDateTime, stateBadgeClass } from '@/utils/databox'
+import { boxTitle, databoxErrorMessage, formatDateTime, stateBadgeClass, stateLabel } from '@/utils/databox'
 import MessageDetailPanel from '@/components/databox/MessageDetail.vue'
 import ComposeModal from '@/components/databox/ComposeModal.vue'
+import ZfoImportModal from '@/components/databox/ZfoImportModal.vue'
 
 const { t, te } = useI18n()
 const route = useRoute()
@@ -30,6 +31,7 @@ const loading = ref(false)
 const error = ref('')
 const selectedId = ref<number | null>(null)
 const composing = ref(false)
+const importingZfo = ref(false)
 
 const currentBox = computed(() => boxes.value.find(b => b.id === boxId.value) ?? null)
 // A box watched by notification e-mails has no login, so nothing can be sent from it.
@@ -152,9 +154,14 @@ const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
         <h1 class="text-2xl font-semibold">{{ t('databox.page.title') }}</h1>
         <p class="text-sm text-neutral-500 mt-0.5">{{ t('databox.page.subtitle') }}</p>
       </div>
-      <button v-if="sendableBoxes.some(b => b.is_active)" type="button" class="cursor-pointer h-9 px-4 rounded-md bg-primary-600 text-white text-sm hover:bg-primary-700" @click="composing = true">
-        {{ t('databox.compose.button') }}
-      </button>
+      <div class="flex flex-wrap items-center gap-2">
+        <button v-if="boxes.length > 0" type="button" class="cursor-pointer h-9 px-4 rounded-md border border-neutral-300 text-sm hover:bg-neutral-50" data-test="zfo-import-button" @click="importingZfo = true">
+          {{ t('databox.zfo.button') }}
+        </button>
+        <button v-if="sendableBoxes.some(b => b.is_active)" type="button" class="cursor-pointer h-9 px-4 rounded-md bg-primary-600 text-white text-sm hover:bg-primary-700" @click="composing = true">
+          {{ t('databox.compose.button') }}
+        </button>
+      </div>
     </div>
 
     <div v-if="boxesLoaded && boxes.length === 0" class="bg-surface border border-dashed border-neutral-300 rounded-lg p-8 text-center text-sm text-neutral-500">
@@ -200,12 +207,13 @@ const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
                     <span v-if="m.is_tax_office" class="text-xs px-1.5 py-0.5 rounded bg-danger-50 text-danger-500 border border-danger-500/40">{{ t('databox.tax_office') }}</span>
                     <span v-if="m.personal_delivery" class="text-xs px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-700 border border-neutral-200">{{ t('databox.personal_delivery') }}</span>
                     <span v-if="m.source === 'email'" class="text-xs px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 border border-primary-200" data-test="source-email-badge">{{ t('databox.source.email') }}</span>
+                    <span v-else-if="m.source === 'zfo'" class="text-xs px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 border border-primary-200" data-test="source-zfo-badge">{{ t('databox.source.zfo') }}</span>
                   </span>
                   <span class="block text-sm text-neutral-700 truncate">{{ m.annotation || t('databox.detail.no_subject') }}</span>
                 </span>
                 <span class="text-right shrink-0">
                   <span class="block text-xs text-neutral-500">{{ formatDateTime(m.delivery_time) }}</span>
-                  <span class="inline-block mt-0.5 text-xs px-2 py-0.5 border rounded-full" :class="stateBadgeClass(m.state)">{{ t(`databox.state.${m.state}`) }}</span>
+                  <span class="inline-block mt-0.5 text-xs px-2 py-0.5 border rounded-full" :class="stateBadgeClass(m.state)">{{ stateLabel(m, t) }}</span>
                 </span>
               </button>
             </li>
@@ -221,6 +229,7 @@ const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
       </div>
     </template>
 
+    <ZfoImportModal v-if="importingZfo" @close="importingZfo = false" @imported="loadMessages" />
     <ComposeModal v-if="composing" :boxes="sendableBoxes" :initial-box-id="boxId" @close="composing = false" @sent="loadMessages" />
   </div>
 </template>

@@ -22,6 +22,16 @@ final class DeliveryDates
     public const STATE_UNDELIVERABLE = 8;
     public const STATE_ERASED = 9;
 
+    /** The states of a received message in the order it passes through them: in the box, by fiction, by login, read. */
+    public const PROGRESS = [self::STATE_DELIVERED_TO_BOX, self::STATE_FICTION, self::STATE_DELIVERED, self::STATE_READ];
+
+    /**
+     * Presentation-only state (never stored): a message known from a notification e-mail only, still "put into the box" in
+     * our data, whose fiction day has passed. Nobody told the application whether it was opened earlier in the portal, but
+     * at the latest it is delivered by fiction.
+     */
+    public const STATE_NAME_PRESUMED_DELIVERED = 'delivered_presumed';
+
     /** UI state name of an ISDS message state. */
     public static function stateName(?int $status): string
     {
@@ -35,6 +45,47 @@ final class DeliveryDates
             self::STATE_REJECTED => 'rejected',
             default => 'other',
         };
+    }
+
+    /**
+     * The day a message that exists only as a notification e-mail was delivered at the latest, or null when that does not
+     * apply (the box system confirmed it with a real state, it is not in state 4, the sender excluded the fiction, the
+     * delivery time is unknown, or the fiction day is not over yet).
+     *
+     * @param array<string,mixed> $message stored row (status, source, delivery_time, allow_subst_delivery)
+     */
+    public static function presumedDeliveryDate(array $message, \DateTimeInterface $now): ?\DateTimeImmutable
+    {
+        if (($message['status'] ?? null) !== self::STATE_DELIVERED_TO_BOX || ($message['source'] ?? null) !== 'email') {
+            return null;
+        }
+        $fiction = self::fictionDateOf($message);
+        return $fiction !== null && self::isBeforeToday($fiction, $now) ? $fiction : null;
+    }
+
+    /** The fiction day of a message put into the box on $deliveredToBox is before today (that day itself is not over until midnight). */
+    public static function isFictionOver(\DateTimeInterface $deliveredToBox, \DateTimeInterface $now): bool
+    {
+        return self::isBeforeToday(self::fictionDate($deliveredToBox), $now);
+    }
+
+    /**
+     * The fiction day of a stored message, or null when it has none: the delivery time is unknown or the sender excluded
+     * the fiction (dmAllowSubstDelivery = false).
+     *
+     * @param array<string,mixed> $message stored row (delivery_time, allow_subst_delivery)
+     */
+    public static function fictionDateOf(array $message): ?\DateTimeImmutable
+    {
+        if (($message['allow_subst_delivery'] ?? true) === false || ($message['delivery_time'] ?? null) === null) {
+            return null;
+        }
+        return self::fictionDate(new \DateTimeImmutable((string) $message['delivery_time']));
+    }
+
+    private static function isBeforeToday(\DateTimeInterface $day, \DateTimeInterface $now): bool
+    {
+        return $day < \DateTimeImmutable::createFromInterface($now)->setTime(0, 0);
     }
 
     /**
@@ -52,6 +103,12 @@ final class DeliveryDates
     public static function isFailed(?int $status): bool
     {
         return $status === self::STATE_REJECTED || $status === self::STATE_UNDELIVERABLE;
+    }
+
+    /** Legally delivered: by fiction, by login, or read. */
+    public static function isDelivered(?int $status): bool
+    {
+        return in_array($status, [self::STATE_FICTION, self::STATE_DELIVERED, self::STATE_READ], true);
     }
 
     /** True when the message is not yet legally delivered (reading it with a read-capable login delivers it). */

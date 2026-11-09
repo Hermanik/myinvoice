@@ -24,6 +24,10 @@ final class DataboxMessageRepository
         EXISTS (SELECT 1 FROM databox_message_files f WHERE f.message_id = m.id AND f.kind = \'delivery_zfo\') AS has_delivery_zfo,
         (m.delivery_info_xml IS NOT NULL) AS has_delivery_info';
 
+    /** Keeps the state of a row that is further along (4 in box, 5 fiction, 6 delivered, 7 read) than the one being written. */
+    private const FORWARD_ONLY_STATUS = 'CASE WHEN VALUES(status) IS NULL THEN status WHEN status IN (%1$s) AND VALUES(status) IN (%1$s)'
+        . ' THEN GREATEST(status, VALUES(status)) ELSE VALUES(status) END';
+
     /** After this many failed receipt fetches the message is left alone. */
     public const MAX_RECEIPT_ATTEMPTS = 8;
 
@@ -34,10 +38,15 @@ final class DataboxMessageRepository
      * databox_id + direction + dm_id). A fresh envelope never erases something already known - e.g. a list that lacks the
      * acceptance time yet - and never touches acknowledgement, stored files or the delivery receipt.
      *
+     * $source says who vouches for the envelope. The synchronisation ('isds') is the live truth: it replaces the source and
+     * the state outright. A signed ZFO upload ('zfo') is authoritative for the data it carries but may be older than what the
+     * row already knows, so it never moves the state backwards (4 -> 5 -> 6 -> 7) and never takes the source away from 'isds'.
+     *
      * @param array<string,mixed> $envelope as returned by IsdsResponseParser::messageRecords()
+     * @param 'isds'|'zfo' $source
      * @return array{id:int, is_new:bool, is_tax_office:bool}
      */
-    public function upsertEnvelope(int $boxId, string $direction, array $envelope, \DateTimeImmutable $now): array
+    public function upsertEnvelope(int $boxId, string $direction, array $envelope, \DateTimeImmutable $now, string $source = 'isds'): array
     {
         $values = [
             'sender_box_id' => $envelope['sender_box_id'] ?? null,
@@ -69,15 +78,18 @@ final class DataboxMessageRepository
         }
 
         $ts = $now->format('Y-m-d H:i:s');
-        $row = ['databox_id' => $boxId, 'direction' => $direction, 'dm_id' => (string) $envelope['dm_id']] + $values
+        $row = ['databox_id' => $boxId, 'direction' => $direction, 'source' => $source, 'dm_id' => (string) $envelope['dm_id']] + $values
             + ['first_seen_at' => $ts, 'last_seen_at' => $ts];
         $updates = ['id = LAST_INSERT_ID(id)'];
         foreach (array_keys($values) as $column) {
-            $updates[] = "{$column} = COALESCE(VALUES({$column}), {$column})";
+            $updates[] = $column === 'status' && $source !== 'isds'
+                ? 'status = ' . sprintf(self::FORWARD_ONLY_STATUS, implode(', ', DeliveryDates::PROGRESS))
+                : "{$column} = COALESCE(VALUES({$column}), {$column})";
         }
         $updates[] = 'last_seen_at = VALUES(last_seen_at)';
-        // A message first announced by e-mail is now confirmed by the data box system itself.
-        $updates[] = "source = 'isds'";
+        // A message first announced by e-mail is now confirmed by the data box system itself; an uploaded ZFO completes
+        // an e-mail row but never replaces the box system's own confirmation.
+        $updates[] = "source = IF(source = 'isds', 'isds', VALUES(source))";
 
         $stmt = $this->db->pdo()->prepare(
             'INSERT INTO databox_messages (' . implode(', ', array_keys($row)) . ') VALUES (' . implode(', ', array_fill(0, count($row), '?')) . ')'
@@ -90,27 +102,28 @@ final class DataboxMessageRepository
 
     /**
      * Record a received message announced by a notification e-mail. Everything the e-mail does not say stays empty. A message
-     * the box already has (e.g. from the synchronisation) is left exactly as it is.
+     * the box already has (e.g. from the synchronisation or an uploaded ZFO) is left exactly as it is.
      *
      * @param array{dm_id:string, sender_box_id:string, sender_name:?string, sender_type:?int, recipient_box_id:string,
      *              recipient_name:?string, annotation:?string, delivery_time:\DateTimeInterface} $notice
+     * @param bool $acknowledged the notice is history (its fiction day is over): the message is stored as already dealt with
      * @return array{id:int, is_new:bool, is_tax_office:bool}
      */
-    public function insertFromEmailNotice(int $boxId, array $notice, \DateTimeImmutable $now): array
+    public function insertFromEmailNotice(int $boxId, array $notice, \DateTimeImmutable $now, bool $acknowledged = false): array
     {
         $class = TaxOfficeMessageClassifier::classify($notice);
         $ts = $now->format('Y-m-d H:i:s');
         $stmt = $this->db->pdo()->prepare(
             "INSERT INTO databox_messages
                 (databox_id, direction, source, dm_id, sender_box_id, sender_name, sender_type, recipient_box_id, recipient_name,
-                 annotation, status, delivery_time, is_tax_office, tax_office_kind, first_seen_at, last_seen_at)
-             VALUES (?, 'received', 'email', ?, ?, ?, ?, ?, ?, ?, " . DeliveryDates::STATE_DELIVERED_TO_BOX . ", ?, ?, ?, ?, ?)
+                 annotation, status, delivery_time, is_tax_office, tax_office_kind, first_seen_at, last_seen_at, acknowledged_at)
+             VALUES (?, 'received', 'email', ?, ?, ?, ?, ?, ?, ?, " . DeliveryDates::STATE_DELIVERED_TO_BOX . ", ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)"
         );
         $stmt->execute([
             $boxId, $notice['dm_id'], $notice['sender_box_id'], $this->cut($notice['sender_name'], 255), $notice['sender_type'],
             $notice['recipient_box_id'], $this->cut($notice['recipient_name'], 255), $this->cut($notice['annotation'], 255),
-            $this->dt($notice['delivery_time']), (int) $class['is_tax_office'], $class['kind'], $ts, $ts,
+            $this->dt($notice['delivery_time']), (int) $class['is_tax_office'], $class['kind'], $ts, $ts, $acknowledged ? $ts : null,
         ]);
         // Affected rows: 1 = inserted, 0 = the message was there already.
         return ['id' => (int) $this->db->pdo()->lastInsertId(), 'is_new' => $stmt->rowCount() === 1, 'is_tax_office' => $class['is_tax_office']];
@@ -176,6 +189,29 @@ final class DataboxMessageRepository
         $stmt->execute([$boxId, $direction, $dmId]);
         $id = $stmt->fetchColumn();
         return $id === false ? null : $this->find((int) $id);
+    }
+
+    /**
+     * Runs the writes of $work as one unit: all of them are kept or none.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function atomically(callable $work): mixed
+    {
+        $pdo = $this->db->pdo();
+        $pdo->beginTransaction();
+        try {
+            $result = $work();
+            $pdo->commit();
+            return $result;
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     public function storeFile(int $messageId, string $kind, string $bytes): void
@@ -317,21 +353,39 @@ final class DataboxMessageRepository
     }
 
     /**
-     * Unread received messages of the supplier for the dashboard feed.
+     * Unread received messages of the supplier for the dashboard feed. "Undelivered" counts the messages in state 4 except
+     * those that exist only as a notification e-mail and whose fiction day has passed: they are presumed delivered
+     * ({@see DeliveryDates::presumedDeliveryDate()}).
      *
      * @return array{unread:int, tax_office:int, undelivered:int, box_id:?int, latest_tax_office_annotation:?string}
      */
     public function unreadSummary(int $supplierId): array
     {
+        $scope = "b.supplier_id = ? AND b.is_active = 1 AND m.direction = 'received' AND m.acknowledged_at IS NULL";
         $stmt = $this->db->pdo()->prepare(
             "SELECT COUNT(*) AS unread,
                     COALESCE(SUM(m.is_tax_office), 0) AS tax_office,
                     COALESCE(SUM(m.status = 4), 0) AS undelivered
                FROM databox_messages m JOIN databoxes b ON b.id = m.databox_id
-              WHERE b.supplier_id = ? AND b.is_active = 1 AND m.direction = 'received' AND m.acknowledged_at IS NULL"
+              WHERE {$scope}"
         );
         $stmt->execute([$supplierId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+
+        // Whether the fiction day of a message known from a notice has passed depends on the Czech working days: decided here.
+        $notices = $this->db->pdo()->prepare(
+            "SELECT m.status, m.source, m.delivery_time, m.allow_subst_delivery
+               FROM databox_messages m JOIN databoxes b ON b.id = m.databox_id
+              WHERE {$scope} AND m.status = 4 AND m.source = 'email'"
+        );
+        $notices->execute([$supplierId]);
+        $undelivered = (int) ($row['undelivered'] ?? 0);
+        $now = new \DateTimeImmutable();
+        foreach ($notices->fetchAll(\PDO::FETCH_ASSOC) as $notice) {
+            if (DeliveryDates::presumedDeliveryDate($this->normalize($notice), $now) !== null) {
+                $undelivered--;
+            }
+        }
 
         $latest = $this->db->pdo()->prepare(
             "SELECT m.databox_id, m.annotation FROM databox_messages m JOIN databoxes b ON b.id = m.databox_id
@@ -344,7 +398,7 @@ final class DataboxMessageRepository
         return [
             'unread' => (int) ($row['unread'] ?? 0),
             'tax_office' => (int) ($row['tax_office'] ?? 0),
-            'undelivered' => (int) ($row['undelivered'] ?? 0),
+            'undelivered' => $undelivered,
             'box_id' => $l !== null ? (int) $l['databox_id'] : null,
             'latest_tax_office_annotation' => $l['annotation'] ?? null,
         ];
@@ -393,6 +447,29 @@ final class DataboxMessageRepository
         );
         $stmt->execute([$boxId]);
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * Archived submissions of the supplier whose stored XML has one of the given SHA-256 checksums (lower-case hex), oldest
+     * first. This is the only evidence an uploaded sent message is matched to a filing by.
+     *
+     * @param list<string> $hashes
+     * @return list<array{id:int, filing_status:string, filing_channel:?string, filing_reference:?string}>
+     */
+    public function submissionsByXmlHash(int $supplierId, array $hashes): array
+    {
+        if ($hashes === []) {
+            return [];
+        }
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT id, filing_status, filing_channel, filing_reference FROM tax_submissions
+              WHERE supplier_id = ? AND xml_sha256 IN (' . implode(',', array_fill(0, count($hashes), '?')) . ') ORDER BY id'
+        );
+        $stmt->execute(array_merge([$supplierId], array_values($hashes)));
+        return array_map(static fn (array $r): array => [
+            'id' => (int) $r['id'], 'filing_status' => (string) $r['filing_status'],
+            'filing_channel' => $r['filing_channel'], 'filing_reference' => $r['filing_reference'],
+        ], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /** @return list<int> archived submissions the message carried */

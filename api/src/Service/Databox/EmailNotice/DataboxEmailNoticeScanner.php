@@ -10,6 +10,7 @@ use MyInvoice\Repository\DataboxMessageRepository;
 use MyInvoice\Repository\DataboxRepository;
 use MyInvoice\Service\Bank\EmailNotice\BankEmailNoticeMessage;
 use MyInvoice\Service\Bank\EmailNotice\ImapMailboxClientInterface;
+use MyInvoice\Service\Databox\DeliveryDates;
 use MyInvoice\Service\Databox\IsdsEnvironment;
 use Psr\Log\LoggerInterface;
 
@@ -42,15 +43,15 @@ final class DataboxEmailNoticeScanner
     ) {}
 
     /**
-     * @return array{supplier_id:int, status:string, message:?string, fetched:int, created:int, linked:int, known_skipped:int,
-     *               ignored:int, rejected:int, unknown_box:int, parse_failed:int, auth_deferred:int, errors:int,
-     *               alerts_sent:int, alert_errors:int, details:list<array<string,mixed>>}
+     * @return array{supplier_id:int, status:string, message:?string, fetched:int, created:int, historical:int, linked:int,
+     *               known_skipped:int, ignored:int, rejected:int, unknown_box:int, parse_failed:int, auth_deferred:int,
+     *               errors:int, alerts_sent:int, alert_errors:int, details:list<array<string,mixed>>}
      */
     public function scanSupplier(int $supplierId, ?\DateTimeImmutable $now = null): array
     {
         $now ??= new \DateTimeImmutable();
         $summary = [
-            'supplier_id' => $supplierId, 'status' => 'ok', 'message' => null, 'fetched' => 0, 'created' => 0, 'linked' => 0,
+            'supplier_id' => $supplierId, 'status' => 'ok', 'message' => null, 'fetched' => 0, 'created' => 0, 'historical' => 0, 'linked' => 0,
             'known_skipped' => 0, 'ignored' => 0, 'rejected' => 0, 'unknown_box' => 0, 'parse_failed' => 0, 'auth_deferred' => 0,
             'errors' => 0, 'alerts_sent' => 0, 'alert_errors' => 0, 'details' => [],
         ];
@@ -163,6 +164,9 @@ final class DataboxEmailNoticeScanner
         }
 
         $arrivedAt = self::local($notice->noticedAt ?? $now);
+        // A notice whose fiction day is already over is history (the mailbox is read for the first time, or long after the
+        // fact): the message is stored as dealt with, so it is neither a dashboard item nor an alert e-mail.
+        $historical = DeliveryDates::isFictionOver($arrivedAt, $now);
         $stored = $this->messages->insertFromEmailNotice((int) $box['id'], [
             'dm_id' => $notice->dmId,
             'sender_box_id' => $notice->senderBoxId,
@@ -173,12 +177,21 @@ final class DataboxEmailNoticeScanner
             'recipient_name' => $notice->recipientName,
             'annotation' => $notice->annotation,
             'delivery_time' => $arrivedAt,
-        ], $now);
-        $note('linked', $stored['is_new'] ? 'created' : 'already_known', ['dm_id' => $notice->dmId, 'databox_message_id' => $stored['id']]);
+        ], $now, $historical);
+        $detail = match (true) {
+            !$stored['is_new'] => 'already_known',
+            $historical => 'historical',
+            default => 'created',
+        };
+        $note('linked', $detail, ['dm_id' => $notice->dmId, 'databox_message_id' => $stored['id']]);
         if (!$stored['is_new']) {
             return;
         }
         $summary['created']++;
+        if ($historical) {
+            $summary['historical']++;
+            return;
+        }
 
         if ($settings['alert_email'] !== null && $settings['alert_email'] !== '') {
             try {
