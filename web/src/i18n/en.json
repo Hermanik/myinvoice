@@ -2484,7 +2484,7 @@
     "rolling_12m_hint": "Last 12 months (rolling) — informational business metric.",
     "vat_reg_title": "Turnover for VAT registration {year}",
     "vat_reg_over_immediate": "⚠ Exceeded CZK 2,536,500 — VAT payer by law from the day after exceeding.",
-    "vat_reg_over": "⚠ Exceeded CZK 2,000,000 turnover — VAT payer from 1 Jan {year} (register within 10 days of year-end).",
+    "vat_reg_over": "⚠ Exceeded CZK 2,000,000 turnover — VAT payer from 1 Jan {year} (file the registration within 10 working days of exceeding it, § 94 ZDPH).",
     "vat_reg_near": "Approaching the CZK 2,000,000 limit ({pct} %).",
     "vat_reg_ok": "{pct} % of the CZK 2,000,000 limit.",
     "vat_reg_thresholds": "Tested per calendar year: CZK 2,000,000 → payer from 1 Jan · CZK 2,536,500 → immediately",

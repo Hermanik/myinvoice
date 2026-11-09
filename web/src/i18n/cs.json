@@ -2484,7 +2484,7 @@
     "rolling_12m_hint": "Posledních 12 měsíců (rolling) — informativní obchodní ukazatel.",
     "vat_reg_title": "Obrat pro registraci DPH {year}",
     "vat_reg_over_immediate": "⚠ Překročen limit 2 536 500 Kč — plátcem ze zákona od dne po překročení.",
-    "vat_reg_over": "⚠ Překročen obrat 2 000 000 Kč — plátcem od 1. 1. {year} (přihláška do 10 dnů od konce roku).",
+    "vat_reg_over": "⚠ Překročen obrat 2 000 000 Kč — plátcem od 1. 1. {year} (přihláška k registraci do 10 pracovních dnů od překročení, § 94 ZDPH).",
     "vat_reg_near": "Blížíš se limitu 2 000 000 Kč ({pct} %).",
     "vat_reg_ok": "{pct} % limitu 2 000 000 Kč.",
     "vat_reg_thresholds": "Test za kalendářní rok: 2 000 000 Kč → plátce od 1. 1. · 2 536 500 Kč → ihned",
