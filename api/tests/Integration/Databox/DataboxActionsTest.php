@@ -15,6 +15,7 @@ use MyInvoice\Service\Document\DocumentStorage;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Tests\Support\Databox\DataboxFixtures;
 use MyInvoice\Tests\Support\Databox\DataboxIntegrationTestCase;
+use MyInvoice\Tests\Support\Databox\ZfoFixtures;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Factory\ResponseFactory;
@@ -39,7 +40,7 @@ final class DataboxActionsTest extends DataboxIntegrationTestCase
         $ip = $this->createStub(IpMatcher::class);
         $ip->method('clientIpFromRequest')->willReturn('127.0.0.1');
         $this->boxAction = new DataboxBoxAction($activity, $ip, $this->service, $this->messageService, $this->sync, $this->client);
-        $this->messageAction = new DataboxMessageAction($activity, $ip, $this->messageService, new DocumentStorage(\MyInvoice\Infrastructure\Config\Config::load(dirname(__DIR__, 4))));
+        $this->messageAction = new DataboxMessageAction($activity, $ip, $this->messageService, $this->zfoImport, new DocumentStorage(\MyInvoice\Infrastructure\Config\Config::load(dirname(__DIR__, 4))));
         $this->sendAction = new DataboxSendAction($activity, $ip, $this->sender, $this->messageService, $this->submissions);
     }
 
@@ -72,6 +73,7 @@ final class DataboxActionsTest extends DataboxIntegrationTestCase
                 fn () => $this->boxAction->create($this->request('POST', '/api/databox/boxes', [], $role), $this->response()),
                 fn () => $this->messageAction->get($this->request('GET', '/api/databox/messages/1', null, $role), $this->response(), ['id' => '1']),
                 fn () => $this->messageAction->open($this->request('POST', '/api/databox/messages/1/open', [], $role), $this->response(), ['id' => '1']),
+                fn () => $this->messageAction->importZfo($this->request('POST', '/api/databox/import-zfo', [], $role), $this->response()),
                 fn () => $this->sendAction->send($this->request('POST', '/api/databox/messages/send', [], $role), $this->response()),
                 fn () => $this->sendAction->submissionPrefill($this->request('GET', '/api/databox/submissions/1/prefill', null, $role), $this->response(), ['id' => '1']),
             ];
@@ -150,6 +152,36 @@ final class DataboxActionsTest extends DataboxIntegrationTestCase
         $denied = $this->boxAction->lookup($this->request('GET', "/api/databox/boxes/{$noRight['id']}/lookup?q=abc"), $this->response(), ['id' => (string) $noRight['id']]);
         self::assertSame(422, $denied->getStatusCode());
         self::assertSame('missing_right', $this->json($denied)['error']['code']);
+    }
+
+    public function testZfoUploadReturnsOneResultPerFileAndNeverTouchesIsds(): void
+    {
+        $box = $this->connectEmailBox();
+        $good = ZfoFixtures::seal(ZfoFixtures::messageXml(['sender' => ZfoFixtures::boxId('tstsnd'), 'recipient' => $box['db_id'], 'dm_id' => '8800020']));
+        $files = [
+            new UploadedFile($this->stream($good), '../DDZ_8800020.zfo', 'application/octet-stream', strlen($good), UPLOAD_ERR_OK),
+            new UploadedFile($this->stream('not a zfo'), 'readme.txt', 'text/plain', 9, UPLOAD_ERR_OK),
+            new UploadedFile($this->stream(''), 'broken.zfo', 'application/octet-stream', 0, UPLOAD_ERR_PARTIAL),
+        ];
+
+        $response = $this->messageAction->importZfo($this->request('POST', '/api/databox/import-zfo', [])->withUploadedFiles(['files' => $files]), $this->response());
+
+        self::assertSame(200, $response->getStatusCode());
+        $results = $this->json($response)['results'];
+        self::assertSame(['created', 'rejected', 'rejected'], array_column($results, 'outcome'));
+        self::assertSame('DDZ_8800020.zfo', $results[0]['name']);
+        self::assertSame($box['id'], $results[0]['databox_id']);
+        self::assertSame('Soubor se nepodařilo nahrát (příliš velký soubor nebo chyba přenosu).', $results[2]['reason']);
+        self::assertNotNull($this->messages->findByDmId($box['id'], 'received', '8800020'));
+        self::assertSame([], $this->isds->requests);
+    }
+
+    public function testZfoUploadWithoutAFileIsABadRequest(): void
+    {
+        $response = $this->messageAction->importZfo($this->request('POST', '/api/databox/import-zfo', []), $this->response());
+
+        self::assertSame(400, $response->getStatusCode());
+        self::assertSame('validation_failed', $this->json($response)['error']['code']);
     }
 
     public function testComposeUploadConfirmAndDownloadThroughTheActions(): void

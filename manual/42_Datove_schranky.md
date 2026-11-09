@@ -207,6 +207,11 @@ každém vypsání seznamu zprávy **doručilo**. E-mailové upozornění nedoru
   Selže-li odeslání, zpráva zůstane založená a chyba se ukáže v souhrnu.
 - Každý e-mail se zpracuje **jednou**. Upozornění na schránku, kterou jsi ještě nepřidal,
   se zapamatuje a načte se, jakmile schránku přidáš.
+- **Stará upozornění jsou historie.** Upozornění, jehož doručení fikcí už uplynulo (typicky
+  při prvním přečtení staré pošty), se uloží rovnou jako **vyřízené**: neobjeví se na
+  dashboardu a **nepošle se k němu e-mail s upozorněním**. V souhrnu kontroly je u nich
+  důvod `historical` (*z toho historických, bez upozornění*). Upozornění, jehož fikce ještě
+  neuplynula (včetně posledního dne), je zpráva jako každá jiná.
 
 ### Co to umí a co ne
 
@@ -214,13 +219,68 @@ každém vypsání seznamu zprávy **doručilo**. E-mailové upozornění nedoru
   v portálu, nebo ji doručí fikce.
 - Vidí **jen přijaté zprávy, o kterých přišlo upozornění**. Vypadne-li upozornění
   (vypnuté notifikace, špatné pravidlo, spam), zpráva v aplikaci chybí. Odeslané zprávy
-  ani změnu stavu (doručení, přečtení) aplikace neuvidí — zpráva zůstane *V schránce*,
-  dokud ji sám neoznačíš jako vyřízenou.
+  ani změnu stavu (doručení, přečtení) z e-mailů aplikace neuvidí. Chybějící zprávy,
+  odeslané zprávy a skutečný stav doplníš **nahráním ZFO z portálu**
+  ([viz dále](#nahrani-zfo-z-portalu)); zpráva, která zná jen e-mail, se po uplynutí
+  doby pro doručení fikcí ukazuje jako **Doručeno (nejpozději …)**.
 - **Neotevře obsah ani přílohy, nic neodešle** a nenačítá doručenky. Místo tlačítka
   *Otevřít a stáhnout* je u zprávy odkaz na portál datových schránek. Synchronizaci
   na pozadí tato schránka přeskakuje, akce vyžadující přihlášení odmítne.
 - Režim schránky se po založení nemění. Chceš-li ji později připojit přihlášením,
   odeber ji a přidej znovu (uložené zprávy se smažou).
+
+### Nahrání ZFO z portálu
+
+Tlačítko **Nahrát ZFO** na stránce Datové schránky doplní to, co e-mailová upozornění
+nikdy neřeknou: **odeslané zprávy**, zprávy **z doby před zapojením schránky** a **co se
+se zprávou stalo po upozornění** (otevřena v portálu, doručena fikcí). Funguje u schránek
+v **každém režimu** (přihlášením i e-mailem). Nahrání nikdy nic nedoručuje a nekontaktuje
+datové schránky.
+
+**Jak soubor získat:** v portálu datových schránek (https://www.datovka.gov.cz) otevři
+detail zprávy a zvol **Stáhnout zprávu** (podepsané ZFO zprávy) nebo **Stáhnout doručenku**
+(podepsané ZFO doručenky). Soubory pak přetáhni do okna *Nahrát ZFO*, nebo je vyber;
+můžeš jich nahrát víc najednou (nejvýše 50, každý do 25 MB).
+
+> [!WARNING]
+> **Stažení dosud nedoručené přijaté zprávy v portálu ji doručí** (začnou běžet lhůty).
+> Nahrání souboru do aplikace nic nedoručuje — doručí ji až to, že ji otevřeš v portálu.
+
+**Co aplikace udělá s každým souborem** (u každého se ukáže výsledek *Nové*, *Doplněno*,
+*Už nahráno* nebo *Odmítnuto* s důvodem):
+
+1. **Ověří podpis.** ZFO je soubor podepsaný systémem datových schránek; aplikace ověří,
+   že ho po stažení nikdo **nezměnil** (kontrola integrity podpisu). **Řetězec certifikátů
+   se nekontroluje** — soubor podepsaný kýmkoliv by prošel, proto nahrávej jen soubory,
+   které jsi sám stáhl z portálu. U každého souboru se ukáže, kdo ho podepsal. Soubor,
+   který není ZFO, má neplatný podpis nebo obsahuje něco jiného než datovou zprávu či
+   doručenku, se **odmítne**.
+2. **Pozná druh:** podepsaná **zpráva** (přijatá i odeslaná), nebo podepsaná **doručenka**
+   (dodejka s průběhem doručení).
+3. **Určí schránku a směr:** je-li příjemcem jedna z tvých schránek, zpráva je v ní
+   **přijatá**; je-li jejím odesílatelem, je **odeslaná**. Nepatří-li k žádné tvé schránce,
+   soubor se odmítne (*Zpráva nepatří k žádné připojené schránce*).
+4. **Uloží ji.** Podepsaná data jsou **rozhodující**: doplní se nebo přepíšou údaje na
+   obálce, stav a časy dodání a doručení. Stav se přitom **nikdy nevrací zpět** (starší
+   soubor nepřepíše novější stav). Soubor se uloží, takže detail zprávy nabídne **přílohy
+   ke stažení** i **stažení ZFO**; z doručenky se zobrazí **průběh doručení**. Zpráva
+   od finančního úřadu se zvýrazní jako obvykle. Doručenka ke zprávě, kterou aplikace
+   ještě nezná, založí aspoň její obálku. Zpráva doplněná ze ZFO má štítek **ze ZFO**.
+   Nahraješ-li stejný soubor znovu, jen to oznámí (*Už nahráno*); změněný soubor se uloží
+   místo původního a zpráva se nezdvojí.
+5. **Přijatá zpráva, která je už doručená** (doručena přihlášením, fikcí nebo přečtena),
+   se při založení rovnou označí jako **vyřízená** — historie není novinka a nezahltí
+   dashboard. Dosud nedoručená zůstane nepřečtená.
+
+**Daňová podání.** Nahraješ-li **odeslanou** zprávu, jejíž příloha je **přesně to XML**
+(shoduje se kontrolní součet SHA-256), které je v archivu výkazů, aplikace zprávu k výkazu
+přiřadí a výkaz označí jako **podaný datovou schránkou** — stejně, jako kdyby ho odeslala
+sama: čas podání je čas dodání ze ZFO, číslem podání je číslo zprávy. **Doručenka** nahraná
+k ní (před zprávou i po ní) podání **potvrdí** a uloží se k výkazu jako potvrzení. Bez
+shody kontrolního součtu se nic nepřiřadí a nic se neoznačí jako podané; forma, období
+ani DIČ se nehádají (aplikace to jen ohlásí, vypadá-li příloha jako podání EPO). Je-li
+výkaz už označen jako podaný (třeba na portálu EPO), zůstane jeho podání beze změny.
+Zprávu, kterou ISDS odmítl (virus), aplikace k výkazu jen přiřadí a podáním ji nepovažuje.
 
 ## Synchronizace na pozadí
 
@@ -249,6 +309,8 @@ zprávu poslal, věc, datum dodání, stav. **Obsah ani přílohy nestahuje.**
 
 - Zprávy ze schránky sledované **jen přes e-mailová upozornění** mají štítek
   **z e-mailového upozornění** a místo *Otevřít a stáhnout* odkaz na portál datových schránek.
+  Zprávy doplněné z nahraných souborů mají štítek **ze ZFO**; tlačítko **Nahrát ZFO** je
+  vedle výběru schránky (viz [Nahrání ZFO z portálu](#nahrani-zfo-z-portalu)).
 - **Přepínač schránek** nahoře, záložky **Přijaté** a **Odeslané**, filtr
   *Nepřečtené* a *Od finančního úřadu*, hledání podle věci / odesílatele / čísla zprávy.
 - **Stav zprávy** v seznamu:
@@ -256,6 +318,7 @@ zprávu poslal, věc, datum dodání, stav. **Obsah ani přílohy nestahuje.**
 | Stav | Význam |
 |---|---|
 | **V schránce** | Zpráva dorazila do schránky, ale **není doručena** (nikdo ji dosud nečetl). Zobrazí se datum, kdy se doručí fikcí. |
+| **Doručeno (nejpozději …)** | Jen u zprávy, kterou aplikace zná **jen z e-mailového upozornění**, a po uplynutí doby pro doručení fikcí. Aplikace neví, jestli zprávu někdo otevřel dřív v portálu; nejpozději uvedeným dnem se **doručila fikcí**. Uložený stav zůstává *V schránce*. Přesný stav zjistíš nahráním doručenky nebo zprávy (ZFO). Zpráva se tím přestane počítat mezi nedoručené. |
 | **Doručeno fikcí** | Uplynulo 10 dní (první pracovní den po nich) — právně doručeno. |
 | **Doručeno** | Přihlásil se oprávněný uživatel — právně doručeno. |
 | **Nedoručitelná** | Schránka adresáta byla znepřístupněna. |
@@ -375,6 +438,9 @@ Lhůta pro podání se plní dnem, kdy zpráva **dojde** správci daně — odes
 - Zprávy a podepsané soubory jsou uložené v databázi aplikace, tedy i v **zálohách
   databáze**. Příloha se vždy nabízí ke stažení, nikdy se nezobrazuje přímo v prohlížeči.
 - Server komunikuje s ISDS přes HTTPS (TLS 1.2+) s ověřením certifikátu.
+- Nahrané ZFO se přijme jen s platným podpisem (integrita), jen do schránky, která patří
+  tobě, a nahrávat smí jen administrátor z webového rozhraní (ne API token ani MCP).
+  Řetězec certifikátů se nekontroluje. Nahrání nikdy nekontaktuje datové schránky.
 - E-mailová upozornění se berou jen z ověřeného odesílatele a s platným podpisem DKIM;
   hlavička *Authentication-Results* se nebere v úvahu, protože ji může napsat kdokoliv.
   E-maily s ověřovacím kódem aplikace nečte, neukládá ani nezapisuje do logu.
@@ -406,6 +472,10 @@ až s `--allow-delivery`. Nikdy nestahuje obsah ani nic neodesílá.
 | *Odmítnuto pro neplatný podpis* (e-mailová upozornění) | E-mail neprošel ověřením DKIM: nepřišel od systému datových schránek, nebo ho cestou upravil mezilehlý server (některé přeposílací služby mění obsah). Používej přímé doručení na IMAP schránku. |
 | *Upozornění pro schránku, která není přidaná* | Upozornění je pro jinou schránku, než máš v aplikaci. Přidej ji (**Přidat schránku → Jen e-mailová upozornění**), načte se při dalším běhu. |
 | *Nečitelných upozornění* | E-mail má tvar, který aplikace nezná. Zpráva se nezaložila; zkontroluj ji v portálu. |
+| *Podpis souboru ZFO se nepodařilo ověřit* (Nahrát ZFO) | Soubor je poškozený nebo ho někdo po stažení upravil (třeba ho otevřel a uložil jiný program). Stáhni ho z portálu znovu a nahraj původní soubor. |
+| *Zpráva nepatří k žádné připojené schránce* (Nahrát ZFO) | Ani odesílatelem, ani příjemcem zprávy není žádná schránka přidaná v aplikaci. Přidej schránku, nebo nahraj správný soubor. |
+| *Soubor není ZFO z datové schránky* | Nahráváš něco jiného než ZFO (např. PDF přílohu). V portálu zvol **Stáhnout zprávu** / **Stáhnout doručenku**, ne stažení přílohy. |
+| Zpráva je *Doručeno (nejpozději …)*, ale potřebuji jistotu | Aplikace zná jen e-mailové upozornění. Stáhni v portálu **doručenku** zprávy a nahraj ji tlačítkem **Nahrát ZFO**, zobrazí se skutečný stav a časy. |
 | Zpráva z portálu v aplikaci chybí (e-mailová upozornění) | Zkontroluj, že je v ISDS zapnutá notifikace, že pravidlo ukládá e-mail do správné složky a že složka a IMAP účet v nastavení sedí; **Zkontrolovat teď** ukáže, co se z pošty přečetlo. |
 | *Kód 3008 / 3009* | ISDS omezuje počet souběžných požadavků; zkus to za chvíli. |
 | *Odstávka (HTTP 503)* | Plánovaná odstávka ISDS; synchronizace se opakuje v další hodině. |

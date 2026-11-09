@@ -140,7 +140,7 @@ const btn = 'cursor-pointer h-8 px-3 rounded-md border border-neutral-300 text-x
 
         <div v-if="summary" class="text-xs rounded px-2 py-1 border border-neutral-200 bg-neutral-50" data-test="email-scan-summary">
           {{ t('databox.email.summary', {
-            fetched: summary.fetched, created: summary.created, known: summary.known_skipped, ignored: summary.ignored,
+            fetched: summary.fetched, created: summary.created, historical: summary.historical, known: summary.known_skipped, ignored: summary.ignored,
             rejected: summary.rejected, unknown: summary.unknown_box, failed: summary.parse_failed, alerts: summary.alerts_sent,
           }) }}
           <span v-if="summary.status === 'error' && summary.message" class="block text-danger-500">{{ summary.message }}</span>

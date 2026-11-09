@@ -15,10 +15,13 @@ use MyInvoice\Service\Databox\DataboxMessageService;
 use MyInvoice\Service\Databox\DataboxReceiptService;
 use MyInvoice\Service\Databox\DataboxSendService;
 use MyInvoice\Service\Databox\DataboxService;
+use MyInvoice\Service\Databox\DataboxZfoImportService;
 use MyInvoice\Service\Databox\DataboxSyncService;
 use MyInvoice\Service\Databox\IsdsClient;
 use MyInvoice\Service\Databox\SubmissionDataboxService;
 use MyInvoice\Service\Databox\SubmissionFilingBridge;
+use MyInvoice\Service\Databox\Zfo\ZfoDocumentParser;
+use MyInvoice\Service\Databox\Zfo\ZfoSignatureVerifier;
 use MyInvoice\Service\Tax\TaxSubmissionFilingService;
 use MyInvoice\Service\Document\ZfoExtractor;
 use PHPUnit\Framework\Attributes\Group;
@@ -48,6 +51,7 @@ abstract class DataboxIntegrationTestCase extends TestCase
     protected DataboxMessageService $messageService;
     protected DataboxSendService $sender;
     protected SubmissionDataboxService $submissions;
+    protected DataboxZfoImportService $zfoImport;
     protected SubmissionFilingBridge $filings;
     protected TaxSubmissionFilingService $filing;
     protected TaxSubmissionRepository $submissionRepo;
@@ -103,6 +107,7 @@ abstract class DataboxIntegrationTestCase extends TestCase
         $this->messageService = new DataboxMessageService($this->boxes, $this->messages, $this->service, $this->receipts, $this->client, new ZfoExtractor(), $logger);
         $this->sender = new DataboxSendService($this->boxes, $this->messages, $this->outbox, $this->service, $this->receipts, $this->filings, $this->client, $logger);
         $this->submissions = new SubmissionDataboxService($this->submissionRepo, $this->messages, $this->service, $this->sender, $this->filings, $this->db);
+        $this->zfoImport = new DataboxZfoImportService($this->boxes, $this->messages, new ZfoSignatureVerifier(), new ZfoDocumentParser(), $this->filings, $logger);
     }
 
     protected function tearDown(): void
@@ -175,6 +180,14 @@ abstract class DataboxIntegrationTestCase extends TestCase
         $this->isds->queue('GetOwnerInfoFromLogin2', DataboxFixtures::xml($owner));
         $this->isds->queue('GetUserInfoFromLogin2', DataboxFixtures::xml($user));
         $this->isds->queue('GetPasswordInfo', DataboxFixtures::xml('password_info'));
+    }
+
+    /** Where a stored message came from: isds | email | zfo. */
+    protected function sourceOf(int $messageId): string
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT source FROM databox_messages WHERE id = ?');
+        $stmt->execute([$messageId]);
+        return (string) $stmt->fetchColumn();
     }
 
     /** @return array<string,mixed> the stored box (with logins) */

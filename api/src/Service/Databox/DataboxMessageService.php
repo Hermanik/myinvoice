@@ -49,7 +49,8 @@ final class DataboxMessageService
         }
         $perPage = max(1, min(200, $perPage));
         $result = $this->messages->list($boxId, $filters, $perPage, (max(1, $page) - 1) * $perPage, $supplierId);
-        $result['items'] = array_map(fn (array $m): array => $this->decorate($m), $result['items']);
+        $now = new \DateTimeImmutable();
+        $result['items'] = array_map(fn (array $m): array => $this->decorate($m, $now), $result['items']);
         return $result;
     }
 
@@ -57,7 +58,8 @@ final class DataboxMessageService
     public function detail(int $supplierId, int $messageId): array
     {
         $message = $this->requireMessage($supplierId, $messageId);
-        $out = $this->decorate($message);
+        $now = new \DateTimeImmutable();
+        $out = $this->decorate($message, $now);
 
         $out['attachments'] = null;
         if ($message['has_zfo']) {
@@ -66,7 +68,7 @@ final class DataboxMessageService
         $out['receipt'] = $message['delivery_info_xml'] !== null ? $this->receiptView((string) $message['delivery_info_xml']) : null;
         unset($out['delivery_info_xml']);
 
-        $out['open'] = $this->openPlan($message, $this->requireStoredBox((int) $message['databox_id']));
+        $out['open'] = $this->openPlan($message, $this->requireStoredBox((int) $message['databox_id']), $now);
         $out['file'] = $this->messages->fileMeta($messageId, 'zfo');
         return $out;
     }
@@ -96,7 +98,7 @@ final class DataboxMessageService
             return $this->detail($supplierId, $messageId);
         }
 
-        $plan = $this->openPlan($message, $box);
+        $plan = $this->openPlan($message, $box, new \DateTimeImmutable());
         if ($plan['blocked_reason'] === 'delivery_time_unknown') {
             throw new DataboxException(
                 'delivery_time_unknown',
@@ -242,11 +244,12 @@ final class DataboxMessageService
      * @param array<string,mixed> $box
      * @return array<string,mixed>
      */
-    private function openPlan(array $message, array $box): array
+    private function openPlan(array $message, array $box, \DateTimeImmutable $now): array
     {
         $received = $message['direction'] === 'received';
         $status = $message['status'];
-        $undelivered = $received && DeliveryDates::isUndelivered($status);
+        // A notice-only message whose fiction day passed is presumed delivered: opening it no longer "delivers" anything we know of.
+        $undelivered = $received && DeliveryDates::isUndelivered($status) && DeliveryDates::presumedDeliveryDate($message, $now) === null;
 
         $capable = false;
         foreach (['action', 'sync'] as $purpose) {
@@ -270,18 +273,19 @@ final class DataboxMessageService
             // deliver (start the legal deadlines of) other undelivered messages as well: such a message is not opened here.
             'blocked_reason' => $needsLogin && $message['delivery_time'] === null ? 'delivery_time_unknown' : null,
             'undelivered' => $undelivered,
-            'fiction_date' => $undelivered && ($message['allow_subst_delivery'] ?? true) !== false && $message['delivery_time'] !== null
-                ? DeliveryDates::fictionDate(new \DateTimeImmutable((string) $message['delivery_time']))->format('Y-m-d')
-                : null,
+            'fiction_date' => $undelivered ? DeliveryDates::fictionDateOf($message)?->format('Y-m-d') : null,
             'has_capable_login' => $capable,
         ];
     }
 
     /** @param array<string,mixed> $message @return array<string,mixed> */
-    private function decorate(array $message): array
+    private function decorate(array $message, \DateTimeImmutable $now): array
     {
         $message['tax_office_hints'] = $message['is_tax_office'] ? TaxOfficeMessageClassifier::deadlineHints($message) : [];
-        $message['state'] = DeliveryDates::stateName($message['status']);
+        // The stored status is untouched; only its presentation says "delivered at the latest" for a notice-only message.
+        $presumed = DeliveryDates::presumedDeliveryDate($message, $now);
+        $message['state'] = $presumed !== null ? DeliveryDates::STATE_NAME_PRESUMED_DELIVERED : DeliveryDates::stateName($message['status']);
+        $message['presumed_delivery_date'] = $presumed?->format('Y-m-d');
         return $message;
     }
 

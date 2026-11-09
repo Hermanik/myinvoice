@@ -7,11 +7,13 @@ namespace MyInvoice\Action\Databox;
 use MyInvoice\Http\Json;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Databox\DataboxMessageService;
+use MyInvoice\Service\Databox\DataboxZfoImportService;
 use MyInvoice\Service\Document\DocumentStorage;
 use MyInvoice\Service\Export\ExportFilename;
 use MyInvoice\Service\IpMatcher;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use Psr\Http\Message\UploadedFileInterface;
 
 /**
  * Stored messages of a box - session + admin only.
@@ -23,6 +25,8 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  *   GET  /api/databox/messages/{id}/zfo?kind=zfo|delivery_zfo
  *   POST /api/databox/messages/{id}/acknowledge
  *   POST /api/databox/messages/{id}/receipt             re-read the delivery receipt of a sent message
+ *   POST /api/databox/import-zfo                        multipart files[]: signed messages / delivery receipts downloaded from the portal
+ *                                                       -> {results:[{name, outcome, reason, ...}]}; verifies, never talks to ISDS
  *
  * Listing and the detail use only data stored by the (delivery-safe) sync. Only "open" talks to ISDS with a login
  * that can read, and it refuses to run for an undelivered message without {acknowledge_delivery: true}.
@@ -33,6 +37,7 @@ final class DataboxMessageAction extends DataboxActionBase
         ActivityLogger $activity,
         IpMatcher $ipMatcher,
         private readonly DataboxMessageService $messages,
+        private readonly DataboxZfoImportService $zfoImport,
         private readonly DocumentStorage $storage,
     ) {
         parent::__construct($activity, $ipMatcher);
@@ -98,6 +103,34 @@ final class DataboxMessageAction extends DataboxActionBase
             $detail = $this->messages->refreshReceipt($sid, (int) $args['id']);
             $this->audit($request, 'databox.receipt_refreshed', (int) $args['id'], ['dm_id' => $detail['dm_id']]);
             return Json::ok($response, $detail);
+        });
+    }
+
+    public function importZfo(Request $request, Response $response): Response
+    {
+        return $this->run($request, $response, function (int $sid, int $uid) use ($request, $response): Response {
+            $files = [];
+            $uploaded = $request->getUploadedFiles()['files'] ?? [];
+            foreach (is_array($uploaded) ? $uploaded : [$uploaded] as $file) {
+                if (!$file instanceof UploadedFileInterface) {
+                    continue;
+                }
+                $name = (string) $file->getClientFilename();
+                if ($file->getError() !== UPLOAD_ERR_OK) {
+                    $files[] = ['name' => $name, 'bytes' => null, 'problem' => 'Soubor se nepodařilo nahrát (příliš velký soubor nebo chyba přenosu).'];
+                } elseif (($file->getSize() ?? 0) > DataboxZfoImportService::MAX_FILE_BYTES) {
+                    $files[] = ['name' => $name, 'bytes' => null, 'problem' => 'Soubor je větší než 25 MB.'];
+                } else {
+                    $files[] = ['name' => $name, 'bytes' => (string) $file->getStream()];
+                }
+            }
+            $results = $this->zfoImport->import($sid, $uid, $files);
+            $this->audit($request, 'databox.zfo_imported', null, [
+                'files' => count($results),
+                'outcomes' => array_count_values(array_column($results, 'outcome')),
+                'messages' => array_values(array_filter(array_column($results, 'dm_id'))),
+            ]);
+            return Json::ok($response, ['results' => $results]);
         });
     }
 

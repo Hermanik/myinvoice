@@ -5,7 +5,10 @@ export type DataboxType = 'FO' | 'PFO' | 'PO' | string
 export type SyncState = 'ok' | 'opt_in' | 'blocked_delivers' | 'blocked_no_list' | 'unverified' | 'no_credential' | 'login_failed' | 'email_only'
 /** `email` = watched through the notification e-mails of the data box system only: no login, no ISDS call. */
 export type ConnectionMode = 'isds' | 'email'
-export type MessageState = 'in_box' | 'fiction' | 'delivered' | 'undeliverable' | 'erased' | 'rejected' | 'other' | 'unknown'
+/** `delivered_presumed` = known from a notification e-mail only and past its fiction day: delivered at the latest (the stored state stays "in box"). */
+export type MessageState = 'in_box' | 'fiction' | 'delivered' | 'delivered_presumed' | 'undeliverable' | 'erased' | 'rejected' | 'other' | 'unknown'
+/** Where a stored message came from: the data box system, a notification e-mail or an uploaded signed ZFO. */
+export type MessageSource = 'isds' | 'email' | 'zfo'
 
 export interface DataboxCredential {
   purpose: 'sync' | 'action'
@@ -97,6 +100,8 @@ export interface EmailScanSummary {
   rejected: number
   unknown_box: number
   parse_failed: number
+  /** Notices whose fiction day was already over: stored as dealt with, no alert (a subset of `created`). */
+  historical: number
   auth_deferred: number
   alerts_sent: number
   alert_errors: number
@@ -114,8 +119,8 @@ export interface DataboxMessage {
   id: number
   databox_id: number
   direction: 'received' | 'sent'
-  /** `email` = announced by a notification e-mail, not (yet) confirmed by the data box system itself */
-  source: 'isds' | 'email'
+  /** `email` = announced by a notification e-mail, not (yet) confirmed by the data box system itself; `zfo` = from an uploaded signed file */
+  source: MessageSource
   dm_id: string
   sender_box_id: string | null
   sender_name: string | null
@@ -143,6 +148,8 @@ export interface DataboxMessage {
   has_delivery_info: boolean
   tax_office_hints: TaxOfficeHint[]
   state: MessageState
+  /** Set with `state = delivered_presumed`: the day the message was delivered by fiction at the latest. */
+  presumed_delivery_date: string | null
 }
 
 export interface MessageDetail extends DataboxMessage {
@@ -159,6 +166,24 @@ export interface MessageDetail extends DataboxMessage {
     blocked_reason: 'delivery_time_unknown' | null
   }
   file: null | { size_bytes: number; sha256: string; stored_at: string }
+}
+
+export type ZfoOutcome = 'created' | 'updated' | 'duplicate' | 'rejected'
+
+/** What happened to one uploaded signed file (a message or a delivery receipt downloaded from the portal). */
+export interface ZfoImportResult {
+  name: string
+  outcome: ZfoOutcome
+  /** Czech sentence from the server: what was stored, or why the file was refused. */
+  reason: string
+  kind: 'message' | 'receipt' | null
+  dm_id: string | null
+  direction: 'received' | 'sent' | null
+  databox_id: number | null
+  message_id: number | null
+  /** Subject of the certificate that sealed the file (integrity only, the chain is not checked). */
+  signer: string | null
+  filing: null | { submission_id: number | null; status: 'recorded' | 'kept' | 'not_recorded' | 'linked' | 'no_match'; message: string | null }
 }
 
 export interface MessageList { items: DataboxMessage[]; total: number }
@@ -291,6 +316,10 @@ export const databoxApi = {
 
   // Multipart: the shared instance defaults to JSON, so override it like the other upload clients do;
   // axios drops the header for FormData and the browser adds the boundary.
+  /** Signed ZFO files from the portal; one file per request keeps the upload under the server's request size limit. */
+  importZfo: (form: FormData) =>
+    api.post<{ results: ZfoImportResult[] }>('/databox/import-zfo', form, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data),
+
   prepareMessage: (form: FormData) =>
     api.post<PrepareResponse>('/databox/messages/prepare', form, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data),
 

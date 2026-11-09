@@ -152,6 +152,17 @@ final class IsdsResponseParser
         if ($delivery === null) {
             throw IsdsException::invalidResponse('chybí dmDelivery');
         }
+        return self::deliveryFields($delivery);
+    }
+
+    /**
+     * The fields of a dmDelivery element, wherever it comes from: the GetDeliveryInfo response or the content of a signed
+     * delivery receipt (ZFO).
+     *
+     * @return array{xml:string, status:?int, delivery_time:?\DateTimeImmutable, acceptance_time:?\DateTimeImmutable, events:list<array{time:?\DateTimeImmutable, text:string}>}
+     */
+    public static function deliveryFields(\DOMElement $delivery): array
+    {
         $events = [];
         $list = self::child($delivery, 'dmEvents');
         if ($list !== null) {
@@ -290,7 +301,7 @@ final class IsdsResponseParser
         }
     }
 
-    private static function intOrNull(?string $value): ?int
+    public static function intOrNull(?string $value): ?int
     {
         return ($value !== null && preg_match('/^-?[0-9]+$/', $value) === 1) ? (int) $value : null;
     }
@@ -308,8 +319,8 @@ final class IsdsResponseParser
         ];
     }
 
-    /** Envelope part shared by dmRecord (lists) and dmDm. @return array<string,mixed> */
-    private static function envelopeFields(\DOMElement $el): array
+    /** Envelope part shared by dmRecord (lists) and dmDm (messages and receipts). @return array<string,mixed> */
+    public static function envelopeFields(\DOMElement $el): array
     {
         return [
             'dm_id' => self::text($el, 'dmID'),
