@@ -17,6 +17,10 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 /**
  * Shared plumbing of the data box actions. All of them are session-only (the API-token allowlist does not contain
  * /api/databox, so a bearer token or the MCP gateway gets 403) and admin-only: the box holds legal correspondence.
+ *
+ * The one exception is the read-only side ({@see runRead()}): the accountant role may read the boxes the owner flagged
+ * "visible to the accountant", and nothing else. The role seen here is the effective one for the current supplier
+ * (RoleMiddleware has already applied the per-supplier override).
  */
 abstract class DataboxActionBase
 {
@@ -25,19 +29,41 @@ abstract class DataboxActionBase
         protected readonly IpMatcher $ipMatcher,
     ) {}
 
-    /** @param callable(int $supplierId, int $userId): Response $handler */
+    /** Admin only. @param callable(int $supplierId, int $userId): Response $handler */
     protected function run(Request $request, Response $response, callable $handler): Response
     {
+        return $this->guarded($request, $response, ['admin'], 'Pouze admin.', static fn (int $sid, int $uid, string $role): Response => $handler($sid, $uid));
+    }
+
+    /**
+     * Read-only routes: admin sees everything, the accountant only the boxes flagged for her. The handler learns which
+     * of the two it serves and must pass it on to the service (`$accountantView`), which does the scoping.
+     *
+     * @param callable(int $supplierId, bool $accountantView): Response $handler
+     */
+    protected function runRead(Request $request, Response $response, callable $handler): Response
+    {
+        return $this->guarded($request, $response, ['admin', 'accountant'], 'Nemáš oprávnění.', static fn (int $sid, int $uid, string $role): Response => $handler($sid, $role === 'accountant'));
+    }
+
+    /**
+     * @param list<string> $roles the effective roles allowed to call the route
+     * @param string $denied the 403 message for any other role
+     * @param callable(int $supplierId, int $userId, string $role): Response $handler
+     */
+    private function guarded(Request $request, Response $response, array $roles, string $denied, callable $handler): Response
+    {
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
-        if (($user['role'] ?? '') !== 'admin') {
-            return Json::error($response, 'forbidden', 'Pouze admin.', 403);
+        $role = (string) ($user['role'] ?? '');
+        if (!in_array($role, $roles, true)) {
+            return Json::error($response, 'forbidden', $denied, 403);
         }
         $supplierId = SupplierGuard::currentId($request);
         if ($supplierId <= 0) {
             return Json::error($response, 'not_found', 'Supplier nenalezen.', 404);
         }
         try {
-            return $handler($supplierId, (int) ($user['id'] ?? 0));
+            return $handler($supplierId, (int) ($user['id'] ?? 0), $role);
         } catch (DataboxException $e) {
             return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus, $e->extra);
         } catch (IsdsException $e) {

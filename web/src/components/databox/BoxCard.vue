@@ -53,6 +53,13 @@ function toggleDelivering() {
   run(() => databoxApi.updateBox(props.box.id, { allow_delivering_sync: enable }), b => emit('updated', b))
 }
 
+function toggleAccountant() {
+  const enable = !props.box.accountant_visible
+  // Opening a box shows its correspondence to another person, so it needs an explicit confirmation.
+  if (enable && !window.confirm(t('databox.accountant.confirm'))) return
+  run(() => databoxApi.updateBox(props.box.id, { accountant_visible: enable }), b => emit('updated', b))
+}
+
 function saveCredential(purpose: 'sync' | 'action', v: { username: string; password: string }) {
   run(() => databoxApi.setCredential(props.box.id, purpose, v), b => {
     editing.value = null
@@ -165,6 +172,17 @@ const btn = 'cursor-pointer h-8 px-3 rounded-md border border-neutral-300 text-x
         </label>
       </div>
     </template>
+
+    <!-- Opens the box to the accountant role (read-only, whatever the connection mode); off by default -->
+    <div class="rounded-md border border-neutral-200 px-3 py-2">
+      <label class="flex items-start gap-2 text-sm cursor-pointer">
+        <input type="checkbox" class="mt-1" :checked="box.accountant_visible" :disabled="busy" data-test="accountant-visible" @click.prevent="toggleAccountant" />
+        <span>
+          <span class="font-medium">{{ t('databox.accountant.label') }}</span>
+          <span class="block text-xs text-neutral-500">{{ t('databox.accountant.hint') }}</span>
+        </span>
+      </label>
+    </div>
 
     <div v-if="checks" class="space-y-1">
       <p v-for="p in (['sync', 'action'] as const)" v-show="checks[p]" :key="p" class="text-xs rounded px-2 py-1"

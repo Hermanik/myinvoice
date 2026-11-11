@@ -65,13 +65,19 @@ final class DataboxActionsTest extends DataboxIntegrationTestCase
         return json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
     }
 
-    public function testEveryActionRefusesNonAdmins(): void
+    public function testEveryActionRefusesNonAdminsExceptTheReadRoutesOfTheAccountant(): void
     {
+        // Readonly users get nothing, the accountant only the read routes (see DataboxAccountantAccessTest).
+        $reads = [
+            fn (string $role) => $this->boxAction->list($this->request('GET', '/api/databox/boxes', null, $role), $this->response()),
+            fn (string $role) => $this->messageAction->get($this->request('GET', '/api/databox/messages/1', null, $role), $this->response(), ['id' => '1']),
+        ];
+        foreach ($reads as $read) {
+            self::assertSame(403, $read('readonly')->getStatusCode());
+        }
         foreach (['accountant', 'readonly'] as $role) {
             $calls = [
-                fn () => $this->boxAction->list($this->request('GET', '/api/databox/boxes', null, $role), $this->response()),
                 fn () => $this->boxAction->create($this->request('POST', '/api/databox/boxes', [], $role), $this->response()),
-                fn () => $this->messageAction->get($this->request('GET', '/api/databox/messages/1', null, $role), $this->response(), ['id' => '1']),
                 fn () => $this->messageAction->open($this->request('POST', '/api/databox/messages/1/open', [], $role), $this->response(), ['id' => '1']),
                 fn () => $this->messageAction->importZfo($this->request('POST', '/api/databox/import-zfo', [], $role), $this->response()),
                 fn () => $this->sendAction->send($this->request('POST', '/api/databox/messages/send', [], $role), $this->response()),

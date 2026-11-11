@@ -133,11 +133,15 @@ final class DataboxMessageRepository
      * @param ?int $boxId one box, or null for every box of $supplierId (the combined view)
      * @param array{direction?:?string, unread_only?:bool, tax_office_only?:bool, search?:?string} $filters
      * @param ?int $supplierId when set, only boxes of this supplier are listed (tenant scope in SQL)
+     * @param bool $accountantVisibleOnly only messages of the boxes the owner opened to the accountant role
      * @return array{items:list<array<string,mixed>>, total:int}
      */
-    public function list(?int $boxId, array $filters, int $limit, int $offset, ?int $supplierId = null): array
+    public function list(?int $boxId, array $filters, int $limit, int $offset, ?int $supplierId = null, bool $accountantVisibleOnly = false): array
     {
         [$where, $params] = $this->boxScope($boxId, $supplierId);
+        if ($accountantVisibleOnly) {
+            $where[] = 'm.databox_id IN (SELECT id FROM databoxes WHERE accountant_visible = 1)';
+        }
         if (!empty($filters['direction'])) {
             $where[] = 'm.direction = ?';
             $params[] = $filters['direction'];
@@ -174,7 +178,7 @@ final class DataboxMessageRepository
     public function find(int $id): ?array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT ' . self::LIST_COLUMNS . ', b.supplier_id, m.delivery_info_xml
+            'SELECT ' . self::LIST_COLUMNS . ', b.supplier_id, b.accountant_visible, m.delivery_info_xml
                FROM databox_messages m JOIN databoxes b ON b.id = m.databox_id WHERE m.id = ?'
         );
         $stmt->execute([$id]);
@@ -404,6 +408,39 @@ final class DataboxMessageRepository
         ];
     }
 
+    /**
+     * Data box card of the accountant dashboard: the received messages the owner has not dealt with yet and the newest
+     * received messages, both limited to the active boxes the owner opened to the accountant role.
+     *
+     * @return array{unhandled:int, latest:list<array{id:int, databox_id:int, received_at:?string, sender_name:?string, annotation:?string, is_tax_office:bool, unhandled:bool}>}
+     */
+    public function accountantFeed(int $supplierId, int $limit): array
+    {
+        $from = "FROM databox_messages m JOIN databoxes b ON b.id = m.databox_id
+              WHERE b.supplier_id = ? AND b.accountant_visible = 1 AND b.is_active = 1 AND m.direction = 'received'";
+        $count = $this->db->pdo()->prepare("SELECT COUNT(*) {$from} AND m.acknowledged_at IS NULL");
+        $count->execute([$supplierId]);
+
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT m.id, m.databox_id, COALESCE(m.delivery_time, m.first_seen_at) AS received_at, m.sender_name, m.annotation,
+                    m.is_tax_office, (m.acknowledged_at IS NULL) AS unhandled
+               {$from} ORDER BY COALESCE(m.delivery_time, m.first_seen_at) DESC, m.id DESC LIMIT " . max(1, $limit)
+        );
+        $stmt->execute([$supplierId]);
+        return [
+            'unhandled' => (int) $count->fetchColumn(),
+            'latest' => array_map(static fn (array $r): array => [
+                'id' => (int) $r['id'],
+                'databox_id' => (int) $r['databox_id'],
+                'received_at' => $r['received_at'],
+                'sender_name' => $r['sender_name'],
+                'annotation' => $r['annotation'],
+                'is_tax_office' => (bool) $r['is_tax_office'],
+                'unhandled' => (bool) $r['unhandled'],
+            ], $stmt->fetchAll(\PDO::FETCH_ASSOC)),
+        ];
+    }
+
     /** Boxes of the supplier whose background sync is broken - shown on the dashboard. @return list<array{id:int, label:string, message:?string}> */
     public function brokenSyncs(int $supplierId): array
     {
@@ -525,7 +562,7 @@ final class DataboxMessageRepository
                 $row[$int] = (int) $row[$int];
             }
         }
-        foreach (['personal_delivery', 'allow_subst_delivery', 'is_tax_office', 'has_zfo', 'has_delivery_zfo', 'has_delivery_info'] as $bool) {
+        foreach (['personal_delivery', 'allow_subst_delivery', 'is_tax_office', 'accountant_visible', 'has_zfo', 'has_delivery_zfo', 'has_delivery_info'] as $bool) {
             if (isset($row[$bool])) {
                 $row[$bool] = (bool) $row[$bool];
             }

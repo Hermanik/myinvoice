@@ -40,24 +40,28 @@ final class DataboxMessageService
 
     /**
      * @param array{direction?:?string, unread_only?:bool, tax_office_only?:bool, search?:?string} $filters
+     * @param bool $accountantView the caller is the accountant role: only boxes opened to her exist (the combined view is scoped too)
      * @return array{items:list<array<string,mixed>>, total:int}
      */
-    public function list(int $supplierId, ?int $boxId, array $filters, int $page, int $perPage): array
+    public function list(int $supplierId, ?int $boxId, array $filters, int $page, int $perPage, bool $accountantView = false): array
     {
         if ($boxId !== null) {
-            $this->service->requireBox($supplierId, $boxId);
+            $this->service->requireBox($supplierId, $boxId, $accountantView);
         }
         $perPage = max(1, min(200, $perPage));
-        $result = $this->messages->list($boxId, $filters, $perPage, (max(1, $page) - 1) * $perPage, $supplierId);
+        $result = $this->messages->list($boxId, $filters, $perPage, (max(1, $page) - 1) * $perPage, $supplierId, $accountantView);
         $now = new \DateTimeImmutable();
         $result['items'] = array_map(fn (array $m): array => $this->decorate($m, $now), $result['items']);
         return $result;
     }
 
-    /** @return array<string,mixed> the message with state explanations, deadline hints, receipt and (if stored) attachments */
-    public function detail(int $supplierId, int $messageId): array
+    /**
+     * @param bool $accountantView the caller is the accountant role: a message of a box not opened to her is not found
+     * @return array<string,mixed> the message with state explanations, deadline hints, receipt and (if stored) attachments
+     */
+    public function detail(int $supplierId, int $messageId, bool $accountantView = false): array
     {
-        $message = $this->requireMessage($supplierId, $messageId);
+        $message = $this->requireMessage($supplierId, $messageId, $accountantView);
         $now = new \DateTimeImmutable();
         $out = $this->decorate($message, $now);
 
@@ -145,9 +149,9 @@ final class DataboxMessageService
      *
      * @return array{name:string, mime:string, bytes:string}
      */
-    public function attachment(int $supplierId, int $messageId, int $index): array
+    public function attachment(int $supplierId, int $messageId, int $index, bool $accountantView = false): array
     {
-        $this->requireMessage($supplierId, $messageId);
+        $this->requireMessage($supplierId, $messageId, $accountantView);
         $bytes = $this->messages->fileBytes($messageId, 'zfo') ?? throw new DataboxException('not_opened', 'Zpráva ještě nebyla otevřena a stažena.', 404);
         $extracted = $this->extract($bytes);
         $file = $extracted['attachments'][$index] ?? throw new DataboxException('not_found', 'Příloha nenalezena.', 404);
@@ -160,9 +164,9 @@ final class DataboxMessageService
      * @param 'zfo'|'delivery_zfo' $kind
      * @return array{filename:string, bytes:string}
      */
-    public function file(int $supplierId, int $messageId, string $kind): array
+    public function file(int $supplierId, int $messageId, string $kind, bool $accountantView = false): array
     {
-        $message = $this->requireMessage($supplierId, $messageId);
+        $message = $this->requireMessage($supplierId, $messageId, $accountantView);
         $bytes = $this->messages->fileBytes($messageId, $kind) ?? throw new DataboxException('not_found', 'Soubor není uložen.', 404);
         return ['filename' => self::zfoFileName((string) $message['dm_id'], $kind), 'bytes' => $bytes];
     }
@@ -344,10 +348,10 @@ final class DataboxMessageService
     }
 
     /** @return array<string,mixed> @throws DataboxException */
-    private function requireMessage(int $supplierId, int $messageId): array
+    private function requireMessage(int $supplierId, int $messageId, bool $accountantView = false): array
     {
         $message = $this->messages->find($messageId);
-        if ($message === null || (int) $message['supplier_id'] !== $supplierId) {
+        if ($message === null || (int) $message['supplier_id'] !== $supplierId || ($accountantView && !$message['accountant_visible'])) {
             throw new DataboxException('not_found', 'Zpráva nenalezena.', 404);
         }
         return $message;

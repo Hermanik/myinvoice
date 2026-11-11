@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Dashboard;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\DataboxMessageRepository;
+use MyInvoice\Repository\DataboxRepository;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use MyInvoice\Service\Report\DphPriznaniBuilder;
 use MyInvoice\Service\Report\ReportPeriod;
@@ -21,12 +23,14 @@ use MyInvoice\Service\Vat\VatStatusSql;
  * Every part reuses an existing service or the same query rules as the owner's dashboard
  * ({@see \MyInvoice\Action\Dashboard\SummaryAction}); money is in CZK (foreign documents at their own rate). Each
  * part copes with a supplier that has no data yet (VAT starts later, no invoices): the empty state is part of the
- * contract, not an error.
+ * contract, not an error. The data box card only exists for a supplier that opened a box to the accountant.
  */
 final class AccountantDashboardService
 {
     /** Open obligations shown on the dashboard. */
     public const OBLIGATION_LIMIT = 8;
+    /** Newest data box messages shown on the dashboard. */
+    public const DATABOX_LIMIT = 3;
     /** The timeline window searched for open obligations: a missed one stays visible for this long. */
     private const OBLIGATIONS_DAYS_BACK = 60;
     private const OBLIGATIONS_DAYS_AHEAD = 120;
@@ -38,13 +42,17 @@ final class AccountantDashboardService
         private readonly DphPriznaniBuilder $dphReturn,
         private readonly ObligationTimelineService $timeline,
         private readonly OverduePolicy $overduePolicy,
+        private readonly DataboxRepository $databoxes,
+        private readonly DataboxMessageRepository $databoxMessages,
     ) {}
 
     /**
      * @param bool $withObligations the timeline is for admin and accountant only (readonly users get `null`)
+     * @param bool $withDatabox the data box card is for the accountant role only; it is `null` as well when the owner
+     *                          has not opened any box to her
      * @return array<string,mixed>
      */
-    public function build(int $supplierId, \DateTimeImmutable $today, bool $withObligations): array
+    public function build(int $supplierId, \DateTimeImmutable $today, bool $withObligations, bool $withDatabox = false): array
     {
         $today = $today->setTime(0, 0);
         $closed = $this->twoMonths($today)[0];
@@ -57,7 +65,23 @@ final class AccountantDashboardService
             'issued'      => $this->issued($supplierId, $today),
             'purchase'    => $this->purchase($supplierId, $today),
             'export'      => ['year' => $closed['year'], 'month' => $closed['month']],
+            'databox'     => $withDatabox ? $this->databox($supplierId) : null,
         ];
+    }
+
+    // ── data boxes ──────────────────────────────────────────────────────────
+
+    /**
+     * Messages of the data boxes the owner opened to the accountant: how many the owner has not dealt with yet and the
+     * newest ones. `null` when no box is open to her, so the dashboard shows no card at all.
+     *
+     * @return array{unhandled: int, latest: list<array<string,mixed>>}|null
+     */
+    private function databox(int $supplierId): ?array
+    {
+        return $this->databoxes->hasAccountantVisible($supplierId)
+            ? $this->databoxMessages->accountantFeed($supplierId, self::DATABOX_LIMIT)
+            : null;
     }
 
     // ── VAT of the last closed period ───────────────────────────────────────

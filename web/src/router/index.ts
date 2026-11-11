@@ -32,8 +32,8 @@ const routes: RouteRecordRaw[] = [
       // Dokumenty (sekce Dokumenty — plán source/11)
       { path: 'documents',              name: 'documents',        component: () => import('@/pages/documents/DocumentsBrowser.vue') },
       { path: 'documents/:id(\\d+)',    name: 'document-detail',  component: () => import('@/pages/documents/DocumentDetail.vue') },
-      // Czech data boxes (ISDS) — admin only
-      { path: 'databox',                name: 'databox',          component: () => import('@/pages/databox/DataboxPage.vue'), meta: { adminOnly: true } },
+      // Czech data boxes (ISDS) — admin, and the accountant read-only (the API shows her only the boxes the owner opened to her)
+      { path: 'databox',                name: 'databox',          component: () => import('@/pages/databox/DataboxPage.vue'), meta: { requiresWrite: true } },
       // Kniha jízd (logbook) — auta, jízdy, tankování
       { path: 'logbook',                name: 'logbook',          component: () => import('@/pages/logbook/LogbookPage.vue') },
       { path: 'stats',                  name: 'stats',           component: () => import('@/pages/Stats.vue') },

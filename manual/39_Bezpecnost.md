@@ -502,9 +502,11 @@ Vhodné použití:
   stahovat data (vč. DPH podkladů) bez rizika nechtěné změny.
 
 > [!NOTE]
-> **Datové schránky** (kapitola [42](42_Datove_schranky.md)) jsou dostupné jen
-> administrátorovi z webového rozhraní. API tokeny a MCP k nim nemají přístup a odeslání
-> zprávy vždy vyžaduje výslovné potvrzení v rozhraní.
+> **Datové schránky** (kapitola [42](42_Datove_schranky.md)) ovládá jen administrátor
+> z webového rozhraní. Role **accountant** smí jen číst zprávy schránek, které jí
+> administrátor zpřístupnil (volba *Zobrazit účetní* u schránky); ostatní schránky pro ni
+> neexistují. Role **readonly** k nim přístup nemá. API tokeny a MCP k nim nemají přístup
+> a odeslání zprávy vždy vyžaduje výslovné potvrzení v rozhraní.
 
 ### Jak je to vynucené
 

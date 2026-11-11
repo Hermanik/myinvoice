@@ -27,7 +27,8 @@ export interface DataboxCredential {
   last_check_message: string | null
 }
 
-export interface DataboxBox {
+/** What every viewer of a box gets - the accountant role gets nothing but this (no logins, rights or sync state). */
+export interface DataboxBoxSummary {
   id: number
   label: string | null
   environment: DataboxEnvironment
@@ -36,6 +37,11 @@ export interface DataboxBox {
   db_type: DataboxType | null
   owner_name: string | null
   is_active: boolean
+  /** The owner opened this box to the accountant role (read-only). */
+  accountant_visible: boolean
+}
+
+export interface DataboxBox extends DataboxBoxSummary {
   allow_delivering_sync: boolean
   last_sync_at: string | null
   last_sync_status: 'ok' | 'error' | 'paused' | null
@@ -269,8 +275,10 @@ export function databoxDownloadUrl(path: string): string {
 // endpoint is SendConfirmModal.vue, after the user confirmed the prepared summary.
 export const databoxApi = {
   listBoxes: () => api.get<DataboxBox[]>('/databox/boxes').then(r => r.data),
+  /** The boxes the signed-in user may read: all of them for the admin, the ones opened to her for the accountant. */
+  listReadableBoxes: () => api.get<DataboxBoxSummary[]>('/databox/boxes').then(r => r.data),
   createBox: (body: CreateBoxBody | CreateEmailBoxBody) => api.post<DataboxBox>('/databox/boxes', body).then(r => r.data),
-  updateBox: (id: number, body: { label?: string; is_active?: boolean; allow_delivering_sync?: boolean }) =>
+  updateBox: (id: number, body: { label?: string; is_active?: boolean; allow_delivering_sync?: boolean; accountant_visible?: boolean }) =>
     api.put<DataboxBox>(`/databox/boxes/${id}`, body).then(r => r.data),
   deleteBox: (id: number, confirmDeleteMessages = false) =>
     api.delete(`/databox/boxes/${id}`, { params: confirmDeleteMessages ? { confirm_delete_messages: 1 } : undefined }).then(r => r.data),

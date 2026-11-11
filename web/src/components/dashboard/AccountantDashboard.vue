@@ -3,7 +3,7 @@
  * The dashboard of the accountant (effective role `accountant`): what is needed after every login instead of the
  * owner's business statistics - VAT of the last closed month, the next obligations of the Harmonogram, the issued
  * and received invoices of the last two months and one click to the monthly documents for the accounting program.
- * Each widget copes with a business that has no data yet.
+ * Each widget copes with a business that has no data yet; the data box card exists only for an opened box.
  */
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
@@ -13,6 +13,7 @@ import { apiErrorMessage } from '@/api/errors'
 import { formatMoney, formatMonth } from '@/composables/useFormat'
 import { useSupplierStore } from '@/stores/supplier'
 import { monthKey, periodQuery } from '@/utils/accountantDashboard'
+import AccountantDataboxCard from './AccountantDataboxCard.vue'
 import AccountantMonthsCard, { type MonthsCardAlert } from './AccountantMonthsCard.vue'
 import AccountantObligationsCard from './AccountantObligationsCard.vue'
 import AccountantVatCard from './AccountantVatCard.vue'
@@ -116,6 +117,10 @@ const purchaseAlerts = computed<MonthsCardAlert[]>(() => {
           :alerts="purchaseAlerts"
           :ok-text="t('accountant_dashboard.purchase.ok')"
         />
+      </div>
+      <!-- Only when the owner opened a data box to the accountant -->
+      <div v-if="summary.databox" class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        <AccountantDataboxCard :databox="summary.databox" />
       </div>
     </template>
   </div>

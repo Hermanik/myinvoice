@@ -2,8 +2,9 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { databoxApi, type DataboxBox, type DataboxMessage, type MessageDetail } from '@/api/databox'
+import { databoxApi, type DataboxBoxSummary, type DataboxMessage, type MessageDetail } from '@/api/databox'
 import { useToast } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/auth'
 import { boxTitle, databoxErrorMessage, formatDateTime, stateBadgeClass, stateLabel } from '@/utils/databox'
 import MessageDetailPanel from '@/components/databox/MessageDetail.vue'
 import ComposeModal from '@/components/databox/ComposeModal.vue'
@@ -13,9 +14,12 @@ const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const auth = useAuthStore()
+// Everybody but the admin (in practice the accountant) only reads: the server hides the other boxes and refuses every write.
+const readOnly = computed(() => auth.user?.role !== 'admin')
 
 const PER_PAGE = 25
-const boxes = ref<DataboxBox[]>([])
+const boxes = ref<DataboxBoxSummary[]>([])
 const boxesLoaded = ref(false)
 const watching = ref(false)
 // null = the messages of every box in one list (default when there is more than one box).
@@ -87,7 +91,7 @@ function applyRouteQuery() {
 
 onMounted(async () => {
   try {
-    boxes.value = await databoxApi.listBoxes()
+    boxes.value = await databoxApi.listReadableBoxes()
   } catch (e) {
     error.value = databoxErrorMessage(e, t, te)
   }
@@ -153,8 +157,9 @@ const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
       <div>
         <h1 class="text-2xl font-semibold">{{ t('databox.page.title') }}</h1>
         <p class="text-sm text-neutral-500 mt-0.5">{{ t('databox.page.subtitle') }}</p>
+        <p v-if="readOnly" class="text-xs text-neutral-500 mt-0.5" data-test="read-only-note">{{ t('databox.page.read_only') }}</p>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
+      <div v-if="!readOnly" class="flex flex-wrap items-center gap-2">
         <button v-if="boxes.length > 0" type="button" class="cursor-pointer h-9 px-4 rounded-md border border-neutral-300 text-sm hover:bg-neutral-50" data-test="zfo-import-button" @click="importingZfo = true">
           {{ t('databox.zfo.button') }}
         </button>
@@ -165,8 +170,11 @@ const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
     </div>
 
     <div v-if="boxesLoaded && boxes.length === 0" class="bg-surface border border-dashed border-neutral-300 rounded-lg p-8 text-center text-sm text-neutral-500">
-      {{ t('databox.page.no_boxes') }}
-      <router-link to="/admin/settings#databox" class="text-primary-700 hover:underline">{{ t('databox.page.go_settings') }}</router-link>
+      <template v-if="readOnly">{{ t('databox.page.no_boxes_accountant') }}</template>
+      <template v-else>
+        {{ t('databox.page.no_boxes') }}
+        <router-link to="/admin/settings#databox" class="text-primary-700 hover:underline">{{ t('databox.page.go_settings') }}</router-link>
+      </template>
     </div>
 
     <template v-else-if="boxesLoaded">
@@ -185,7 +193,7 @@ const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
         <button type="button" :class="[chip, taxOffice ? 'bg-danger-50 border-danger-500/40 text-danger-500' : 'border-neutral-300']" @click="taxOffice = !taxOffice">{{ t('databox.filter.tax_office') }}</button>
         <input v-model="q" type="search" :placeholder="t('databox.filter.search')" class="h-9 px-3 border border-neutral-300 rounded-md text-sm bg-surface"
           @keydown.enter="resetAndLoad" />
-        <button v-if="direction === 'received'" type="button" :class="[chip, 'border-neutral-300 ml-auto']" @click="acknowledgeAll">{{ t('databox.ack_all') }}</button>
+        <button v-if="!readOnly && direction === 'received'" type="button" :class="[chip, 'border-neutral-300 ml-auto']" @click="acknowledgeAll">{{ t('databox.ack_all') }}</button>
       </div>
 
       <p v-if="currentBox && !currentBox.is_active" class="text-sm rounded-md border border-warning-500/50 bg-warning-50 text-warning-600 px-3 py-2 mb-3">{{ t('databox.page.box_inactive') }}</p>
@@ -225,7 +233,7 @@ const chip = 'h-8 px-3 rounded-md border text-xs cursor-pointer'
           </div>
         </div>
 
-        <MessageDetailPanel v-if="selectedId" :message-id="selectedId" @close="selectedId = null; syncQuery()" @changed="onChanged" />
+        <MessageDetailPanel v-if="selectedId" :message-id="selectedId" :read-only="readOnly" @close="selectedId = null; syncQuery()" @changed="onChanged" />
       </div>
     </template>
 

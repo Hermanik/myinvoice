@@ -14,7 +14,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 /**
  * GET /api/dashboard/accountant - data of the accountant view of the dashboard (see
  * {@see AccountantDashboardService}). Readable by every role like the other dashboards; the obligations timeline
- * is left out for a role that may not read it (readonly).
+ * is left out for a role that may not read it (readonly), and the data box card exists for the accountant only.
  */
 final class AccountantSummaryAction
 {
@@ -32,6 +32,7 @@ final class AccountantSummaryAction
             SupplierGuard::currentId($request),
             new \DateTimeImmutable('today'),
             withObligations: in_array($role, ['admin', 'accountant'], true),
+            withDatabox: $role === 'accountant',
         ));
     }
 }

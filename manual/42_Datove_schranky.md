@@ -7,7 +7,9 @@ finančního úřadu**. Podporuje víc schránek najednou — typicky osobní (*
 a podnikatelskou (**PFO**).
 
 Stránku najdeš v menu **Dokumenty → Datové schránky**, přístupy se nastavují
-v **Systém → Nastavení → Datové schránky**. Vidí a ovládá je jen **administrátor**.
+v **Systém → Nastavení → Datové schránky**. Ovládá je jen **administrátor**. Externí
+**účetní** může zprávy vidět jen ke čtení, a to jen u schránek, které jí administrátor
+výslovně zpřístupní (viz [Zpřístupnění schránky účetní](#zpristupneni-schranky-ucetni)).
 
 > [!WARNING]
 > **Doručení zprávy je právní úkon.** Datová zpráva se považuje za **doručenou**
@@ -323,6 +325,41 @@ zprávu poslal, věc, datum dodání, stav. **Obsah ani přílohy nestahuje.**
 | **Doručeno** | Přihlásil se oprávněný uživatel — právně doručeno. |
 | **Nedoručitelná** | Schránka adresáta byla znepřístupněna. |
 
+## Zpřístupnění schránky účetní
+
+Datové schránky jsou ve výchozím stavu **skryté před každým, kdo není administrátor**.
+Chceš-li, aby externí účetní viděla zprávy například podnikatelské schránky (výzvy
+finančního úřadu, rozhodnutí), zpřístupni jí ji:
+
+1. Otevři **Systém → Nastavení → Datové schránky**.
+2. U schránky zaškrtni **Zobrazit účetní** a potvrď upozornění.
+
+Zaškrtnutí platí **pro každou schránku zvlášť**. Osobní schránku (FO) nech nezaškrtnutou —
+účetní se o ní nedozví, ani že existuje. Zrušením zaškrtnutí schránku účetní hned
+zase schováš. Zaškrtnout nebo zrušit to smí jen administrátor.
+
+Jakmile je zpřístupněná aspoň jedna schránka, uživatel s rolí **účetní** (u dané firmy)
+uvidí:
+
+- v menu **Dokumenty → Datové schránky** (bez zpřístupněné schránky položka v menu není),
+- na svém [přehledu](44_Prohlidka_a_prehled_pro_ucetni.md#datova-schranka) kartu
+  **Datová schránka** s počtem nevyřízených zpráv a třemi nejnovějšími,
+- v [prohlídce aplikace](44_Prohlidka_a_prehled_pro_ucetni.md) krok o datových schránkách.
+
+Co účetní **vidí**: název, typ a ID zpřístupněných schránek (ne přihlašovací údaje ani
+nastavení), jejich zprávy včetně stavu doručení a u zpráv, které už jsi otevřel nebo
+nahrál, také přílohy a podepsané ZFO ke stažení. Tečka u zprávy a filtr *Nepřečtené*
+ukazují zprávy, které jsi ještě neoznačil jako vyřízené.
+
+Co účetní **nesmí**: označit zprávu jako vyřízenou, zprávu otevřít a stáhnout (mohla by
+ji tím doručit), nahrát ZFO, odeslat zprávu nebo podání, měnit nastavení, přihlášení
+a e-mailová upozornění ani zaškrtnutí *Zobrazit účetní*. Zprávu, kterou nikdo dosud
+neotevřel, vidí bez příloh — otevřít ji může jen administrátor.
+
+Skrytá schránka a její zprávy pro účetní **neexistují**: server na ně odpovídá stejně,
+jako kdyby tam nikdy nebyly, a nezahrnuje je ani do zobrazení *Všechny schránky*.
+Role **jen pro čtení** k datovým schránkám přístup nemá nikdy.
+
 ### Otevření zprávy (varování)
 
 Tlačítko **Otevřít a stáhnout** stáhne podepsanou zprávu (ZFO), uloží ji a zobrazí
@@ -431,9 +468,13 @@ Lhůta pro podání se plní dnem, kdy zpráva **dojde** správci daně — odes
 
 - Hesla se ukládají **šifrovaně** (stejný mechanismus jako u ostatních uložených
   přihlášení v aplikaci); API je nikdy nevrací a do logů se nezapisují.
-- Celá sekce je dostupná **jen z webového rozhraní administrátorovi**. API tokeny
-  a MCP (AI asistenti) k datovým schránkám **nemají přístup** — ani k upozorněním
-  z datových schránek v seznamu úkolů na dashboardu (`/api/v1/crm/action-items`).
+- Správa schránek a všechny akce (nastavení, otevření zprávy, odeslání, nahrání ZFO,
+  označení jako vyřízené) jsou dostupné **jen z webového rozhraní administrátorovi**.
+  Účetní smí jen **číst** zprávy schránek, které jí administrátor zpřístupnil
+  (viz [Zpřístupnění schránky účetní](#zpristupneni-schranky-ucetni)); omezení hlídá server,
+  ne jen menu. API tokeny a MCP (AI asistenti) k datovým schránkám **nemají přístup** —
+  ani k upozorněním z datových schránek v seznamu úkolů na dashboardu
+  (`/api/v1/crm/action-items`).
 - Hesla jsou v aplikaci označená tak, aby se **nikdy neobjevila ve výpisu chyby** (stack trace).
 - Zprávy a podepsané soubory jsou uložené v databázi aplikace, tedy i v **zálohách
   databáze**. Příloha se vždy nabízí ke stažení, nikdy se nezobrazuje přímo v prohlížeči.
