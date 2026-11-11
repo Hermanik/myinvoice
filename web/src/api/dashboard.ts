@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { TimelineItem } from './timeline'
 
 export interface DashboardKpi {
   per_currency: Array<{
@@ -216,6 +217,56 @@ export interface DashboardSummary {
   is_vat_payer: boolean
 }
 
+export type AccountantFilingStatus = 'unfiled' | 'filed' | 'confirmed'
+
+export interface AccountantVatForm {
+  type: 'dph' | 'kh' | 'sh'
+  status: AccountantFilingStatus
+  filed_at: string | null
+  submission_id: number | null
+}
+
+/** The last closed VAT period; without `applicable` the supplier was not a payer in it and only `period` / `payer_since` are set. */
+export interface AccountantVat {
+  applicable: boolean
+  period: { type: 'monthly' | 'quarterly'; year: number; month: number; quarter: number | null; start: string; end: string }
+  payer_since?: string | null
+  deadline?: string
+  days_left?: number
+  forms?: AccountantVatForm[]
+  /** Figures of the DPH return; null when the return could not be computed. */
+  return?: { output_vat: number; input_vat: number; tax_due: number } | null
+}
+
+export interface AccountantMonthFigures {
+  year: number
+  month: number
+  count: number
+  base: number
+  vat: number
+}
+
+export interface AccountantSummary {
+  today: string
+  currency: string
+  vat: AccountantVat
+  /** Null for a role that may not read the obligations timeline. */
+  obligations: { items: TimelineItem[]; open_count: number; overdue_count: number } | null
+  issued: {
+    previous: AccountantMonthFigures
+    current: AccountantMonthFigures
+    overdue: { count: number; total: number; oldest_days: number }
+  }
+  purchase: {
+    previous: AccountantMonthFigures
+    current: AccountantMonthFigures
+    attention: { drafts: number; to_book: number }
+  }
+  /** The last closed month - the preset of the monthly export. */
+  export: { year: number; month: number }
+}
+
 export const dashboardApi = {
   summary: () => api.get<DashboardSummary>('/dashboard/summary').then(r => r.data),
+  accountant: () => api.get<AccountantSummary>('/dashboard/accountant').then(r => r.data),
 }

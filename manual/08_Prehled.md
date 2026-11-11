@@ -6,6 +6,9 @@ top klienti.
 
 ![Přehled (dashboard)](img/05_dashboard.webp)
 
+> 💡 Uživatel s rolí **účetní** vidí jiný přehled — termíny, DPH a doklady za poslední
+> měsíce. Viz [Prohlídka aplikace a přehled pro účetní](44_Prohlidka_a_prehled_pro_ucetni.md).
+
 ## 8.1 KPI dlaždice (horní řada)
 
 Šířka řady se přizpůsobí počtu aktivních měn (4–6 dlaždic):

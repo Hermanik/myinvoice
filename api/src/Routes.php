@@ -504,6 +504,12 @@ final class Routes
         $app->get ('/api/dashboard/summary',          SummaryAction::class);
         $app->get ('/api/dashboard/purchase-summary', PurchaseSummaryAction::class);
         $app->get ('/api/dashboard/tax-calendar',     \MyInvoice\Action\Dashboard\TaxCalendarAction::class);
+        // Accountant view of the dashboard (the web client asks for it only when the effective role is accountant)
+        $app->get ('/api/dashboard/accountant',       \MyInvoice\Action\Dashboard\AccountantSummaryAction::class);
+
+        // Guided tour state of the signed-in user (self-service for every role, see RoleMiddleware::PUBLIC_OR_SELF)
+        $app->get ('/api/onboarding/tour',            [\MyInvoice\Action\Onboarding\TourStateAction::class, 'get']);
+        $app->put ('/api/onboarding/tour',            [\MyInvoice\Action\Onboarding\TourStateAction::class, 'finish']);
 
         // Admin (M6)
         $app->get    ('/api/admin/activity-log',    ListActivityLogAction::class);
