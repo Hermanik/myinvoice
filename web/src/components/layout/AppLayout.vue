@@ -12,6 +12,7 @@ import ThemeToggle from './ThemeToggle.vue'
 import { useSessionSecurityStore } from '@/stores/sessionSecurity'
 import { useToast } from '@/composables/useToast'
 import { pickFavorites } from '@/utils/navFavorites'
+import { useAppTour } from '@/composables/useAppTour'
 
 const { t, locale } = useI18n()
 function setLocale(l: 'cs' | 'en') {
@@ -35,6 +36,18 @@ const logoutBusy = ref(false)
 const canLockSession = computed(() => sessionSecurity.state?.session_state === 'active'
   && sessionSecurity.state.unlock_methods.includes('passkey'))
 let signingSettingsRequest = 0
+
+// Guided tour ("Prohlídka aplikace"): starts by itself on the user's first login and can be started again from the topbar
+// (or the mobile menu). On a narrow screen it opens and closes the menu drawer for the steps that live in it.
+const tour = useAppTour({
+  setDrawer: open => { mobileOpen.value = open },
+  isDrawerOpen: () => mobileOpen.value,
+})
+// A locked session must not leave the spotlight (and the page behind it) on the screen; the tour comes back next login.
+watch(
+  () => sessionSecurity.privacyCurtain || sessionSecurity.state?.session_state === 'locked',
+  locked => { if (locked) tour.abort() },
+)
 
 async function logout() {
   if (logoutBusy.value) return
@@ -86,6 +99,8 @@ interface NavItem {
   external?: boolean
   /** Cílová route pro rychlé „+" (vytvořit nový) vpravo u položky. Jen pro zapisující. */
   newTo?: string
+  /** `data-tour` target of the guided tour (see utils/tour.ts). */
+  tour?: string
 }
 interface NavSection {
   /** Hlavička sekce; pokud chybí, položky jsou bez visual grouping */
@@ -135,6 +150,7 @@ const ICONS = {
   updates:    'M4 4v5h5M4 9a8 8 0 0 1 14.13-4.06M20 20v-5h-5M20 15a8 8 0 0 1-14.13 4.06',
   myucto_upgrade: 'M13 7l5 5m0 0l-5 5m5-5H6',
   api_tokens: 'M15 7a2 2 0 0 1 2 2m4 0a6 6 0 0 1-7.743 5.743L11 17H9v2H7v2H4a1 1 0 0 1-1-1v-2.586a1 1 0 0 1 .293-.707l5.964-5.964A6 6 0 1 1 21 9z',
+  tour:       'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zM15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112z',
   help:       'M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827V14m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   ai:         'M13 10V3L4 14h7v7l9-11h-7z',
   documents:  'M7 21h10a2 2 0 0 0 2-2V9.414a1 1 0 0 0-.293-.707l-5.414-5.414A1 1 0 0 0 12.586 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2zM9 13h6m-6 4h6',
@@ -162,14 +178,14 @@ const navSections = computed<NavSection[]>(() => {
   // takže drtivá většina firem OSS v menu vůbec neuvidí.
   const ossEnabled = supplierStore.currentSupplier?.oss_enabled === true
   const sections: NavSection[] = [
-    { items: [{ to: '/', label: t('nav.dashboard'), icon: ICONS.dashboard }] },
+    { items: [{ to: '/', label: t('nav.dashboard'), icon: ICONS.dashboard, tour: 'nav-dashboard' }] },
     {
       // Vše co se týká vystavování faktur klientům — klienti/zakázky/schvalování/exporty
       // patří v životním cyklu jednoho prodeje (klient → zakázka → faktura → schválení → export pro účetní).
       title: t('nav.section_sales'),
       accent: 'primary',
       items: [
-        { to: '/invoices',         label: t('nav.invoices'),   icon: ICONS.invoices,  newTo: '/invoices/new' },
+        { to: '/invoices',         label: t('nav.invoices'),   icon: ICONS.invoices,  newTo: '/invoices/new', tour: 'nav-invoices' },
         { to: '/recurring',        label: t('nav.recurring'),  icon: ICONS.recurring, newTo: '/recurring/new' },
         ...(isAdmin ? [{ to: '/admin/price-list', label: t('nav.price_list'), icon: ICONS.price_list }] : []),
         { to: '/clients',          label: t('nav.clients'),    icon: ICONS.clients,   newTo: '/clients/new' },
@@ -184,7 +200,7 @@ const navSections = computed<NavSection[]>(() => {
       title: t('nav.section_purchase'),
       accent: 'warning',
       items: [
-        { to: '/purchase-invoices',          label: t('nav.purchase_invoices'),  icon: ICONS.purchase, newTo: '/purchase-invoices/new' },
+        { to: '/purchase-invoices',          label: t('nav.purchase_invoices'),  icon: ICONS.purchase, newTo: '/purchase-invoices/new', tour: 'nav-purchase-invoices' },
         { to: '/clients?role=vendors',       label: t('nav.vendors'),            icon: ICONS.suppliers, newTo: '/clients/new?role=vendor' },
         { to: '/purchase-invoices/payment-orders', label: t('nav.payment_orders'), icon: ICONS.payment_orders },
         { to: '/purchase-invoices/export',   label: t('nav.purchase_export'),    icon: ICONS.exports },
@@ -200,7 +216,7 @@ const navSections = computed<NavSection[]>(() => {
         { to: '/stats',          label: t('nav.stats'),          icon: ICONS.stats },
         { to: '/purchase-stats', label: t('nav.purchase_stats'), icon: ICONS.purchase },
         // Sjednocená stránka: výpisy + měny/účty + stavy + avíza (bývalé Systém → Bankovní účty).
-        { to: '/bank',           label: t('nav.bank_accounts'),  icon: ICONS.bank },
+        { to: '/bank',           label: t('nav.bank_accounts'),  icon: ICONS.bank, tour: 'nav-bank' },
       ],
     },
     {
@@ -208,7 +224,7 @@ const navSections = computed<NavSection[]>(() => {
       accent: 'neutral',
       items: [
         { to: '/documents', label: t('nav.documents'), icon: ICONS.documents },
-        ...(isAdmin ? [{ to: '/databox', label: t('nav.databox'), icon: ICONS.email }] : []),
+        ...(isAdmin ? [{ to: '/databox', label: t('nav.databox'), icon: ICONS.email, tour: 'nav-databox' }] : []),
         { to: '/logbook', label: t('nav.logbook'), icon: ICONS.logbook, newTo: '/logbook?tab=trips&new=trip' },
       ],
     },
@@ -217,17 +233,17 @@ const navSections = computed<NavSection[]>(() => {
       accent: 'danger',
       items: [
         // Obligations timeline: admin + accountant only (readonly users are refused by the API)
-        ...(canWrite ? [{ to: '/timeline', label: t('nav.timeline'), icon: ICONS.timeline }] : []),
-        { to: '/reports/dph',         label: t('nav.reports_dph'),         icon: ICONS.tax_dph },
-        { to: '/reports/kh',          label: t('nav.reports_kh'),          icon: ICONS.tax_kh },
+        ...(canWrite ? [{ to: '/timeline', label: t('nav.timeline'), icon: ICONS.timeline, tour: 'nav-timeline' }] : []),
+        { to: '/reports/dph',         label: t('nav.reports_dph'),         icon: ICONS.tax_dph, tour: 'nav-reports-dph' },
+        { to: '/reports/kh',          label: t('nav.reports_kh'),          icon: ICONS.tax_kh, tour: 'nav-reports-kh' },
         { to: '/reports/dph-book',    label: t('nav.reports_dph_book'),    icon: ICONS.tax_book },
-        { to: '/reports/shv',         label: t('nav.reports_shv'),         icon: ICONS.tax_shv },
+        { to: '/reports/shv',         label: t('nav.reports_shv'),         icon: ICONS.tax_shv, tour: 'nav-reports-shv' },
         { to: '/reports/income-tax',  label: t('nav.reports_income_tax'),  icon: ICONS.tax_income },
         ...(isOsvc ? [{ to: '/tax', label: t('nav.tax_optimizer'), icon: ICONS.tax_optimizer }] : []),
         ...(ossEnabled ? [{ to: '/reports/oss', label: t('nav.reports_oss'), icon: ICONS.tax_shv }] : []),
         { to: '/tax/registration-deductions', label: t('nav.registration_deduction'), icon: ICONS.tax_optimizer },
-        { to: '/reports/submissions', label: t('nav.reports_submissions'), icon: ICONS.tax_archive },
-        { to: '/reports/monthly-export', label: t('nav.reports_monthly_export'), icon: ICONS.exports },
+        { to: '/reports/submissions', label: t('nav.reports_submissions'), icon: ICONS.tax_archive, tour: 'nav-submissions' },
+        { to: '/reports/monthly-export', label: t('nav.reports_monthly_export'), icon: ICONS.exports, tour: 'nav-monthly-export' },
       ],
     },
   ]
@@ -239,7 +255,7 @@ const navSections = computed<NavSection[]>(() => {
       title: t('nav.system'),
       accent: 'neutral',
       items: [
-        { to: '/admin/settings',         label: t('nav.settings'),        icon: ICONS.settings },
+        { to: '/admin/settings',         label: t('nav.settings'),        icon: ICONS.settings, tour: 'nav-settings' },
         { to: '/admin/codebooks',        label: t('nav.codebooks'),       icon: ICONS.codebooks },
         { to: '/admin/users',            label: t('nav.users'),           icon: ICONS.users },
         { to: '/admin/emails',           label: t('nav.emails'),          icon: ICONS.email },
@@ -266,7 +282,7 @@ const navSections = computed<NavSection[]>(() => {
   // Nápověda jako poslední (po Systému) — externí link na manuál v novém tabu.
   sections.push({
     items: [
-      { to: '/manual', label: t('nav.help'), icon: ICONS.help, external: true },
+      { to: '/manual', label: t('nav.help'), icon: ICONS.help, external: true, tour: 'help' },
     ],
   })
 
@@ -408,6 +424,8 @@ function isActive(item: NavItem): boolean {
 // Zavři mobile drawer + rychlé menu po navigaci
 watch(() => route.path, () => { mobileOpen.value = false; quickOpen.value = false })
 
+onMounted(() => { void tour.autoStart() })
+
 const versionInfo = ref<PublicVersion | null>(null)
 onMounted(async () => {
   try { versionInfo.value = await updateApi.publicVersion() } catch {}
@@ -474,6 +492,7 @@ onMounted(async () => {
             to="/profile/password"
             class="hidden lg:inline text-sm text-neutral-600 hover:text-primary-700 hover:underline"
             :title="t('auth.profile_title')"
+            data-tour="user-menu"
           >{{ auth.user?.name }}</RouterLink>
 
           <!-- Locale switcher (CZ / EN s SVG vlajkami) -->
@@ -516,11 +535,25 @@ onMounted(async () => {
             class="hidden sm:inline-flex w-8 h-8 items-center justify-center rounded-md text-neutral-600 hover:bg-neutral-100 hover:text-primary-700"
             :title="t('nav.help')"
             :aria-label="t('nav.help')"
+            data-tour="help"
           >
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.help" />
             </svg>
           </a>
+
+          <!-- Prohlídka aplikace (guided tour) -->
+          <button
+            type="button" @click="tour.start()" :disabled="tour.running.value"
+            class="cursor-pointer hidden sm:inline-flex w-8 h-8 items-center justify-center rounded-md text-neutral-600 hover:bg-neutral-100 hover:text-primary-700 disabled:opacity-50"
+            :title="t('tour.menu_label')"
+            :aria-label="t('tour.menu_label')"
+            data-testid="tour-restart"
+          >
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.tour" />
+            </svg>
+          </button>
 
           <!-- Odhlásit (desktop) -->
           <button
@@ -577,6 +610,7 @@ onMounted(async () => {
 
       <!-- ── SIDEBAR ── -->
       <aside
+        data-tour-drawer
         :class="[
           'fixed lg:sticky top-14 z-30 lg:z-auto',
           'h-[calc(100vh-3.5rem)] w-60 shrink-0',
@@ -611,6 +645,7 @@ onMounted(async () => {
                 :href="item.to"
                 target="_blank"
                 rel="noopener"
+                :data-tour="item.tour"
                 class="flex items-center gap-2.5 px-2.5 py-[7px] rounded-md text-sm transition-colors leading-tight text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100"
               >
                 <svg class="w-[15px] h-[15px] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -626,6 +661,7 @@ onMounted(async () => {
                   :to="item.to"
                   active-class=""
                   exact-active-class=""
+                  :data-tour="item.tour"
                   class="flex items-center gap-2.5 px-2.5 py-[7px] rounded-md text-sm transition-colors leading-tight"
                   :class="[
                     isActive(item)
@@ -702,12 +738,23 @@ onMounted(async () => {
               @click="mobileOpen = false"
               class="group min-w-0 flex-1 rounded-md -ml-2 px-2 py-1.5 text-sm hover:bg-surface"
               :title="t('auth.profile_title')"
+              data-tour="user-menu"
             >
               <div class="truncate font-medium text-neutral-900 group-hover:text-primary-700 group-hover:underline">
                 {{ auth.user?.name }}
               </div>
               <div class="truncate text-xs text-neutral-500">{{ auth.user?.email }} · {{ auth.user?.role }}</div>
             </RouterLink>
+            <button
+              type="button" @click="tour.start()" :disabled="tour.running.value"
+              class="cursor-pointer inline-flex w-9 h-9 items-center justify-center rounded-md text-neutral-600 hover:bg-surface disabled:opacity-50"
+              :title="t('tour.menu_label')"
+              :aria-label="t('tour.menu_label')"
+            >
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.tour" />
+              </svg>
+            </button>
             <a
               href="/manual" target="_blank" rel="noopener"
               class="inline-flex w-9 h-9 items-center justify-center rounded-md text-neutral-600 hover:bg-surface"

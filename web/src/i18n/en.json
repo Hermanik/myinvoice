@@ -5670,5 +5670,153 @@
       "invoicing_vat_payer": "As a VAT payer, issue the tax document within 15 days of the taxable supply (§ 28 odst. 4 ZDPH).",
       "non_working_day": "The date falls on a non-working day. The payment has to be on the account in time – pay on the previous working day."
     }
+  },
+  "tour": {
+    "menu_label": "App tour",
+    "next": "Next",
+    "prev": "Back",
+    "done": "Done",
+    "skip": "Skip tour",
+    "close": "Close tour",
+    "accountant": {
+      "dashboard": {
+        "title": "Your overview",
+        "text": "You start here after every login. It shows the VAT of the last closed month, the next obligations from the Timeline, issued and received invoices and a button to download the documents."
+      },
+      "timeline": {
+        "title": "Timeline",
+        "text": "All tax obligations and deadlines in one place: VAT, control statements, advances, income tax and insurance. You can tick off finished items."
+      },
+      "invoices": {
+        "title": "Issued invoices",
+        "text": "Invoices issued to clients. Each has its PDF, ISDOC, payment state and due date."
+      },
+      "purchase": {
+        "title": "Received invoices",
+        "text": "Documents from suppliers. You can check them, correct the VAT classification and mark them as booked."
+      },
+      "vat_dph": {
+        "title": "VAT return",
+        "text": "An overview for the chosen month and an XML file for the tax portal. The application sends nothing by itself – you download the XML and file it on the portal."
+      },
+      "vat_kh": {
+        "title": "Control statement",
+        "text": "Works like the return: a preview to check first, then the XML download for the tax portal."
+      },
+      "vat_sh": {
+        "title": "Recapitulative statement",
+        "text": "Needed only for supplies of goods or services to another EU country. Again a preview and an XML for the tax portal."
+      },
+      "submissions": {
+        "title": "Filing archive",
+        "text": "Every generated return is stored here. You see whether it is only generated, filed or confirmed, and you can download its XML."
+      },
+      "export": {
+        "title": "Monthly export",
+        "text": "Packs the issued and received invoices (PDF and ISDOC), bank statements and the VAT book of one month into a single ZIP file. The ISDOC files import straight into EKONOM."
+      },
+      "databox": {
+        "title": "Data boxes",
+        "text": "Read only: an overview of the messages in the entrepreneur's data box, mainly from the tax office."
+      },
+      "bank": {
+        "title": "Bank",
+        "text": "Bank statements and individual transactions, including matching payments with invoices. The statements are also part of the monthly export."
+      },
+      "user_menu": {
+        "title": "Your account",
+        "text": "Change your password and set up sign-in security here – two-step verification or a passkey."
+      },
+      "help": {
+        "title": "Help",
+        "text": "The complete user manual. You can start this tour again at any time with the button next to the help."
+      }
+    },
+    "general": {
+      "dashboard": {
+        "title": "Overview",
+        "text": "The start page with revenue, overdue invoices, the tax calendar and the tasks that wait for your attention."
+      },
+      "invoices": {
+        "title": "Issued invoices",
+        "text": "Issuing invoices to clients, sending them by e-mail and tracking payments."
+      },
+      "purchase": {
+        "title": "Received invoices",
+        "text": "Documents from suppliers: records, payment orders and the basis for VAT."
+      },
+      "bank": {
+        "title": "Bank",
+        "text": "Bank statements and automatic matching of payments with invoices."
+      },
+      "taxes": {
+        "title": "Taxes and returns",
+        "text": "The VAT return, control and recapitulative statements as XML for the tax portal. Further down in the same section are the filing archive and the monthly export for the accountant."
+      },
+      "timeline": {
+        "title": "Timeline",
+        "text": "All tax obligations and deadlines: VAT, advances, income tax and insurance. You can tick off finished items."
+      },
+      "settings": {
+        "title": "Settings",
+        "text": "Company details, users and their roles (including the accountant), codebooks and integrations."
+      },
+      "user_menu": {
+        "title": "Your account",
+        "text": "Change your password and set up sign-in security here – two-step verification or a passkey."
+      },
+      "help": {
+        "title": "Help",
+        "text": "The complete user manual. You can start this tour again at any time with the button next to the help."
+      }
+    }
+  },
+  "accountant_dashboard": {
+    "title": "Accountant overview",
+    "subtitle": "documents and deadlines in one place",
+    "export_cta": "Download documents for {month}",
+    "no_documents": "There are no documents in the last two months.",
+    "count": "Documents",
+    "base": "Base without VAT",
+    "vat_amount": "VAT",
+    "vat": {
+      "title": "VAT for {period}",
+      "deadline": "Filing deadline",
+      "all_filed": "all filed",
+      "not_payer": "The company is not a VAT payer in this period, so there is no VAT overview.",
+      "not_yet_payer": "The company is not a VAT payer yet. It becomes one on {date} – the overview appears after the first closed period.",
+      "form": {
+        "dph": "VAT return",
+        "kh": "Control statement",
+        "sh": "Recapitulative statement"
+      },
+      "status": {
+        "unfiled": "Not filed",
+        "filed": "Filed",
+        "confirmed": "Confirmed"
+      },
+      "output": "Output VAT",
+      "input": "Input VAT",
+      "liability": "VAT to pay",
+      "excess": "Excess deduction",
+      "no_figures": "The figures of the return could not be computed. Open the return and check the data.",
+      "open_return": "Open the return"
+    },
+    "obligations": {
+      "title": "Next obligations",
+      "empty": "There are no open obligations in the coming months.",
+      "counts": "Open items: {open}, of which overdue: {overdue}."
+    },
+    "issued": {
+      "title": "Issued invoices",
+      "overdue": "Invoices past due: {count} (total {total})",
+      "ok": "No invoices past due."
+    },
+    "purchase": {
+      "title": "Received invoices",
+      "drafts": "Drafts in progress: {count}",
+      "to_book": "Received but not booked: {count}",
+      "ok": "Everything is processed."
+    }
   }
 }

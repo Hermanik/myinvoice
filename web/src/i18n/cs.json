@@ -5679,5 +5679,153 @@
       "invoicing_vat_payer": "Jako plátce DPH vystavte daňový doklad nejpozději do 15 dnů ode dne uskutečnění plnění (§ 28 odst. 4 ZDPH).",
       "non_working_day": "Termín připadá na nepracovní den. Platba musí být na účtu včas – zaplaťte raději předchozí pracovní den."
     }
+  },
+  "tour": {
+    "menu_label": "Prohlídka aplikace",
+    "next": "Další",
+    "prev": "Zpět",
+    "done": "Hotovo",
+    "skip": "Přeskočit prohlídku",
+    "close": "Zavřít prohlídku",
+    "accountant": {
+      "dashboard": {
+        "title": "Váš přehled",
+        "text": "Po každém přihlášení začnete tady. Najdete na něm DPH za poslední uzavřený měsíc, nejbližší povinnosti z Harmonogramu, vystavené a přijaté faktury a tlačítko pro stažení podkladů."
+      },
+      "timeline": {
+        "title": "Harmonogram",
+        "text": "Všechny daňové povinnosti a termíny na jednom místě: DPH, kontrolní hlášení, zálohy, daň z příjmů i pojistné. Splněné položky můžete odškrtnout."
+      },
+      "invoices": {
+        "title": "Vydané faktury",
+        "text": "Faktury vystavené klientům. U každé najdete PDF, ISDOC, stav úhrady a datum splatnosti."
+      },
+      "purchase": {
+        "title": "Přijaté faktury",
+        "text": "Doklady od dodavatelů. Můžete je zkontrolovat, opravit zařazení DPH a označit jako zaúčtované."
+      },
+      "vat_dph": {
+        "title": "Přiznání k DPH",
+        "text": "Přehled za zvolený měsíc a XML soubor pro portál Finanční správy. Aplikace nic sama neodesílá – XML stáhnete a podáte na portálu."
+      },
+      "vat_kh": {
+        "title": "Kontrolní hlášení",
+        "text": "Funguje stejně jako přiznání: nejdřív náhled ke kontrole, potom stažení XML pro portál Finanční správy."
+      },
+      "vat_sh": {
+        "title": "Souhrnné hlášení",
+        "text": "Potřebné jen při dodání zboží nebo služeb do jiné země EU. Opět náhled a XML pro portál Finanční správy."
+      },
+      "submissions": {
+        "title": "Archiv podání",
+        "text": "Každý vygenerovaný výkaz se uloží sem. Vidíte, zda je jen vygenerovaný, podaný, nebo potvrzený, a můžete si stáhnout jeho XML."
+      },
+      "export": {
+        "title": "Hromadný export",
+        "text": "Za jeden měsíc sbalí vydané i přijaté faktury (PDF a ISDOC), bankovní výpisy a knihu DPH do jednoho souboru ZIP. ISDOC naimportujete rovnou do programu EKONOM."
+      },
+      "databox": {
+        "title": "Datové schránky",
+        "text": "Jen ke čtení: přehled zpráv z datové schránky podnikatele, hlavně od finančního úřadu."
+      },
+      "bank": {
+        "title": "Banka",
+        "text": "Bankovní výpisy a jednotlivé pohyby na účtu včetně spárování plateb s fakturami. Výpisy najdete i v hromadném exportu."
+      },
+      "user_menu": {
+        "title": "Váš účet",
+        "text": "Tady změníte heslo a nastavíte zabezpečení přihlášení – dvoufázové ověření nebo přístupový klíč."
+      },
+      "help": {
+        "title": "Nápověda",
+        "text": "Kompletní uživatelský manuál. Tuto prohlídku spustíte kdykoli znovu tlačítkem vedle nápovědy."
+      }
+    },
+    "general": {
+      "dashboard": {
+        "title": "Přehled",
+        "text": "Úvodní stránka s tržbami, fakturami po splatnosti, daňovým kalendářem a úkoly, které čekají na vaši pozornost."
+      },
+      "invoices": {
+        "title": "Vydané faktury",
+        "text": "Vystavování faktur klientům, odesílání e-mailem a sledování plateb."
+      },
+      "purchase": {
+        "title": "Přijaté faktury",
+        "text": "Doklady od dodavatelů: evidence, platební příkazy a podklady pro DPH."
+      },
+      "bank": {
+        "title": "Banka",
+        "text": "Bankovní výpisy a automatické párování plateb s fakturami."
+      },
+      "taxes": {
+        "title": "Daně a výkazy",
+        "text": "Přiznání k DPH, kontrolní a souhrnné hlášení jako XML pro portál Finanční správy. Níže v téže části je archiv podání a hromadný export pro účetní."
+      },
+      "timeline": {
+        "title": "Harmonogram",
+        "text": "Všechny daňové povinnosti a termíny: DPH, zálohy, daň z příjmů a pojistné. Hotové položky můžete odškrtnout."
+      },
+      "settings": {
+        "title": "Nastavení",
+        "text": "Údaje o firmě, uživatelé a jejich role (včetně účetní), číselníky a integrace."
+      },
+      "user_menu": {
+        "title": "Váš účet",
+        "text": "Tady změníte heslo a nastavíte zabezpečení přihlášení – dvoufázové ověření nebo přístupový klíč."
+      },
+      "help": {
+        "title": "Nápověda",
+        "text": "Kompletní uživatelský manuál. Tuto prohlídku spustíte kdykoli znovu tlačítkem vedle nápovědy."
+      }
+    }
+  },
+  "accountant_dashboard": {
+    "title": "Přehled pro účetní",
+    "subtitle": "podklady a termíny na jednom místě",
+    "export_cta": "Stáhnout podklady za {month}",
+    "no_documents": "Za poslední dva měsíce nejsou žádné doklady.",
+    "count": "Počet dokladů",
+    "base": "Základ bez DPH",
+    "vat_amount": "DPH",
+    "vat": {
+      "title": "DPH za {period}",
+      "deadline": "Termín podání",
+      "all_filed": "vše podáno",
+      "not_payer": "Firma v tomto období není plátcem DPH, přehled DPH proto není k dispozici.",
+      "not_yet_payer": "Firma zatím není plátcem DPH. Plátcem bude od {date} – přehled se zobrazí po prvním uzavřeném období.",
+      "form": {
+        "dph": "Přiznání k DPH",
+        "kh": "Kontrolní hlášení",
+        "sh": "Souhrnné hlášení"
+      },
+      "status": {
+        "unfiled": "Nepodáno",
+        "filed": "Podáno",
+        "confirmed": "Potvrzeno"
+      },
+      "output": "DPH na výstupu",
+      "input": "DPH na vstupu",
+      "liability": "Vlastní daň k úhradě",
+      "excess": "Nadměrný odpočet",
+      "no_figures": "Čísla přiznání se nepodařilo spočítat. Otevřete přiznání a zkontrolujte údaje.",
+      "open_return": "Otevřít přiznání"
+    },
+    "obligations": {
+      "title": "Nejbližší povinnosti",
+      "empty": "V nejbližších měsících nejsou žádné otevřené povinnosti.",
+      "counts": "Otevřených položek: {open}, z toho po termínu: {overdue}."
+    },
+    "issued": {
+      "title": "Vydané faktury",
+      "overdue": "Faktur po splatnosti: {count} (celkem {total})",
+      "ok": "Žádné faktury po splatnosti."
+    },
+    "purchase": {
+      "title": "Přijaté faktury",
+      "drafts": "Rozpracované koncepty: {count}",
+      "to_book": "Přijaté, ale nezaúčtované: {count}",
+      "ok": "Vše zpracováno."
+    }
   }
 }

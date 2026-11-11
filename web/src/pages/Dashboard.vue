@@ -14,11 +14,14 @@ import TaxNetWidget from '@/components/dashboard/TaxNetWidget.vue'
 import ActionItemsWidget from '@/components/dashboard/ActionItemsWidget.vue'
 import TaxCalendarWidget from '@/components/dashboard/TaxCalendarWidget.vue'
 import WorkReportModal from '@/components/modals/WorkReportModal.vue'
+import AccountantDashboard from '@/components/dashboard/AccountantDashboard.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
 const supplierStore = useSupplierStore()
 const isAdmin = computed(() => auth.user?.role === 'admin')
+// The accountant gets a view of their own (components/dashboard/AccountantDashboard.vue), not the owner's business statistics.
+const isAccountant = computed(() => auth.user?.role === 'accountant')
 
 // Onboarding gate (#151): bez dodavatele je dashboard prázdný a všechny zakládací akce
 // padají → místo dat ukážeme výzvu k vytvoření prvního dodavatele.
@@ -29,6 +32,10 @@ const loading = ref(true)
 const error = ref('')
 
 async function loadSummary() {
+  if (isAccountant.value) {
+    loading.value = false
+    return
+  }
   // Žádný dodavatel → nenačítej summary (vrátilo by jen prázdná data), ukaž gate.
   if (!hasSupplier.value) {
     loading.value = false
@@ -138,6 +145,8 @@ const hasCostsData = computed(() => (summary.value?.purchase_costs_by_month ?? [
       </RouterLink>
       <p v-else class="text-sm text-neutral-600">{{ t('dashboard.no_supplier.non_admin') }}</p>
     </div>
+
+    <AccountantDashboard v-else-if="isAccountant" />
 
     <template v-else>
     <div v-if="loading" class="text-center text-neutral-500 py-12">{{ t('dashboard.loading_data') }}</div>

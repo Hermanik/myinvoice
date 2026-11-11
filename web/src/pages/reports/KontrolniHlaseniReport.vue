@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { reportsApi, type DphSettings, type KhFormParams } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
 import { useYearOptions } from '@/composables/useYearOptions'
+import { periodFromQuery } from '@/utils/reportPeriod'
 import { isoToEpoDate } from '@/utils/epoDate'
 import VatPrecheckPanels from '@/components/reports/VatPrecheckPanels.vue'
 
 const { t, locale } = useI18n()
 
-const now = new Date()
-const year = ref(now.getFullYear())
-const month = ref(now.getMonth() + 1)
+// The accountant's dashboard links here with ?year=&month= (the last closed period); otherwise the current month.
+const route = useRoute()
+const initialPeriod = periodFromQuery(route.query)
+const year = ref(initialPeriod.year)
+const month = ref(initialPeriod.month)
 
 const settings = ref<DphSettings | null>(null)
 const periodOverride = ref<'monthly' | 'quarterly' | ''>('')

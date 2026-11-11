@@ -206,7 +206,7 @@ test('the timeline has a route for admin and accountant and a menu entry in the 
   const layout = await read('components/layout/AppLayout.vue')
 
   assert.match(router, /path: 'timeline',\s+name: 'timeline',\s+component: \(\) => import\('@\/pages\/timeline\/TimelinePage\.vue'\), meta: \{ requiresWrite: true/)
-  assert.match(layout, /canWrite \? \[\{ to: '\/timeline', label: t\('nav\.timeline'\), icon: ICONS\.timeline \}\] : \[\]/)
+  assert.match(layout, /canWrite \? \[\{ to: '\/timeline', label: t\('nav\.timeline'\), icon: ICONS\.timeline, tour: 'nav-timeline' \}\] : \[\]/)
   // The entry sits in the taxes section, before the reports, so it can be starred like any other item.
   const taxes = layout.slice(layout.indexOf("t('nav.section_taxes')"))
   assert.ok(taxes.indexOf("to: '/timeline'") < taxes.indexOf("to: '/reports/dph'"))

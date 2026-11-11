@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { reportsApi, type MonthlyExportPreview, type MonthlyExportPart, type MonthlyExportJob, type ExportPeriodArg } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
 import { useToast } from '@/composables/useToast'
 import { useYearOptions } from '@/composables/useYearOptions'
 import { useSessionAwarePolling } from '@/composables/useSessionAwarePolling'
+import { periodFromQuery } from '@/utils/reportPeriod'
 
 const { t, locale } = useI18n()
 const toast = useToast()
@@ -17,9 +19,11 @@ type PeriodType = 'monthly' | 'quarterly'
 const now = new Date()
 const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
 const periodType = ref<PeriodType>('monthly')
-const year = ref(prevMonth.getFullYear())
-const month = ref(prevMonth.getMonth() + 1)
-const quarter = ref(Math.ceil((prevMonth.getMonth() + 1) / 3))
+// The accountant's dashboard links here with ?year=&month= (the last closed month, which is also the default).
+const initialPeriod = periodFromQuery(useRoute().query, prevMonth)
+const year = ref(initialPeriod.year)
+const month = ref(initialPeriod.month)
+const quarter = ref(Math.ceil(initialPeriod.month / 3))
 const quarterOptions = [1, 2, 3, 4]
 
 const exportPeriod = computed<ExportPeriodArg>(() =>

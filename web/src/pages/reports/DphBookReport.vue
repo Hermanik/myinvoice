@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { reportsApi, type DphBookPreview } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
 import { useYearOptions } from '@/composables/useYearOptions'
+import { periodFromQuery } from '@/utils/reportPeriod'
 
 const { t, locale } = useI18n()
 
-const now = new Date()
-const year = ref(now.getFullYear())
-const month = ref(now.getMonth() + 1)
+// The accountant's dashboard links here with ?year=&month= (the last closed period); otherwise the current month.
+const route = useRoute()
+const initialPeriod = periodFromQuery(route.query)
+const year = ref(initialPeriod.year)
+const month = ref(initialPeriod.month)
 const periodType = ref<'monthly' | 'quarterly'>('monthly')
 
 const preview = ref<DphBookPreview | null>(null)

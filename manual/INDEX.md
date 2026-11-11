@@ -23,6 +23,7 @@ nasazuje). Zbytek je psaný pro běžného uživatele — bez programátorského
 6. [První spuštění](06_Setup_wizard.md)
 7. [Přihlášení](07_Prihlaseni.md)
 8. [Přehled](08_Prehled.md)
+44. [Prohlídka aplikace a přehled pro účetní](44_Prohlidka_a_prehled_pro_ucetni.md)
 
 ### Prodej
 

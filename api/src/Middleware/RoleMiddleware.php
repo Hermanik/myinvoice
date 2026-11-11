@@ -75,6 +75,8 @@ final class RoleMiddleware implements MiddlewareInterface
         '/api/auth/session/unlock/verify',
         // Own UI preference (starred sidebar items), so readonly users may set it too.
         '/api/auth/nav-favorites',
+        // Own guided-tour state (every role sees the tour).
+        '/api/onboarding/tour',
         '/api/csrf-token',
     ];
 
