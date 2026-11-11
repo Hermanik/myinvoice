@@ -27,7 +27,7 @@ final class EmailTemplateAction
      * Známé kódy šablon — fix list, ne dynamický.
      * Při přidání nového typu emailu rozšířit zde a v api/templates/email/.
      */
-    private const KNOWN = ['invoice_send', 'invoice_payment_thanks', 'invoice_reminder', 'proforma_reminder', 'invoice_approval', 'recurring_draft_reminder', 'password_reset', 'login_otp', 'email_profile_test', 'work_report_link', 'work_report_access_code'];
+    private const KNOWN = ['invoice_send', 'invoice_payment_thanks', 'invoice_reminder', 'proforma_reminder', 'invoice_approval', 'recurring_draft_reminder', 'password_reset', 'user_invite', 'login_otp', 'email_profile_test', 'work_report_link', 'work_report_access_code'];
     private const LOCALES = ['cs', 'en'];
 
     public function __construct(
@@ -164,6 +164,7 @@ final class EmailTemplateAction
             'invoice_approval'  => 'Žádost o schválení výkazu práce ({{ invoice.varsymbol_or_id }})',
             'recurring_draft_reminder' => 'Koncept pravidelné faktury se brzy vystaví ({{ issue_date }})',
             'password_reset'    => 'Obnova hesla',
+            'user_invite'       => 'Pozvánka do aplikace',
             'login_otp'         => 'Ověřovací kód pro přihlášení',
             'email_profile_test'=> 'Test odesílacího profilu',
             'work_report_link'  => 'Náhled na výkaz práce — MyInvoice.cz',
@@ -177,6 +178,7 @@ final class EmailTemplateAction
             'invoice_approval'  => 'Work report — please approve ({{ invoice.varsymbol_or_id }})',
             'recurring_draft_reminder' => 'Recurring invoice draft will be issued soon ({{ issue_date }})',
             'password_reset'    => 'Password reset',
+            'user_invite'       => 'You are invited',
             'login_otp'         => 'Sign-in verification code',
             'email_profile_test'=> 'Sending profile test',
             'work_report_link'  => 'Work report preview — MyInvoice.cz',

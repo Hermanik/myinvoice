@@ -110,6 +110,8 @@ tags:
     description: Harmonogram povinností — daně, pojištění a fakturace na časové ose. **Jen ze session** (admin a účetní), API token sem nemá přístup (403).
   - name: Databox
     description: Datové schránky (ISDS) — zprávy, odesílání, podání finančnímu úřadu. **Jen ze session administrátora**, API token sem nemá přístup (403).
+  - name: Users
+    description: Správa uživatelů, pozvánky a druhé ověření kódem z e-mailu. **Jen ze session**, API token sem nemá přístup; správa uživatelů je jen pro admina, stránka pozvánky je veřejná (autorizuje ji jednorázový odkaz).
 
 paths:
   /api/v1/branding-profiles:
@@ -7001,6 +7003,255 @@ paths:
                   type: array
                   items: { $ref: '#/components/schemas/DataboxSubmissionLink' }
 
+  /api/v1/admin/users:
+    get:
+      tags: [Users]
+      summary: Seznam uživatelů
+      description: Jen admin (session). `invite_pending` říká, že existuje nepoužitá a neprošlá pozvánka.
+      security:
+        - SessionAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/UserAdmin' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': { description: Jen admin (`forbidden`) }
+    post:
+      tags: [Users]
+      summary: Založení uživatele
+      description: |
+        Jen admin (session). **Heslo je nepovinné**: bez hesla se účet založí s náhodným, nikomu neznámým heslem
+        a uživatel si ho nastaví sám přes pozvánku (`POST /admin/users/{id}/invite`). Do `activity_log` jde `user.created`
+        a u `mfa_mode` jiného než `default` i `user.mfa_mode_changed`.
+      security:
+        - SessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserAdminCreate' }
+      responses:
+        '201':
+          description: Uživatel založen
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserAdmin' }
+        '400': { description: Neplatná data, mimo jiné `mfa_mode = email` u role `admin` (`validation_failed`) }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': { description: Jen admin (`forbidden`) }
+        '409': { description: E-mail je už registrovaný (`email_taken`) }
+
+  /api/v1/admin/users/{id}:
+    put:
+      tags: [Users]
+      summary: Úprava uživatele
+      description: |
+        Jen admin (session). Změna `mfa_mode` zruší všechny session uživatele (silná session získaná kódem z e-mailu
+        nesmí přežít režim, který ji vydal) a zapíše `user.mfa_mode_changed`. Povýšení uživatele s `mfa_mode = email`
+        na `admin` režim sám vrátí na `default`; výslovné `mfa_mode = email` u admina server odmítne.
+      security:
+        - SessionAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserAdminUpdate' }
+      responses:
+        '200':
+          description: Upravený uživatel
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserAdmin' }
+        '400': { description: Neplatná data, mimo jiné `mfa_mode = email` u role `admin` (`validation_failed`) }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': { description: Jen admin (`forbidden`) }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409': { description: Poslední aktivní admin (`last_admin`) }
+
+  /api/v1/admin/users/{id}/invite:
+    post:
+      tags: [Users]
+      summary: Pozvánka pro nového i stávajícího uživatele
+      description: |
+        Jen admin (session). Vystaví jednorázový odkaz, přes který si uživatel nastaví vlastní heslo a rovnou se přihlásí.
+        Funguje i pro už existujícího uživatele (znovupozvání). Odkaz platí 7 dní, jde použít jednou a nová pozvánka
+        zneplatní všechny dosud nepoužité odkazy téhož uživatele. V DB je jen SHA-256 tokenu, nikdy se nelogují.
+
+        - `send_email: true`: aplikace pošle e-mail ze šablony `user_invite`, odkaz se v odpovědi **nevrací**.
+          Když doručení selže, odkaz se zruší a odpověď je `502 invite_mail_failed`.
+        - `send_email: false`: odkaz se vrátí v `invite_link` (jen tato jedna odpověď) a admin ho pošle sám.
+
+        Do `activity_log` jde `user.invited` (`via`: `email` | `link`).
+      security:
+        - SessionAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserInviteRequest' }
+      responses:
+        '200':
+          description: Pozvánka vystavená
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserInviteResult' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': { description: Jen admin (`forbidden`) }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409': { description: Neaktivního uživatele nelze pozvat (`user_inactive`) }
+        '502': { description: E-mail s pozvánkou se nepodařilo odeslat (`invite_mail_failed`) }
+
+  /api/v1/auth/invite:
+    get:
+      tags: [Users]
+      summary: Stránka pozvánky (jméno a pravidla hesla)
+      description: |
+        Veřejné, autorizuje ho jen token v odkazu. Neznámý, použitý, prošlý i odkaz deaktivovaného uživatele odpoví stejně
+        (`410 invite_invalid`), takže endpoint neprozradí, které tokeny kdy existovaly. Každý neplatný pokus se počítá
+        do `BruteForceGuard` podle IP (po překročení prahu `429`) a navíc platí rate limit `rate_limits.invite_per_min_per_ip`.
+      security: []
+      parameters:
+        - in: query
+          name: token
+          required: true
+          schema: { type: string, pattern: '^[a-f0-9]{64}$' }
+      responses:
+        '200':
+          description: Odkaz je platný
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InviteInfo' }
+        '410': { description: Odkaz už neplatí (`invite_invalid`) }
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/v1/auth/invite/accept:
+    post:
+      tags: [Users]
+      summary: Přijetí pozvánky, nastavení hesla a přihlášení
+      description: |
+        Veřejné (token v těle). Nastaví heslo, spálí všechny nepoužité pozvánky uživatele, zruší jeho dosavadní session,
+        důvěryhodná zařízení a čekající kódy z e-mailu a vydá **tutéž session jako úspěšné přihlášení** (cookie + `csrf_token`).
+        Prohlížeč se navíc označí za důvěryhodný (cookie `__Host-myinvoice_td`, 30 dní), takže hned po pozvánce se kód z e-mailu
+        nechce.
+
+        Úroveň session: uživatel s `mfa_mode = email` dostane `strong` (odkaz prokazuje vlastnictví schránky), ostatní se řídí
+        MFA politikou (při povinném MFA `setup` = nucená registrace TOTP/passkey). Kdo už má TOTP nebo passkey, přihlášený
+        odkazem **není**: heslo se nastaví, odpověď je `{"signed_in": false}` a přihlásí se běžnou cestou.
+
+        Příliš krátké nebo se neshodující heslo pozvánku nespotřebuje. Do `activity_log` jde `user.invite_accepted`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InviteAcceptRequest' }
+      responses:
+        '200':
+          description: Heslo nastaveno
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/InviteSession' }
+                  - { $ref: '#/components/schemas/InviteNotSignedIn' }
+        '400': { description: Heslo je krátké/dlouhé nebo se neshodují (`validation_failed`) }
+        '410': { description: Odkaz už neplatí (`invite_invalid`) }
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/v1/auth/mfa/step-up/email/request:
+    post:
+      tags: [Users]
+      summary: Step-up uživatele s režimem „kód e-mailem“, 1. krok (poslat kód)
+      description: |
+        Jen session. Pošle na e-mail uživatele čerstvý šestimístný kód (stejný mechanismus jako přihlašovací kód, platí 10 minut,
+        jeden aktivní kód na uživatele, opětovné zaslání má cooldown). Dostupné jen uživateli s efektivním `mfa_mode = email`,
+        který nemá TOTP ani passkey (jinak `409 email_step_up_unavailable`): kód z e-mailu nikdy nenahradí skutečný faktor.
+        Povolená operace je pouze `api_token.create`.
+      security:
+        - SessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operation]
+              properties:
+                operation: { type: string, enum: [api_token.create] }
+                resend: { type: boolean, description: "Poslat kód znovu (po uplynutí cooldownu)" }
+      responses:
+        '200':
+          description: Kód odeslán (nebo už platný existuje)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent: { type: boolean }
+                  cooldown_remaining: { type: integer, description: "Sekundy do možného opětovného odeslání" }
+        '400': { description: Nepovolený účel (`step_up_operation_invalid`) }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409': { description: Pro tento účet nedostupné (`email_step_up_unavailable`) }
+
+  /api/v1/auth/mfa/step-up/email:
+    post:
+      tags: [Users]
+      summary: Step-up uživatele s režimem „kód e-mailem“, 2. krok (ověřit kód)
+      description: |
+        Jen session. Ověří kód z e-mailu a vydá jednorázový `step_up_token` svázaný se session, uživatelem a operací
+        (platí do 5 minut). Chybný kód se počítá do per-user zámku (`429 too_many_attempts`). Token se pak předá
+        do `POST /auth/tokens` jako `step_up_token`.
+      security:
+        - SessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operation, code]
+              properties:
+                operation: { type: string, enum: [api_token.create] }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: Ověřeno
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [step_up_token]
+                properties:
+                  step_up_token: { type: string }
+        '400': { description: Nepovolený účel (`step_up_operation_invalid`) }
+        '401': { description: Neplatný nebo expirovaný kód (`invalid_code`) }
+        '409': { description: Pro tento účet nedostupné (`email_step_up_unavailable`) }
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
 components:
   securitySchemes:
     BearerAuth:
@@ -7008,6 +7259,11 @@ components:
       scheme: bearer
       bearerFormat: mi_pat_
       description: Personal Access Token získaný v Nastavení → API tokeny.
+    SessionAuth:
+      type: apiKey
+      in: cookie
+      name: __Host-myinvoice_session
+      description: Cookie webové session (přihlášení v UI). Mutace navíc vyžadují hlavičku `X-CSRF-Token`.
 
   parameters:
     SupplierIdHeader:
@@ -7988,6 +8244,114 @@ components:
             code: { type: integer, description: "-32700, -32600, -32601, -32602, -32020 (neshoda hlaviček), -32022 (nepodporovaná verze)." }
             message: { type: string }
             data: {}
+
+    UserAdmin:
+      type: object
+      required: [id, email, name, role, locale, is_active, mfa_mode, invite_pending]
+      properties:
+        id: { type: integer }
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { type: string, enum: [admin, accountant, readonly] }
+        locale: { type: string, enum: [cs, en] }
+        is_active: { type: boolean }
+        mfa_mode:
+          type: string
+          enum: [default, email]
+          description: |
+            `default`: passkey / TOTP (a požadované MFA vynutí jejich registraci).
+            `email`: druhý faktor je kód z e-mailu uživatele, který u tohoto uživatele splní i povinné MFA.
+            Admin nikdy nesmí mít `email` (server odmítne; DB to hlídá CHECK constraintem).
+        invite_pending: { type: boolean, description: "Existuje nepoužitá a neprošlá pozvánka." }
+        invite_expires_at: { type: [string, 'null'], description: "Konec platnosti nejnovější živé pozvánky (čas DB)." }
+        created_at: { type: string }
+        last_login_at: { type: [string, 'null'] }
+
+    UserAdminCreate:
+      type: object
+      required: [email, name]
+      properties:
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { type: string, enum: [admin, accountant, readonly], default: readonly }
+        locale: { type: string, enum: [cs, en], default: cs }
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+          description: Nepovinné. Bez hesla si ho uživatel nastaví sám přes pozvánku.
+        mfa_mode: { type: string, enum: [default, email], default: default, description: "`email` je u role `admin` zakázané." }
+
+    UserAdminUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        role: { type: string, enum: [admin, accountant, readonly] }
+        locale: { type: string, enum: [cs, en] }
+        is_active: { type: boolean }
+        password: { type: string, minLength: 12, maxLength: 128 }
+        mfa_mode: { type: string, enum: [default, email], description: "`email` je u role `admin` zakázané. Změna zruší session uživatele." }
+
+    UserInviteRequest:
+      type: object
+      required: [send_email]
+      properties:
+        send_email:
+          type: boolean
+          description: "`true` = odeslat e-mailem (odkaz se nevrací), `false` = vrátit odkaz v odpovědi."
+
+    UserInviteResult:
+      type: object
+      required: [email_sent, expires_at]
+      properties:
+        email_sent: { type: boolean }
+        expires_at: { type: string, description: "Konec platnosti odkazu (čas DB), 7 dní od vystavení." }
+        invite_link:
+          type: string
+          description: Jednorázový odkaz `…/invite?token=…`. Jen při `send_email = false`, vrací se právě jednou.
+
+    InviteInfo:
+      type: object
+      required: [name, email_codes, password_min_length, password_max_length]
+      properties:
+        name: { type: string, description: "Pro pozdrav „Vítejte, {name}“." }
+        email_codes: { type: boolean, description: "Účet se přihlašuje kódem z e-mailu, aplikace pro ověřování není potřeba." }
+        password_min_length: { type: integer, example: 12 }
+        password_max_length: { type: integer, example: 128 }
+
+    InviteAcceptRequest:
+      type: object
+      required: [token, password, password_confirm]
+      properties:
+        token: { type: string, pattern: '^[a-f0-9]{64}$' }
+        password: { type: string, minLength: 12, maxLength: 128 }
+        password_confirm: { type: string }
+
+    InviteSession:
+      type: object
+      description: Stejný tvar jako odpověď úspěšného přihlášení; session je v cookie.
+      required: [user, csrf_token]
+      properties:
+        user:
+          type: object
+          properties:
+            id: { type: integer }
+            email: { type: string }
+            name: { type: string }
+            role: { type: string, enum: [admin, accountant, readonly] }
+            locale: { type: string, enum: [cs, en] }
+            mfa_mode: { type: string, enum: [default, email] }
+            must_setup_mfa: { type: boolean, description: "Povinné MFA bez skutečného faktoru: UI pošle na registraci TOTP/passkey." }
+            must_setup_totp: { type: boolean }
+        csrf_token: { type: string }
+        require_mfa: { type: boolean }
+        allowed_mfa_methods: { type: array, items: { type: string, enum: [passkey, totp] } }
+
+    InviteNotSignedIn:
+      type: object
+      required: [signed_in]
+      properties:
+        signed_in: { type: boolean, enum: [false] }
 
     Error:
       type: object

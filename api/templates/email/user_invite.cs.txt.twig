@@ -1,0 +1,20 @@
+{% extends '_layout.txt.twig' %}
+
+{% block content %}
+Pozvánka do aplikace
+--------------------
+
+Dobrý den{% if name %} {{ name }}{% endif %},
+
+byl Vám založen přístup do fakturační aplikace MyInvoice.cz{% if invitedBy %} (pozvánka od {{ invitedBy }}){% endif %}.
+
+Pro nastavení vlastního hesla a přihlášení otevřete tento odkaz (platný {{ expiresIn|default('7 dní') }}, lze použít jen jednou):
+
+{{ inviteLink }}
+{% if emailCodes %}
+
+Při dalších přihlášeních Vám na tento e-mail pošleme ověřovací kód. Žádná aplikace pro ověřování není potřeba.
+{% endif %}
+
+Pokud jste pozvánku nečekali, tento e-mail ignorujte. Bez otevření odkazu se nic nestane.
+{% endblock %}

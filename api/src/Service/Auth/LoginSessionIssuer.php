@@ -116,6 +116,7 @@ final class LoginSessionIssuer
             $mfaMethods[] = 'totp';
         }
         $requireTotp = (bool) $this->config->get('auth.require_totp', false);
+        $mfaMode = UserMfaMode::effective($user);
         $mustSetupMfa = $authContext->assuranceLevel === 'setup';
         $userTimeout = ($user['session_lock_after_minutes'] ?? null) !== null
             ? (int) $user['session_lock_after_minutes']
@@ -134,7 +135,8 @@ final class LoginSessionIssuer
                 'role' => (string) ($user['role'] ?? ''),
                 'locale' => (string) ($user['locale'] ?? 'cs'),
                 'totp_enabled' => $totpEnabled,
-                'must_setup_totp' => $requireTotp && !$totpEnabled,
+                'must_setup_totp' => $requireTotp && !$totpEnabled && $mfaMode !== UserMfaMode::EMAIL,
+                'mfa_mode' => $mfaMode,
                 'mfa_enabled' => $mfaMethods !== [],
                 'mfa_methods' => $mfaMethods,
                 'passkey_count' => $passkeyCount,

@@ -128,8 +128,19 @@ export interface AdminUser {
   role: 'admin' | 'accountant' | 'readonly'
   locale: 'cs' | 'en'
   is_active: boolean
+  mfa_mode: 'default' | 'email'
+  /** An unused, unexpired invitation link exists. */
+  invite_pending: boolean
+  invite_expires_at: string | null
   created_at: string
   last_login_at: string | null
+}
+
+/** Result of issuing an invitation: the link is returned only when it was not mailed. */
+export interface UserInviteResult {
+  email_sent: boolean
+  expires_at: string
+  invite_link?: string
 }
 
 /** Membership uživatel ↔ firma (user_suppliers). role null = zdědit globální users.role. */
@@ -158,10 +169,14 @@ export const adminApi = {
 
   // Users
   listUsers: () => api.get<AdminUser[]>('/admin/users').then(r => r.data),
-  createUser: (payload: { email: string; name: string; role: AdminUser['role']; locale?: 'cs' | 'en'; password: string }) =>
+  /** `password` omitted/empty = the user sets their own through an invitation link. */
+  createUser: (payload: { email: string; name: string; role: AdminUser['role']; locale?: 'cs' | 'en'; password?: string; mfa_mode?: AdminUser['mfa_mode'] }) =>
     api.post<AdminUser>('/admin/users', payload).then(r => r.data),
-  updateUser: (id: number, payload: Partial<{ name: string; role: AdminUser['role']; locale: 'cs' | 'en'; is_active: boolean; password: string }>) =>
+  updateUser: (id: number, payload: Partial<{ name: string; role: AdminUser['role']; locale: 'cs' | 'en'; is_active: boolean; password: string; mfa_mode: AdminUser['mfa_mode'] }>) =>
     api.put<AdminUser>(`/admin/users/${id}`, payload).then(r => r.data),
+  /** Issue a one-time "set your own password" link; mail it (`sendEmail`) or get it back to forward by hand. */
+  inviteUser: (id: number, sendEmail: boolean) =>
+    api.post<UserInviteResult>(`/admin/users/${id}/invite`, { send_email: sendEmail }).then(r => r.data),
   deleteUser: (id: number) => api.delete(`/admin/users/${id}`),
   // Přiřazení firem uživateli (prázdné = bez omezení, vidí všechny firmy)
   listUserSuppliers: (id: number) =>

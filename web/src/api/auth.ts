@@ -13,6 +13,8 @@ export interface User {
   mfa_methods?: Array<'passkey' | 'totp'>
   passkey_count?: number
   must_setup_mfa?: boolean
+  /** Second-factor mode: 'email' = a code mailed to the user's own address (never for admins). */
+  mfa_mode?: 'default' | 'email'
   /** Starred sidebar items (internal route paths), stored per user on the server. */
   nav_favorites?: string[]
 }
@@ -75,6 +77,18 @@ export interface RecoveryCodeStatus {
   low: boolean
   batch_size: number
 }
+
+/** What the public invitation page needs to greet the user and state the password rules. */
+export interface InviteInfo {
+  name: string
+  /** The account signs in with an emailed code (no authenticator app). */
+  email_codes: boolean
+  password_min_length: number
+  password_max_length: number
+}
+
+/** `signed_in: false` = password set, but the account owns a passkey/TOTP and must sign in the normal way. */
+export type InviteAcceptResult = AuthSessionContract | { signed_in: false }
 
 export interface WebAuthnFlow {
   flow_token: string
@@ -303,6 +317,23 @@ export const authApi = {
 
   reset: (token: string, password: string) =>
     api.post('/auth/reset', { token, password, password_confirm: password }),
+
+  // Invitation link (public): set own password and get signed in
+  inviteInfo: (token: string) =>
+    api.get<InviteInfo>('/auth/invite', { params: { token } }).then((r) => r.data),
+  acceptInvite: (token: string, password: string, passwordConfirm: string) =>
+    api.post<InviteAcceptResult>('/auth/invite/accept', {
+      token, password, password_confirm: passwordConfirm,
+    }).then((r) => r.data),
+
+  // Step-up of a user in email mode (a fresh code from the mailbox instead of passkey/TOTP)
+  emailStepUpRequest: (operation: string, resend = false) =>
+    api.post<{ sent: boolean; cooldown_remaining: number }>('/auth/mfa/step-up/email/request', {
+      operation, resend: resend || undefined,
+    }).then((r) => r.data),
+  emailStepUpVerify: (operation: string, code: string) =>
+    api.post<{ step_up_token: string }>('/auth/mfa/step-up/email', { operation, code })
+      .then((r) => r.data.step_up_token),
 
   // TOTP / 2FA
   totpStatus: () => api.get<{ enabled: boolean }>('/auth/totp/status').then(r => r.data),

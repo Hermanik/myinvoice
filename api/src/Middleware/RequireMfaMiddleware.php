@@ -6,6 +6,7 @@ namespace MyInvoice\Middleware;
 
 use MyInvoice\Http\Json;
 use MyInvoice\Service\Auth\MfaPolicyService;
+use MyInvoice\Service\Auth\UserMfaMode;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\MiddlewareInterface;
@@ -101,7 +102,10 @@ final class RequireMfaMiddleware implements MiddlewareInterface
             );
         }
 
-        if (!$this->policy->isRequired() || $assurance === 'strong') {
+        if (!$this->policy->isRequired()) {
+            return $handler->handle($request);
+        }
+        if ($assurance === 'strong' && self::strongSessionStillHolds($session, $user)) {
             return $handler->handle($request);
         }
 
@@ -111,6 +115,20 @@ final class RequireMfaMiddleware implements MiddlewareInterface
             'Platnost přihlášení neprokazuje požadované vícefaktorové ověření. Přihlas se znovu.',
             401,
         );
+    }
+
+    /**
+     * A strong session earned through the mailbox (emailed code, trusted device, invitation) only
+     * counts for a user who is CURRENTLY in email mode and not an admin. Anything else - the mode was
+     * switched off, the user was promoted to admin - falls back to re-authentication.
+     *
+     * @param array<string,mixed>|null $session
+     * @param array<string,mixed> $user
+     */
+    private static function strongSessionStillHolds(?array $session, array $user): bool
+    {
+        $method = is_array($session) ? (string) ($session['auth_method'] ?? '') : '';
+        return !in_array($method, UserMfaMode::EMAIL_SESSION_METHODS, true) || UserMfaMode::usesEmail($user);
     }
 
     /**

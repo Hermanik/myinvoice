@@ -15,8 +15,8 @@ use MyInvoice\Infrastructure\Config\Config;
 final class PasswordHasher
 {
     private const COST = 12;
-    private const MIN_LENGTH = 12;
-    private const MAX_LENGTH = 128;
+    public const MIN_LENGTH = 12;
+    public const MAX_LENGTH = 128;
 
     public function __construct(private readonly Config $config) {}
 

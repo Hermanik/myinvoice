@@ -165,9 +165,10 @@ Tabulka uživatelů, kteří se mohou přihlásit. Tlačítko **+ Nový uživate
 |---|---|
 | Jméno | Zobrazení v UI |
 | E-mail | Login |
-| Heslo | Min. 12 znaků |
+| Heslo | Min. 12 znaků. Při zakládání ho můžeš **nechat prázdné**: uživatel si ho nastaví sám přes pozvánku (§ 36.2.4) |
 | Role | `admin` / `accountant` / `readonly` |
 | Jazyk | `cs` / `en` |
+| Druhé ověření | *Aplikace nebo passkey (výchozí)* / *Kód e-mailem* (§ 36.2.4, § 39.2.6). U role `admin` je volba zamčená na výchozí |
 | Aktivní | Vypnutý uživatel nemůže se přihlásit |
 
 ### 36.2.2 Role
@@ -212,6 +213,50 @@ Omezení hlídá server, ne jen UI:
 - detail cizí firmy vrátí `404` (neprozrazuje, že existuje),
 - **API token** vázaný na firmu mimo přiřazené se nevytvoří a nefunguje,
 - po odebrání firmy si aplikace sama přepne na první povolenou.
+
+### 36.2.4 Pozvánka: heslo si uživatel nastaví sám
+
+Nového uživatele (třeba externí účetní) nemusíš vymýšlet heslo a posílat ho dál.
+V **+ Nový uživatel** nech pole *Heslo* prázdné. Po **Vytvořit** se otevře okno
+**Pozvánka** se dvěma volbami:
+
+| Volba | Co se stane |
+|---|---|
+| **Odeslat pozvánku e-mailem** | Aplikace pošle uživateli e-mail se šablonou `user_invite`. Odkaz ti aplikace neukáže |
+| **Zkopírovat odkaz** | Odkaz se zobrazí a zkopíruje do schránky; pošli ho uživateli sám. Po zavření okna ho už neuvidíš |
+
+Uživatel odkaz otevře, přivítá ho **„Vítejte, {jméno}"** a požadavky na heslo
+(12 až 128 znaků), zadá heslo dvakrát a je rovnou přihlášený na přehledu.
+Authenticator aplikaci k tomu nepotřebuje.
+
+Pozvánku můžeš poslat i **stávajícímu uživateli**: v řádku uživatele klikni
+na **Pozvat** (**Pozvat znovu**, když už nějaká čeká; takový řádek má štítek
+*pozvánka čeká*). Hodí se, když si uživatel heslo nepamatuje, nebo když účet
+vznikl s náhodným heslem, které nikdo nezná.
+
+Pravidla odkazu:
+
+- platí **7 dní** a jde použít **jen jednou**,
+- nová pozvánka stejnému uživateli **zneplatní všechny předchozí** nepoužité odkazy,
+- odkaz, který už neplatí (použitý, prošlý, nahrazený), ukáže hlášku
+  *„Odkaz už neplatí, požádejte správce o nový"* a nic dalšího neprozradí,
+- v databázi je jen otisk (SHA-256) tokenu a nikdy se nezapisuje do logu,
+- stránka pozvánky je chráněná stejně jako přihlášení: opakované neplatné pokusy
+  z jedné IP adresy ji na čas zablokují a platí limit požadavků za minutu
+  (`rate_limits.invite_per_min_per_ip`).
+
+Po přijetí pozvánky se uživateli **zruší dosavadní přihlášení, důvěryhodná
+zařízení a čekající kódy** (nastavuje se nové heslo) a tento prohlížeč se označí
+za důvěryhodný, takže hned po pozvánce se kód z e-mailu nechce.
+
+> 🛈 Kdo už má **TOTP nebo passkey**, odkazem přihlášený není: heslo se nastaví,
+> ale přihlásí se běžnou cestou. Odkaz z e-mailu nesmí obejít jeho skutečný faktor.
+
+Druhé ověření **Kód e-mailem** je u nového uživatele (jiného než admin)
+předvyplněné. Jak funguje, popisuje [§ 39.2.6](39_Bezpecnost.md).
+Přepnutí režimu uživateli zruší všechna přihlášení. Správce (`admin`) ho
+mít nemůže: server to odmítne při zakládání i úpravě a povýšením uživatele
+na admina se režim sám vrátí na výchozí.
 
 ## 36.3 Můj profil
 
@@ -267,6 +312,7 @@ Seznam šablon:
 | `invoice_approval` | Žádost o schválení výkazu víceprací zákazníkem |
 | `recurring_draft_reminder` | Připomínka otevřeného konceptu pravidelné fakturace |
 | `password_reset` | Reset hesla (system) |
+| `user_invite` | Pozvánka nového nebo stávajícího uživatele (§ 36.2.4) |
 | `login_otp` | Ověřovací kód pro přihlášení (system) |
 | `welcome` | Uvítací e-mail novému uživateli |
 | `test` | Pro Test odeslání (debug) |

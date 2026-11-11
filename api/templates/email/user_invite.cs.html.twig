@@ -1,0 +1,38 @@
+{% extends '_layout.html.twig' %}
+
+{% block content %}
+<h1 style="margin:0 0 16px;font-size:22px;font-weight:600;color:#18181b;">Pozvánka do aplikace</h1>
+
+<p style="margin:0 0 16px;">Dobrý den{% if name %} {{ name }}{% endif %},</p>
+
+<p style="margin:0 0 16px;">byl Vám založen přístup do fakturační aplikace <strong>MyInvoice.cz</strong>{% if invitedBy %} (pozvánka od {{ invitedBy }}){% endif %}.
+Klikněte na tlačítko níže, nastavte si vlastní heslo a rovnou budete přihlášeni:</p>
+
+<p style="margin:24px 0;text-align:center;">
+  <a href="{{ inviteLink }}" style="display:inline-block;background:{{ accent }};color:#ffffff;text-decoration:none;font-weight:600;padding:12px 28px;border-radius:6px;font-size:15px;">
+    Nastavit heslo a přihlásit se
+  </a>
+</p>
+
+{% if emailCodes %}
+<p style="margin:0 0 16px;font-size:13px;color:#52525b;">
+  Při dalších přihlášeních Vám na tento e-mail pošleme ověřovací kód. Žádná aplikace pro ověřování není potřeba.
+</p>
+{% endif %}
+
+<p style="margin:0 0 8px;font-size:13px;color:#71717a;">
+  Odkaz je platný <strong>{{ expiresIn|default('7 dní') }}</strong> a lze ho použít jen jednou.
+</p>
+
+<p style="margin:0 0 8px;font-size:13px;color:#71717a;">
+  Pokud tlačítko nefunguje, zkopírujte tuto adresu do prohlížeče:
+</p>
+
+<p style="margin:0;font-size:12px;color:#52525b;word-break:break-all;background:#f4f4f5;padding:10px;border-radius:6px;font-family:monospace;">
+  {{ inviteLink }}
+</p>
+
+<p style="margin:24px 0 0;font-size:13px;color:#71717a;">
+  <strong>Pokud jste pozvánku nečekali</strong>, tento e-mail ignorujte. Bez otevření odkazu se nic nestane.
+</p>
+{% endblock %}

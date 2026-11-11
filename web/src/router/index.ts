@@ -111,6 +111,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/setup-totp', name: 'setup-totp', redirect: { path: '/setup-mfa', query: { method: 'totp' } } },
   { path: '/forgot', name: 'forgot', component: () => import('@/pages/ForgotPassword.vue'), meta: { public: true } },
   { path: '/reset',  name: 'reset',  component: () => import('@/pages/ResetPassword.vue'),  meta: { public: true } },
+  // Invitation link from the admin: the user chooses a password and lands signed in
+  { path: '/invite', name: 'invite', component: () => import('@/pages/InviteAccept.vue'),    meta: { public: true } },
   { path: '/approval/:token([a-f0-9]{32,128})', name: 'approval',
     component: () => import('@/pages/ApprovalPublic.vue'), meta: { public: true } },
   { path: '/work-report/:token([a-f0-9]{32,128})', name: 'work-report-tracking',

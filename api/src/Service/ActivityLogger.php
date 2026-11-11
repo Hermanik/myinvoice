@@ -15,7 +15,7 @@ final class ActivityLogger
     private const REDACT_KEYS = [
         'password', 'password_confirm', 'current_password', 'new_password',
         'token', 'csrf_token', 'cf_turnstile_response', 'secret_key',
-        'private_key', 'pass',
+        'private_key', 'pass', 'invite_link',
         'flow_token', 'step_up_token', 'challenge', 'credential', 'rawid',
         'raw_id', 'signature', 'authenticator_data', 'client_data_json',
         'attestation_object', 'public_key',

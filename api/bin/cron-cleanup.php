@@ -65,6 +65,10 @@ $report['mfa_step_up_proofs'] = (int) $n;
 $n = $pdo->exec("DELETE FROM password_resets WHERE used_at IS NOT NULL OR expires_at < NOW() - INTERVAL 7 DAY");
 $report['password_resets'] = (int) $n;
 
+// 3a) user_invites — invitations used or expired more than 7 days ago
+$n = $pdo->exec("DELETE FROM user_invites WHERE used_at < NOW() - INTERVAL 7 DAY OR expires_at < NOW() - INTERVAL 7 DAY");
+$report['user_invites'] = (int) $n;
+
 // 3b) login_otps (e-mailové 2FA kódy) — použité/expirované >1 den
 $n = $pdo->exec("DELETE FROM login_otps WHERE used_at < NOW() - INTERVAL 1 DAY OR expires_at < NOW() - INTERVAL 1 DAY");
 $report['login_otps'] = (int) $n;

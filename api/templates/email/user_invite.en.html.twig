@@ -1,0 +1,38 @@
+{% extends '_layout.html.twig' %}
+
+{% block content %}
+<h1 style="margin:0 0 16px;font-size:22px;font-weight:600;color:#18181b;">You are invited</h1>
+
+<p style="margin:0 0 16px;">Hello{% if name %} {{ name }}{% endif %},</p>
+
+<p style="margin:0 0 16px;">you have been given access to the <strong>MyInvoice.cz</strong> invoicing application{% if invitedBy %} (invited by {{ invitedBy }}){% endif %}.
+Click the button below, choose your own password and you will be signed in right away:</p>
+
+<p style="margin:24px 0;text-align:center;">
+  <a href="{{ inviteLink }}" style="display:inline-block;background:{{ accent }};color:#ffffff;text-decoration:none;font-weight:600;padding:12px 28px;border-radius:6px;font-size:15px;">
+    Set password and sign in
+  </a>
+</p>
+
+{% if emailCodes %}
+<p style="margin:0 0 16px;font-size:13px;color:#52525b;">
+  On later sign-ins we will e-mail you a verification code. No authenticator app is needed.
+</p>
+{% endif %}
+
+<p style="margin:0 0 8px;font-size:13px;color:#71717a;">
+  The link is valid for <strong>{{ expiresIn|default('7 days') }}</strong> and can be used only once.
+</p>
+
+<p style="margin:0 0 8px;font-size:13px;color:#71717a;">
+  If the button does not work, copy this address into your browser:
+</p>
+
+<p style="margin:0;font-size:12px;color:#52525b;word-break:break-all;background:#f4f4f5;padding:10px;border-radius:6px;font-family:monospace;">
+  {{ inviteLink }}
+</p>
+
+<p style="margin:24px 0 0;font-size:13px;color:#71717a;">
+  <strong>If you were not expecting this invitation</strong>, ignore this e-mail. Nothing happens unless you open the link.
+</p>
+{% endblock %}

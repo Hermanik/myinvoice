@@ -49,6 +49,17 @@ final class RateLimitMiddlewareTest extends TestCase
         self::assertStringContainsString('user:17', $rule[0]);
     }
 
+    public function testInvitationEndpointsShareAnIpBucketRegardlessOfToken(): void
+    {
+        $page = $this->rule($this->anonymous('GET', '/api/auth/invite'));
+        $accept = $this->rule($this->anonymous('POST', '/api/auth/invite/accept'));
+
+        self::assertSame($page, $accept);
+        self::assertSame(20, $page[1]);
+        self::assertSame(60, $page[2]);
+        self::assertStringStartsWith('rl:invite:ip:', $page[0]);
+    }
+
     /**
      * @return array{0:string,1:int,2:int}
      */
@@ -81,5 +92,10 @@ final class RateLimitMiddlewareTest extends TestCase
             ->createServerRequest($method, $path)
             ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => 17])
             ->withAttribute(AuthMiddleware::ATTR_TOKEN, $token);
+    }
+
+    private function anonymous(string $method, string $path): ServerRequestInterface
+    {
+        return (new ServerRequestFactory())->createServerRequest($method, $path);
     }
 }

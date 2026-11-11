@@ -283,4 +283,46 @@ final class MfaStepUpServiceTest extends TestCase
 
         return new StoredPasskeyCredential(42, 17, 'Pixel 9', $record, null, null, null);
     }
+
+    public function testEmailCodeCanAuthorizeOnlyApiTokenCreation(): void
+    {
+        $proofs = $this->createMock(MfaStepUpProofStore::class);
+        $proofs->expects(self::once())
+            ->method('issue')
+            ->with(17, 'session', MfaStepUpService::OPERATION_API_TOKEN_CREATE, MfaStepUpService::METHOD_EMAIL, null)
+            ->willReturn('proof-token');
+        $service = new MfaStepUpService(
+            $proofs,
+            $this->createMock(MfaPolicyService::class),
+            $this->createMock(PasskeyCredentialRepository::class),
+        );
+
+        self::assertSame(
+            'proof-token',
+            $service->issue(17, 'session', MfaStepUpService::OPERATION_API_TOKEN_CREATE, MfaStepUpService::METHOD_EMAIL),
+        );
+    }
+
+    /**
+     * @return iterable<string,array{string}>
+     */
+    public static function operationsAnEmailCodeMustNotConfirm(): iterable
+    {
+        yield 'passkey registration' => [MfaStepUpService::OPERATION_PASSKEY_REGISTER];
+        yield 'passkey revocation' => ['passkey.revoke:3'];
+        yield 'recovery codes' => [MfaStepUpService::OPERATION_RECOVERY_CODES];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('operationsAnEmailCodeMustNotConfirm')]
+    public function testEmailCodeCannotConfirmFactorManagement(string $operation): void
+    {
+        $proofs = $this->createMock(MfaStepUpProofStore::class);
+        $proofs->expects(self::never())->method('issue');
+        $credentials = $this->createMock(PasskeyCredentialRepository::class);
+        $credentials->method('findActiveForUserById')->willReturn($this->createMock(StoredPasskeyCredential::class));
+        $service = new MfaStepUpService($proofs, $this->createMock(MfaPolicyService::class), $credentials);
+
+        $this->expectException(StepUpOperationException::class);
+        $service->issue(17, 'session', $operation, MfaStepUpService::METHOD_EMAIL);
+    }
 }

@@ -20,6 +20,7 @@ Bezpečnost MyInvoice stojí na několika navazujících vrstvách:
 | Max. délka | Bez limitu — passphrase je doporučená (20+ znaků) |
 | Kontrola síly | Indikátor v UI (slabé / střední / silné) |
 | Reset hesla | Odkaz na 1 hodinu, e-mailem |
+| Pozvánka | Jednorázový odkaz na 7 dní, kterým si uživatel nastaví heslo sám (§ 36.2.4) |
 
 > 💡 **Passphrase je bezpečnější než krátké složité heslo.** „korelace medvědí
 > dýně přístav 2026" má 49 znaků a je odolnější vůči brute-force než „Hu1@n!22".
@@ -32,8 +33,9 @@ MyInvoice podporuje dva silné faktory:
 - **TOTP** — šestimístný časový kód z autentikátoru.
 
 E-mailové OTP je kompatibilní druhý krok pro účet bez silného faktoru, ale
-nesplňuje povinnou silnou MFA politiku. Důvěryhodné zařízení se týká pouze
-e-mailového OTP.
+samo o sobě nesplňuje povinnou silnou MFA politiku. Výjimkou je uživatel, kterému
+správce nastavil režim **Kód e-mailem** (§ 39.2.6): u něj kód z e-mailu povinné
+MFA splní. Důvěryhodné zařízení se týká pouze e-mailového OTP.
 
 ### 39.2.1 Passkeys
 
@@ -279,6 +281,46 @@ Chování:
 > uživateli zrušit i důvěryhodná zařízení a čekající kódy:
 > `php api/bin/reset-mfa.php <email>`.
 
+#### Kód e-mailem pro jednotlivého uživatele (`mfa_mode`)
+
+Globální `auth.email_otp.enabled` je pro celou instalaci a povinné MFA nesplňuje.
+Pro externího účetního, který nechce authenticator aplikaci, ale instalace
+**vyžaduje silný faktor** (`require_totp` / `require_mfa`), má každý uživatel
+vlastní **Druhé ověření** (**Systém → Uživatelé**, sloupec `users.mfa_mode`):
+
+| Režim | Chování |
+|---|---|
+| **Aplikace nebo passkey (výchozí)** | Jako dosud. Při povinném MFA musí uživatel zaregistrovat TOTP nebo passkey |
+| **Kód e-mailem** | Po správném hesle se z nezapamatovaného zařízení pošle kód na e-mail uživatele. Správný kód **splní povinné MFA** (nevynucuje se registrace TOTP/passkey). Funguje nezávisle na `auth.email_otp.enabled` |
+
+Pravidla:
+
+- **Správce (`admin`) nikdy.** Server režim odmítne při zakládání, úpravě i změně
+  role (povýšením na admina se režim sám vrátí na výchozí); při přihlášení se řádek admina
+  s tímto režimem bere jako výchozí a databáze to hlídá i CHECK constraintem.
+- **Priorita silného faktoru platí dál.** Má-li uživatel v tomto režimu passkey nebo TOTP,
+  použije se ten.
+- **„Důvěřovat tomuto zařízení"** nastaví cookie důvěryhodného zařízení (30 dní, stejné
+  jako u globálního e-mailového OTP); na něm se kód nežádá. Přijetí pozvánky (§ 36.2.4)
+  dokazuje vlastnictví schránky, proto se prohlížeč po něm označí za důvěryhodný.
+- **Přihlášení kódem je „silné".** Řídí se tím `RequireMfaMiddleware`: session získaná kódem
+  (nebo důvěryhodným zařízením či pozvánkou) projde povinným MFA jen tak dlouho, dokud je uživatel
+  v tomto režimu a není admin. Jinak se musí znovu přihlásit.
+- **Kód je jednorázový**, platí 10 minut, má cooldown pro opětovné odeslání a per-user
+  zámek proti hádání (10 selhání / 10 minut), stejně jako u TOTP.
+
+**Chráněné operace (step-up).** Vytvoření API tokenu u TOTP/passkey uživatele vyžaduje
+čerstvé ověření. Uživatel v režimu *Kód e-mailem* nemá čím, ale nesmí dostat token jen
+z přihlášené session, proto potvrzuje **čerstvým kódem z e-mailu** (tlačítko *Poslat kód
+e-mailem* v dialogu nového tokenu). Kód z e-mailu smí potvrdit **jen vytvoření API tokenu**.
+Správa passkey a záložních kódů vyžaduje skutečný faktor a e-mailovým kódem se potvrdit nedá.
+Uživateli, který má TOTP nebo passkey, tuto cestu server odmítne.
+
+> ⚠️ Kód e-mailem je slabší faktor než authenticator: kdo ovládá schránku a zná heslo,
+> je uvnitř. Nastavuj ho jen externím účtům (`accountant` / `readonly`) a hlídej zabezpečení
+> jejich schránky. Vyžaduje funkční **SMTP**; bez něj se uživatel nepřihlásí
+> (nouzově: `php api/bin/reset-mfa.php <email>` nebo přepnout režim zpět na výchozí).
+
 ### 39.2.7 Serverový zámek session
 
 Automatický zámek browserové a PWA session je ve výchozím stavu vypnutý, aby se
@@ -497,7 +539,8 @@ Každá mutace (vytvoření / změna / vystavení / smazání) se loguje. Zázna
 obsahují:
 
 - Akce (`invoice.created`, `invoice.issued`, `client.updated`, `auth.login_success`,
-  `auth.login_failed`, `bank.statement_imported`, `currency.updated`, …)
+  `auth.login_failed`, `bank.statement_imported`, `currency.updated`,
+  `user.invited`, `user.invite_accepted`, `user.mfa_mode_changed`, …)
 - Uživatel (NULL pro neautentizované akce jako neúspěšné login)
 - Entita (typ + ID)
 - IP adresa (binární `VARBINARY(16)` — IPv4 i IPv6)

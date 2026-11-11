@@ -176,6 +176,182 @@ final class LoginActionMfaPolicyTest extends TestCase
         self::assertSame('email_otp_required', $this->errorCode($response));
     }
 
+    public function testEmailModeUserGetsAnEmailedCodeEvenWhenTheGlobalEmailOtpIsOff(): void
+    {
+        $emailOtp = $this->createMock(EmailOtpService::class);
+        $emailOtp->expects(self::once())->method('issue')->willReturn(['sent' => true, 'cooldown_remaining' => 60]);
+        $issuer = $this->createMock(LoginSessionIssuer::class);
+        $issuer->expects(self::never())->method('issue');
+
+        $response = $this->login(
+            issuer: $issuer,
+            totpEnabled: false,
+            allowedMethods: ['passkey', 'totp'],
+            emailOtpEnabled: false,
+            emailOtp: $emailOtp,
+            role: 'accountant',
+            mfaMode: 'email',
+        );
+
+        self::assertSame(401, $response->getStatusCode());
+        self::assertSame('email_otp_required', $this->errorCode($response));
+    }
+
+    public function testAdminRowCarryingEmailModeIsTreatedAsDefaultAtLogin(): void
+    {
+        $emailOtp = $this->createMock(EmailOtpService::class);
+        $emailOtp->expects(self::never())->method('issue');
+        $emailOtp->expects(self::never())->method('verify');
+        $captured = null;
+        $issuer = $this->capturingIssuer($captured);
+
+        $this->login(
+            issuer: $issuer,
+            totpEnabled: false,
+            allowedMethods: ['passkey', 'totp'],
+            emailOtpEnabled: false,
+            body: ['email_otp' => '123456'],
+            emailOtp: $emailOtp,
+            role: 'admin',
+            mfaMode: 'email',
+            legacyRequireTotp: true,
+        );
+
+        // No mailbox factor for an admin: required MFA without a real factor leaves them in the setup session.
+        self::assertSame('setup', $captured['context']->assuranceLevel);
+    }
+
+    public function testEmailedCodeSatisfiesRequiredMfaForAnEmailModeUser(): void
+    {
+        $emailOtp = $this->createMock(EmailOtpService::class);
+        $emailOtp->expects(self::once())->method('verify')->with(17, '123456')->willReturn(true);
+        $captured = null;
+        $issuer = $this->capturingIssuer($captured);
+
+        $this->login(
+            issuer: $issuer,
+            totpEnabled: false,
+            allowedMethods: ['passkey', 'totp'],
+            emailOtpEnabled: false,
+            body: ['email_otp' => '123456', 'remember_device' => true],
+            emailOtp: $emailOtp,
+            role: 'accountant',
+            mfaMode: 'email',
+            legacyRequireTotp: true,
+        );
+
+        self::assertSame('strong', $captured['context']->assuranceLevel);
+        self::assertSame('email_otp', $captured['context']->authMethod);
+        self::assertTrue($captured['trusted'], 'Důvěřovat tomuto zařízení → trusted-device cookie.');
+    }
+
+    public function testWrongEmailedCodeDoesNotSignInAnEmailModeUser(): void
+    {
+        $emailOtp = $this->createMock(EmailOtpService::class);
+        $emailOtp->method('verify')->willReturn(false);
+        $issuer = $this->createMock(LoginSessionIssuer::class);
+        $issuer->expects(self::never())->method('issue');
+
+        $response = $this->login(
+            issuer: $issuer,
+            totpEnabled: false,
+            allowedMethods: ['passkey', 'totp'],
+            emailOtpEnabled: false,
+            body: ['email_otp' => '000000'],
+            emailOtp: $emailOtp,
+            role: 'accountant',
+            mfaMode: 'email',
+            legacyRequireTotp: true,
+        );
+
+        self::assertSame('invalid_email_otp', $this->errorCode($response));
+    }
+
+    public function testTrustedDeviceSkipsTheCodeAndStaysStrongForAnEmailModeUser(): void
+    {
+        $trusted = $this->createMock(TrustedDeviceService::class);
+        $trusted->method('verify')->willReturn(true);
+        $emailOtp = $this->createMock(EmailOtpService::class);
+        $emailOtp->expects(self::never())->method('issue');
+        $captured = null;
+        $issuer = $this->capturingIssuer($captured);
+
+        $this->login(
+            issuer: $issuer,
+            totpEnabled: false,
+            allowedMethods: ['passkey', 'totp'],
+            emailOtpEnabled: false,
+            emailOtp: $emailOtp,
+            role: 'readonly',
+            mfaMode: 'email',
+            legacyRequireTotp: true,
+            trustedDevices: $trusted,
+        );
+
+        self::assertSame('strong', $captured['context']->assuranceLevel);
+        self::assertSame('trusted_device', $captured['context']->authMethod);
+    }
+
+    public function testDefaultModeUserIsStillForcedIntoMfaSetupWhenMfaIsRequired(): void
+    {
+        $captured = null;
+        $issuer = $this->capturingIssuer($captured);
+
+        $this->login(
+            issuer: $issuer,
+            totpEnabled: false,
+            allowedMethods: ['passkey', 'totp'],
+            emailOtpEnabled: false,
+            role: 'accountant',
+            mfaMode: 'default',
+            legacyRequireTotp: true,
+        );
+
+        self::assertSame('setup', $captured['context']->assuranceLevel);
+    }
+
+    public function testEmailModeUserWithTotpKeepsUsingTotp(): void
+    {
+        $emailOtp = $this->createMock(EmailOtpService::class);
+        $emailOtp->expects(self::never())->method('issue');
+        $issuer = $this->createMock(LoginSessionIssuer::class);
+        $issuer->expects(self::never())->method('issue');
+
+        $response = $this->login(
+            issuer: $issuer,
+            totpEnabled: true,
+            allowedMethods: ['passkey', 'totp'],
+            emailOtpEnabled: false,
+            emailOtp: $emailOtp,
+            role: 'accountant',
+            mfaMode: 'email',
+        );
+
+        self::assertSame('totp_required', $this->errorCode($response));
+    }
+
+    /**
+     * @param array{context:SessionAuthContext,trusted:bool}|null $captured
+     */
+    private function capturingIssuer(?array &$captured): LoginSessionIssuer
+    {
+        $issuer = $this->createMock(LoginSessionIssuer::class);
+        $issuer->expects(self::once())->method('issue')->willReturnCallback(
+            static function (
+                ResponseInterface $response,
+                array $user,
+                string $ip,
+                string $userAgent,
+                SessionAuthContext $context,
+                bool $issueTrustedDevice = false,
+            ) use (&$captured): ResponseInterface {
+                $captured = ['context' => $context, 'trusted' => $issueTrustedDevice];
+                return $response->withStatus(204);
+            }
+        );
+        return $issuer;
+    }
+
     /**
      * @param list<string> $allowedMethods
      * @param array<string,mixed> $body
@@ -190,6 +366,10 @@ final class LoginActionMfaPolicyTest extends TestCase
         array $body = [],
         ?EmailOtpService $emailOtp = null,
         ?TotpService $totpService = null,
+        string $role = 'admin',
+        string $mfaMode = 'default',
+        bool $legacyRequireTotp = false,
+        ?TrustedDeviceService $trustedDevices = null,
     ): ResponseInterface {
         $statement = $this->createMock(\PDOStatement::class);
         $statement->method('execute')->willReturn(true);
@@ -197,7 +377,8 @@ final class LoginActionMfaPolicyTest extends TestCase
             'id' => 17,
             'email' => 'user@example.invalid',
             'name' => 'Synthetic User',
-            'role' => 'admin',
+            'role' => $role,
+            'mfa_mode' => $mfaMode,
             'locale' => 'cs',
             'password_hash' => 'synthetic-hash',
             'is_active' => 1,
@@ -246,16 +427,18 @@ final class LoginActionMfaPolicyTest extends TestCase
             $totpService ?? $this->createMock(TotpService::class),
             $crypto,
             $emailOtp ?? $this->createMock(EmailOtpService::class),
-            $this->createMock(TrustedDeviceService::class),
+            $trustedDevices ?? $this->createMock(TrustedDeviceService::class),
             $credentials,
             $passkeys,
             $this->createMock(WebAuthnCeremonyStore::class),
             new MfaPolicyService(new Config([
-                'auth' => [
-                    'require_mfa' => false,
-                    'require_totp' => false,
-                    'allowed_mfa_methods' => $allowedMethods,
-                ],
+                'auth' => $legacyRequireTotp
+                    ? ['require_totp' => true]
+                    : [
+                        'require_mfa' => false,
+                        'require_totp' => false,
+                        'allowed_mfa_methods' => $allowedMethods,
+                    ],
             ])),
             $issuer,
             $this->createMock(ClockInterface::class),

@@ -34,6 +34,7 @@ final class CsrfMiddleware implements MiddlewareInterface
         '/api/auth/webauthn/login/verify',
         '/api/auth/forgot',
         '/api/auth/reset',
+        '/api/auth/invite/accept',
     ];
 
     public function __construct(

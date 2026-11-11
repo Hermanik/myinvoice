@@ -1,0 +1,20 @@
+{% extends '_layout.txt.twig' %}
+
+{% block content %}
+You are invited
+---------------
+
+Hello{% if name %} {{ name }}{% endif %},
+
+you have been given access to the MyInvoice.cz invoicing application{% if invitedBy %} (invited by {{ invitedBy }}){% endif %}.
+
+To choose your own password and sign in, open this link (valid for {{ expiresIn|default('7 days') }}, can be used only once):
+
+{{ inviteLink }}
+{% if emailCodes %}
+
+On later sign-ins we will e-mail you a verification code. No authenticator app is needed.
+{% endif %}
+
+If you were not expecting this invitation, ignore this e-mail. Nothing happens unless you open the link.
+{% endblock %}

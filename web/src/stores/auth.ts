@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { authApi, type User, type SetupStatus, type SessionState } from '@/api/auth'
+import { authApi, type User, type SetupStatus, type SessionState, type AuthSessionContract } from '@/api/auth'
 import { setCsrfToken } from '@/api/client'
 import { broadcastSessionEvent } from '@/security/sessionChannel'
 import { setOverdueIncludesToday } from '@/utils/invoiceOverdue'
@@ -111,14 +111,34 @@ export const useAuthStore = defineStore('auth', () => {
         resend_otp: opts?.resendOtp || undefined,
         cf_turnstile_response: captchaToken,
       })
-      user.value = data.user
-      setSessionCsrfToken(data.csrf_token)
-      setMfaPolicy(data.require_mfa, data.allowed_mfa_methods)
-      lockedSession.value = null
-      profileHydrated.value = false
-      // Po loginu načti suppliery (login response je nemá, /me je vrátí)
-      await refresh()
-      return data.user
+      return await adoptSession(data)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function adoptSession(data: AuthSessionContract) {
+    user.value = data.user
+    setSessionCsrfToken(data.csrf_token)
+    setMfaPolicy(data.require_mfa, data.allowed_mfa_methods)
+    lockedSession.value = null
+    profileHydrated.value = false
+    // Load the suppliers after login (the login response has none, /me returns them)
+    await refresh()
+    return data.user
+  }
+
+  /**
+   * Accept an invitation link: sets the password and, unless the account already owns a real factor,
+   * the server answers with the same session a login issues. Returns the user, or null when the
+   * password was set but the person has to sign in the normal way.
+   */
+  async function acceptInvite(token: string, password: string, passwordConfirm: string) {
+    loading.value = true
+    try {
+      const data = await authApi.acceptInvite(token, password, passwordConfirm)
+      if (!('csrf_token' in data)) return null
+      return await adoptSession(data)
     } finally {
       loading.value = false
     }
@@ -194,6 +214,7 @@ export const useAuthStore = defineStore('auth', () => {
     setLockedSession,
     refresh,
     login,
+    acceptInvite,
     logout,
   }
 })

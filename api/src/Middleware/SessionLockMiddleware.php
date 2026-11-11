@@ -40,6 +40,7 @@ final class SessionLockMiddleware implements MiddlewareInterface
             '/api/reference',
             '/api/scalar',
             '/api/auth/setup-status',
+            '/api/auth/invite',
         ],
         'POST' => [
             '/api/auth/setup',
@@ -47,6 +48,7 @@ final class SessionLockMiddleware implements MiddlewareInterface
             '/api/auth/setup-crpdph-lookup',
             '/api/auth/forgot',
             '/api/auth/reset',
+            '/api/auth/invite/accept',
         ],
     ];
 
