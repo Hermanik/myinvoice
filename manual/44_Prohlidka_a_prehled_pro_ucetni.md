@@ -32,12 +32,14 @@ v prohlídce vynechá.
 
 | Role | Prohlídka |
 |---|---|
-| **Účetní** | Podrobná: přehled, Harmonogram, vydané a přijaté faktury, přiznání k DPH, kontrolní a souhrnné hlášení, archiv podání, hromadný export (měsíční ZIP s PDF a ISDOC pro program EKONOM), banka, účet uživatele (heslo, zabezpečení) a nápověda. |
+| **Účetní** | Podrobná: přehled, Harmonogram, vydané a přijaté faktury, přiznání k DPH, kontrolní a souhrnné hlášení, archiv podání, hromadný export (měsíční ZIP s PDF a ISDOC pro program EKONOM), datové schránky (jen když jí je administrátor zpřístupnil), banka, účet uživatele (heslo, zabezpečení) a nápověda. |
 | **Administrátor** | Kratší přehled: přehled, vydané a přijaté faktury, banka, daně a výkazy, Harmonogram, nastavení, účet uživatele a nápověda. |
 | **Jen pro čtení** | Totéž bez částí, které nevidí (Harmonogram, Nastavení). |
 
-> 💡 **Datové schránky** vidí jen administrátor, proto je prohlídka účetní
-> neobsahuje. Viz [Datové schránky](42_Datove_schranky.md).
+> 💡 **Datové schránky** vidí účetní jen tehdy, když jí je administrátor zpřístupnil
+> (u schránky volba *Zobrazit účetní*). Bez toho v menu položka není a prohlídka
+> o datových schránkách nemluví. Viz
+> [Zpřístupnění schránky účetní](42_Datove_schranky.md#zpristupneni-schranky-ucetni).
 
 ## 44.2 Přehled pro účetní
 
@@ -87,3 +89,17 @@ DPH a DPH.
   koncepty** a na **přijaté, ale nezaúčtované** doklady, které čekají na zpracování.
 
 Za měsíce bez dokladů se místo nul zobrazí věta, že nejsou žádné doklady.
+
+### Datová schránka
+
+Karta **Datová schránka** se zobrazí jen tehdy, když ti administrátor zpřístupnil aspoň
+jednu [datovou schránku](42_Datove_schranky.md#zpristupneni-schranky-ucetni). Bez toho
+na přehledu není vůbec. Ukazuje:
+
+- **počet nevyřízených zpráv** — přijatých zpráv, které administrátor ještě neoznačil jako
+  vyřízené (karta počítá jen zpřístupněné a zapnuté schránky),
+- **tři nejnovější přijaté zprávy**: datum, odesílatele a věc. Nevyřízené mají vlevo
+  tečku, zprávy od finančního úřadu štítek *Od finančního úřadu*.
+
+Klik na zprávu ji otevře **jen ke čtení** na stránce Datové schránky, odkaz
+**Otevřít datovou schránku** otevře celý seznam.

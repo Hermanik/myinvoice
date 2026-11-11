@@ -24,11 +24,12 @@ const settingsFiles = ['components/settings/DataboxSettings.vue', 'components/da
   'components/databox/CredentialForm.vue', 'components/databox/CredentialRow.vue', 'components/databox/IsdsHelp.vue', 'components/databox/PermissionIndicator.vue',
   'components/databox/EmailNoticeSettings.vue']
 
-test('the databox route is admin only and the sidebar entry is gated by isAdmin', async () => {
+test('the databox route is for admin and accountant, the sidebar entry is gated by showDatabox', async () => {
   const router = await read('router/index.ts')
-  assert.match(router, /path: 'databox',\s+name: 'databox',[^\n]*meta: \{ adminOnly: true \}/)
+  assert.match(router, /path: 'databox',\s+name: 'databox',[^\n]*meta: \{ requiresWrite: true \}/)
+  assert.doesNotMatch(router, /path: 'databox',[^\n]*adminOnly/)
   const layout = await read('components/layout/AppLayout.vue')
-  assert.match(layout, /isAdmin \? \[\{ to: '\/databox', label: t\('nav\.databox'\)/)
+  assert.match(layout, /showDatabox \? \[\{ to: '\/databox', label: t\('nav\.databox'\)/)
   const settings = await read('pages/admin/Settings.vue')
   assert.match(settings, /<DataboxSettings\s*\/>/)
   assert.match(await read('components/settings/DataboxSettings.vue'), /<section id="databox"/)

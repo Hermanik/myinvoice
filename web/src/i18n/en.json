@@ -314,20 +314,6 @@
     "bic": "BIC / SWIFT",
     "qr_hint": "Or scan the QR code:",
     "myucto_link": "MyÚčto — move to the new system for free",
-    "myucto_title": "MyÚčto — the successor to MyInvoice",
-    "myucto_intro": "MyÚčto is the direct successor to MyInvoice from the same author. It builds on the same foundation, but offers roughly 3× more features and keeps evolving.",
-    "myucto_better_title": "What is better in MyÚčto",
-    "myucto_better_ui": "A more modern and clearer user interface.",
-    "myucto_better_ai": "More AI providers to choose from (no lock-in to a single one).",
-    "myucto_better_mcp": "AI integration via an MCP server — run your accounting straight from an AI assistant.",
-    "myucto_better_docs": "Substantially better and more complete documentation.",
-    "myucto_better_vat": "Better verified VAT returns, control statement, EC sales list and other reports.",
-    "myucto_paid_title": "For an optional fee",
-    "myucto_paid_text": "Tax records and accounting, payroll and HR, inventory and e-shop, multiple accounted companies.",
-    "myucto_highlights": "Open source · Same author",
-    "myucto_github": "GitHub",
-    "myucto_cta": "Go to MyÚčto.cz",
-    "myucto_ask_admin": "An administrator starts the actual upgrade in System → Upgrade to MyÚčto.",
     "close": "Close"
   },
   "profile_signing": {
@@ -5003,7 +4989,9 @@
       "box": "Data box",
       "all_boxes": "All boxes",
       "box_inactive": "This box is deactivated - sync and sending are stopped, stored messages are kept.",
-      "empty": "No messages."
+      "empty": "No messages.",
+      "no_boxes_accountant": "The owner has not opened any data box to you yet.",
+      "read_only": "Read-only view - the boxes are managed by the owner."
     },
     "tab": {
       "received": "Received",
@@ -5056,7 +5044,8 @@
       "download_receipt": "Download receipt (ZFO)",
       "load_receipt": "Fetch receipt",
       "acknowledge": "Mark as handled",
-      "receipt_events": "Delivery events"
+      "receipt_events": "Delivery events",
+      "not_opened_read_only": "The message has not been opened and downloaded yet, so its attachments are not available. Only the box owner can open it."
     },
     "hints": {
       "kh_change_17d": "Call to change/supplement data: 17 days from delivery to the data box (§ 101g (3) VAT Act)",
@@ -5225,6 +5214,11 @@
       "label": "Allow sync to deliver messages",
       "warning": "Sync will then deliver messages as soon as they arrive and deadlines will start running without your knowledge. Turn this on only if you really want it.",
       "confirm": "Really allow sync to deliver messages? Every message will be delivered on arrival and legal deadlines will start running without your knowledge."
+    },
+    "accountant": {
+      "label": "Show to accountant",
+      "hint": "The accountant will see this box's messages and attachments, read-only - never the logins or settings. Unchecked, the box stays hidden from the accountant.",
+      "confirm": "Show this box's messages to the accountant? They will see the list, the content and the attachments (read-only)."
     },
     "remove_confirm": "Really remove this data box from the app?",
     "remove_messages_confirm": "The box has stored messages ({count}). Removing it also deletes the stored messages and receipts. Continue?",
@@ -5817,6 +5811,14 @@
       "drafts": "Drafts in progress: {count}",
       "to_book": "Received but not booked: {count}",
       "ok": "Everything is processed."
+    },
+    "databox": {
+      "title": "Data box",
+      "unhandled": "Messages to deal with: {count}",
+      "none": "No messages waiting.",
+      "latest": "Latest messages",
+      "empty": "There are no received messages in the box yet.",
+      "open": "Open the data box"
     }
   }
 }

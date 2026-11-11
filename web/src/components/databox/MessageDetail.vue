@@ -8,7 +8,7 @@ import { formatBytes } from '@/components/documents/docFormat'
 import { databoxErrorMessage, errorCode, formatDateTime, stateBadgeClass, stateHelp, stateLabel } from '@/utils/databox'
 import OpenConfirmModal from './OpenConfirmModal.vue'
 
-const props = defineProps<{ messageId: number }>()
+const props = defineProps<{ messageId: number; readOnly?: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'changed', d: MessageDetail): void }>()
 const { t, te } = useI18n()
 const toast = useToast()
@@ -134,8 +134,13 @@ const field = 'text-neutral-500'
         <p class="text-xs text-neutral-600">{{ t('databox.hints.binding') }}</p>
       </div>
 
+      <!-- Read-only viewer (the accountant): nothing to open, the stored files below are all she can get -->
+      <p v-if="readOnly && !detail.open.stored" class="rounded-md border border-neutral-200 bg-neutral-50 text-neutral-600 px-3 py-2" data-test="not-opened-read-only">
+        {{ t('databox.detail.not_opened_read_only') }}
+      </p>
+
       <!-- Open / download -->
-      <div v-if="isReceived" class="space-y-2">
+      <div v-if="isReceived && !readOnly" class="space-y-2">
         <p v-if="detail.open.fiction_date && detail.open.undelivered" class="text-xs text-warning-600">
           {{ t('databox.open.fiction_date', { date: formatDate(detail.open.fiction_date) }) }}
         </p>
@@ -175,10 +180,10 @@ const field = 'text-neutral-500'
           class="h-8 px-3 inline-flex items-center rounded-md border border-neutral-300 text-xs hover:bg-neutral-50">{{ t('databox.detail.download_zfo') }}</a>
         <a v-if="detail.has_delivery_zfo" :href="databoxApi.zfoUrl(detail.id, 'delivery_zfo')" target="_blank" rel="noopener"
           class="h-8 px-3 inline-flex items-center rounded-md border border-neutral-300 text-xs hover:bg-neutral-50">{{ t('databox.detail.download_receipt') }}</a>
-        <button v-if="!isReceived" type="button" :disabled="busy" class="cursor-pointer h-8 px-3 rounded-md border border-neutral-300 text-xs hover:bg-neutral-50 disabled:opacity-50" @click="loadReceipt">
+        <button v-if="!isReceived && !readOnly" type="button" :disabled="busy" class="cursor-pointer h-8 px-3 rounded-md border border-neutral-300 text-xs hover:bg-neutral-50 disabled:opacity-50" @click="loadReceipt">
           {{ t('databox.detail.load_receipt') }}
         </button>
-        <button v-if="isReceived && !detail.acknowledged_at" type="button" :disabled="busy" class="cursor-pointer h-8 px-3 rounded-md border border-neutral-300 text-xs hover:bg-neutral-50 disabled:opacity-50" @click="acknowledge">
+        <button v-if="isReceived && !readOnly && !detail.acknowledged_at" type="button" :disabled="busy" class="cursor-pointer h-8 px-3 rounded-md border border-neutral-300 text-xs hover:bg-neutral-50 disabled:opacity-50" @click="acknowledge">
           {{ t('databox.detail.acknowledge') }}
         </button>
       </div>

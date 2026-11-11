@@ -391,8 +391,9 @@ podpisových profilů a mapování pro jednotlivé výstupy. Detailní postup je
 ## Datové schránky
 
 Sekce **Datové schránky** na stránce Nastavení spravuje připojené schránky (FO / PFO),
-jejich přihlášení a zjištěná práva. Kompletní návod včetně založení přístupu v portálu
-ISDS je v kapitole [Datové schránky](42_Datove_schranky.md).
+jejich přihlášení a zjištěná práva. U každé schránky je volba **Zobrazit účetní**, kterou
+administrátor zpřístupní zprávy schránky účetní (jen ke čtení). Kompletní návod včetně
+založení přístupu v portálu ISDS je v kapitole [Datové schránky](42_Datove_schranky.md).
 
 ## 36.7 Odesílací e-mailové profily
 

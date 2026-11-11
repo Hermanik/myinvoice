@@ -16,7 +16,8 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Message\UploadedFileInterface;
 
 /**
- * Stored messages of a box - session + admin only.
+ * Stored messages of a box - session + admin only, except the four read routes (list, detail, attachment, zfo): the
+ * accountant role gets those too, limited to the boxes flagged "visible to the accountant" (anything else is a 404).
  *
  *   GET  /api/databox/boxes/{id}/messages?direction=received|sent&unread=1&tax_office=1&q=&page=&per_page=
  *   GET  /api/databox/messages/{id}                     detail incl. what opening would do
@@ -45,7 +46,7 @@ final class DataboxMessageAction extends DataboxActionBase
 
     public function list(Request $request, Response $response, array $args): Response
     {
-        return $this->run($request, $response, function (int $sid) use ($request, $response, $args): Response {
+        return $this->runRead($request, $response, function (int $sid, bool $accountantView) use ($request, $response, $args): Response {
             $q = $request->getQueryParams();
             $direction = in_array($q['direction'] ?? '', ['received', 'sent'], true) ? (string) $q['direction'] : null;
             return Json::ok($response, $this->messages->list($sid, isset($args['id']) ? (int) $args['id'] : null, [
@@ -53,13 +54,13 @@ final class DataboxMessageAction extends DataboxActionBase
                 'unread_only' => ($q['unread'] ?? '') === '1',
                 'tax_office_only' => ($q['tax_office'] ?? '') === '1',
                 'search' => (string) ($q['q'] ?? ''),
-            ], (int) ($q['page'] ?? 1), (int) ($q['per_page'] ?? 50)));
+            ], (int) ($q['page'] ?? 1), (int) ($q['per_page'] ?? 50), $accountantView));
         });
     }
 
     public function get(Request $request, Response $response, array $args): Response
     {
-        return $this->run($request, $response, fn (int $sid): Response => Json::ok($response, $this->messages->detail($sid, (int) $args['id'])));
+        return $this->runRead($request, $response, fn (int $sid, bool $accountantView): Response => Json::ok($response, $this->messages->detail($sid, (int) $args['id'], $accountantView)));
     }
 
     public function open(Request $request, Response $response, array $args): Response
@@ -74,17 +75,17 @@ final class DataboxMessageAction extends DataboxActionBase
 
     public function attachment(Request $request, Response $response, array $args): Response
     {
-        return $this->run($request, $response, function (int $sid) use ($response, $args): Response {
-            $file = $this->messages->attachment($sid, (int) $args['id'], (int) $args['index']);
+        return $this->runRead($request, $response, function (int $sid, bool $accountantView) use ($response, $args): Response {
+            $file = $this->messages->attachment($sid, (int) $args['id'], (int) $args['index'], $accountantView);
             return $this->download($response, $this->storage->sanitizeFilename($file['name']), $file['bytes']);
         });
     }
 
     public function zfo(Request $request, Response $response, array $args): Response
     {
-        return $this->run($request, $response, function (int $sid) use ($request, $response, $args): Response {
+        return $this->runRead($request, $response, function (int $sid, bool $accountantView) use ($request, $response, $args): Response {
             $kind = ($request->getQueryParams()['kind'] ?? 'zfo') === 'delivery_zfo' ? 'delivery_zfo' : 'zfo';
-            $file = $this->messages->file($sid, (int) $args['id'], $kind);
+            $file = $this->messages->file($sid, (int) $args['id'], $kind, $accountantView);
             return $this->download($response, $file['filename'], $file['bytes']);
         });
     }

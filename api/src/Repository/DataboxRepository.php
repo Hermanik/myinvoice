@@ -13,7 +13,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 final class DataboxRepository
 {
     private const BOX_UPDATABLE = [
-        'label', 'is_active', 'allow_delivering_sync',
+        'label', 'is_active', 'allow_delivering_sync', 'accountant_visible',
         'last_sync_at', 'last_sync_status', 'last_sync_message', 'sync_paused_until',
     ];
 
@@ -25,6 +25,26 @@ final class DataboxRepository
         $stmt = $this->db->pdo()->prepare('SELECT * FROM databoxes WHERE supplier_id = ? ORDER BY label, id');
         $stmt->execute([$supplierId]);
         return $this->withCredentials($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Boxes the owner opened to the accountant role. Deliberately WITHOUT their logins (`credentials` is empty): that role
+     * never needs the encrypted passwords, so they are not even read.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function listAccountantVisible(int $supplierId): array
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT * FROM databoxes WHERE supplier_id = ? AND accountant_visible = 1 ORDER BY label, id');
+        $stmt->execute([$supplierId]);
+        return array_map(fn (array $box): array => $this->normalize($box) + ['credentials' => []], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    public function hasAccountantVisible(int $supplierId): bool
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT 1 FROM databoxes WHERE supplier_id = ? AND accountant_visible = 1 LIMIT 1');
+        $stmt->execute([$supplierId]);
+        return $stmt->fetchColumn() !== false;
     }
 
     /** @return array<string,mixed>|null */
@@ -208,14 +228,21 @@ final class DataboxRepository
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $cred) {
             $byBox[(int) $cred['databox_id']][(string) $cred['purpose']] = $cred;
         }
-        foreach ($boxes as &$box) {
-            $box['id'] = (int) $box['id'];
-            $box['supplier_id'] = (int) $box['supplier_id'];
-            $box['is_active'] = (bool) $box['is_active'];
-            $box['allow_delivering_sync'] = (bool) $box['allow_delivering_sync'];
+        return array_map(function (array $box) use ($byBox): array {
+            $box = $this->normalize($box);
             $box['credentials'] = $byBox[$box['id']] ?? [];
-        }
-        unset($box);
-        return $boxes;
+            return $box;
+        }, $boxes);
+    }
+
+    /** @param array<string,mixed> $box a databoxes row @return array<string,mixed> */
+    private function normalize(array $box): array
+    {
+        $box['id'] = (int) $box['id'];
+        $box['supplier_id'] = (int) $box['supplier_id'];
+        $box['is_active'] = (bool) $box['is_active'];
+        $box['allow_delivering_sync'] = (bool) $box['allow_delivering_sync'];
+        $box['accountant_visible'] = (bool) $box['accountant_visible'];
+        return $box;
     }
 }

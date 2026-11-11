@@ -2,12 +2,12 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Modal from '@/components/ui/Modal.vue'
-import { databoxApi, type DataboxBox, type LookupBox, type PrepareResponse } from '@/api/databox'
+import { databoxApi, type DataboxBoxSummary, type LookupBox, type PrepareResponse } from '@/api/databox'
 import { formatBytes } from '@/components/documents/docFormat'
 import { boxTitle, databoxErrorMessage } from '@/utils/databox'
 import SendConfirmModal from './SendConfirmModal.vue'
 
-const props = defineProps<{ boxes: DataboxBox[]; initialBoxId: number | null }>()
+const props = defineProps<{ boxes: DataboxBoxSummary[]; initialBoxId: number | null }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'sent'): void }>()
 const { t, te } = useI18n()
 

@@ -314,20 +314,6 @@
     "bic": "BIC / SWIFT",
     "qr_hint": "Nebo načtěte QR kód:",
     "myucto_link": "MyÚčto — přejděte zdarma na nový systém",
-    "myucto_title": "MyÚčto — nástupce MyInvoice",
-    "myucto_intro": "MyÚčto je přímý nástupce MyInvoice od stejného autora. Vychází ze stejného základu, ale nabízí zhruba 3× více funkcí a vyvíjí se dál.",
-    "myucto_better_title": "Co je v MyÚčtu lepší",
-    "myucto_better_ui": "Modernější a přehlednější uživatelské rozhraní.",
-    "myucto_better_ai": "Více AI poskytovatelů na výběr (nejste vázaní na jednoho).",
-    "myucto_better_mcp": "AI integrace přes MCP server — účetnictví ovládáte přímo z AI asistenta.",
-    "myucto_better_docs": "Podstatně lepší a úplnější dokumentace.",
-    "myucto_better_vat": "Lépe ověřené DPH, kontrolní hlášení, souhrnné hlášení a další výkazy.",
-    "myucto_paid_title": "Za volitelný poplatek navíc",
-    "myucto_paid_text": "Daňová evidence a účetnictví, mzdy a personalistika, sklady a e-shop, více účtovaných firem.",
-    "myucto_highlights": "Open source · Stejný autor",
-    "myucto_github": "GitHub",
-    "myucto_cta": "Přejít na MyÚčto.cz",
-    "myucto_ask_admin": "Samotný přechod instalace spustí administrátor v Systém → Přechod na MyÚčto.",
     "close": "Zavřít"
   },
   "profile_signing": {
@@ -5012,7 +4998,9 @@
       "box": "Datová schránka",
       "all_boxes": "Všechny schránky",
       "box_inactive": "Schránka je vypnutá – synchronizace i odesílání jsou zastavené, uložené zprávy zůstávají.",
-      "empty": "Žádné zprávy."
+      "empty": "Žádné zprávy.",
+      "no_boxes_accountant": "Majitel vám zatím nezpřístupnil žádnou datovou schránku.",
+      "read_only": "Zobrazení jen ke čtení – schránky spravuje majitel."
     },
     "tab": {
       "received": "Přijaté",
@@ -5065,7 +5053,8 @@
       "download_receipt": "Stáhnout doručenku (ZFO)",
       "load_receipt": "Načíst doručenku",
       "acknowledge": "Označit jako vyřízené",
-      "receipt_events": "Průběh doručení"
+      "receipt_events": "Průběh doručení",
+      "not_opened_read_only": "Zpráva zatím nebyla otevřena a stažena, proto nejsou k dispozici její přílohy. Otevřít ji může majitel schránky."
     },
     "hints": {
       "kh_change_17d": "Výzva ke změně/doplnění údajů: 17 dnů ode dne dodání do datové schránky (§ 101g odst. 3 ZDPH)",
@@ -5234,6 +5223,11 @@
       "label": "Povolit doručování synchronizací",
       "warning": "Synchronizace pak zprávy doručí hned po jejich příchodu a lhůty začnou běžet bez vašeho vědomí. Zapněte jen pokud to opravdu chcete.",
       "confirm": "Opravdu povolit doručování synchronizací? Každá zpráva se doručí hned po příchodu a začnou běžet právní lhůty bez vašeho vědomí."
+    },
+    "accountant": {
+      "label": "Zobrazit účetní",
+      "hint": "Účetní uvidí zprávy této schránky včetně příloh, jen ke čtení. Přihlašovací údaje a nastavení nikdy. Bez zaškrtnutí je schránka před účetní skrytá.",
+      "confirm": "Zobrazit zprávy této schránky účetní? Uvidí jejich seznam, obsah a přílohy (jen ke čtení)."
     },
     "remove_confirm": "Opravdu odebrat tuto datovou schránku z aplikace?",
     "remove_messages_confirm": "Schránka má uložené zprávy ({count}). Odebráním se smažou i uložené zprávy a doručenky. Pokračovat?",
@@ -5826,6 +5820,14 @@
       "drafts": "Rozpracované koncepty: {count}",
       "to_book": "Přijaté, ale nezaúčtované: {count}",
       "ok": "Vše zpracováno."
+    },
+    "databox": {
+      "title": "Datová schránka",
+      "unhandled": "Nevyřízených zpráv: {count}",
+      "none": "Žádné nevyřízené zprávy.",
+      "latest": "Poslední zprávy",
+      "empty": "Ve schránce zatím nejsou žádné přijaté zprávy.",
+      "open": "Otevřít datovou schránku"
     }
   }
 }

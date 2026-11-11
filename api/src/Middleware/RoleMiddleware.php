@@ -20,6 +20,7 @@ use Slim\Psr7\Factory\ResponseFactory;
  *   - readonly:  GET kdekoliv + vlastní účet (logout, change-password, totp/*)
  *   - accountant: vše co readonly + mutace na business datech (clients, projects,
  *                 invoices, work-reports, bank-statements/transactions, ARES/VIES lookup)
+ *                 + read-only access to the data boxes the owner opened to her
  *   - admin:     vše + admin endpointy (users, settings, codebooks, email-templates,
  *                activity-log, invoices-zip, bank/scan)
  *
@@ -133,6 +134,21 @@ final class RoleMiddleware implements MiddlewareInterface
         // Stav AI integrace (bez tajemství — configured/model/počet extrakcí) potřebuje
         // účetní na stránce Import, aby věděl, zda se PDF bez ISDOC zpracuje přes AI.
         'GET #^/api/admin/imports/anthropic/credentials$#',
+    ];
+
+    /**
+     * Read-only data box routes for the 'accountant' role (NOT readonly). The Action layer narrows them to the boxes the
+     * owner flagged "visible to the accountant" and answers 404 for any other box or message. Everything else under
+     * /api/databox (sync, acknowledge, open, import, send, lookup, e-mail notices, logins) stays admin-only.
+     */
+    private const ACCOUNTANT_DATABOX_READ_RULES = [
+        'GET #^/api/databox/boxes$#',
+        'GET #^/api/databox/boxes/[0-9]+$#',
+        'GET #^/api/databox/boxes/[0-9]+/messages$#',
+        'GET #^/api/databox/messages$#',
+        'GET #^/api/databox/messages/[0-9]+$#',
+        'GET #^/api/databox/messages/[0-9]+/attachments/[0-9]+$#',
+        'GET #^/api/databox/messages/[0-9]+/zfo$#',
     ];
 
     /**
@@ -269,7 +285,8 @@ final class RoleMiddleware implements MiddlewareInterface
             if ($this->matchesAny($method, $path, self::ACCOUNTANT_RULES)) {
                 return $handler->handle($request);
             }
-            if ($this->matchesAny($method, $path, self::READONLY_RULES)) {
+            if ($this->matchesAny($method, $path, self::READONLY_RULES)
+                || $this->matchesAny($method, $path, self::ACCOUNTANT_DATABOX_READ_RULES)) {
                 return $handler->handle($request);
             }
         }

@@ -18,13 +18,14 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
 /**
- * Connected data boxes (Settings -> Datové schránky) - session + admin only.
+ * Connected data boxes (Settings -> Datové schránky) - session + admin only, except the two read routes (list, get):
+ * the accountant role gets those too, limited to the boxes flagged "visible to the accountant" and without logins.
  *
  *   GET    /api/databox/boxes                              list
  *   POST   /api/databox/boxes                              connect a box (box ID / type are resolved from the login;
  *                                                          {mode:'email', db_id, db_type, label?, owner_name?} watches it by notification e-mails only)
  *   GET    /api/databox/boxes/{id}
- *   PUT    /api/databox/boxes/{id}                         label, is_active, allow_delivering_sync
+ *   PUT    /api/databox/boxes/{id}                         label, is_active, allow_delivering_sync, accountant_visible
  *   DELETE /api/databox/boxes/{id}?confirm_delete_messages=1
  *   POST   /api/databox/boxes/{id}/verify                  "Ověřit připojení"
  *   PUT    /api/databox/boxes/{id}/credentials/{purpose}   replace / add a login (sync | action)
@@ -50,13 +51,17 @@ final class DataboxBoxAction extends DataboxActionBase
 
     public function list(Request $request, Response $response): Response
     {
-        return $this->run($request, $response, fn (int $sid): Response => Json::ok($response, $this->service->listPublic($sid)));
+        return $this->runRead($request, $response, fn (int $sid, bool $accountantView): Response => Json::ok(
+            $response,
+            $accountantView ? $this->service->listForAccountant($sid) : $this->service->listPublic($sid),
+        ));
     }
 
     public function get(Request $request, Response $response, array $args): Response
     {
-        return $this->run($request, $response, function (int $sid) use ($response, $args): Response {
-            return Json::ok($response, $this->service->present($this->service->requireBox($sid, (int) $args['id'])));
+        return $this->runRead($request, $response, function (int $sid, bool $accountantView) use ($response, $args): Response {
+            $box = $this->service->requireBox($sid, (int) $args['id'], $accountantView);
+            return Json::ok($response, $accountantView ? $this->service->presentForAccountant($box) : $this->service->present($box));
         });
     }
 
@@ -86,7 +91,7 @@ final class DataboxBoxAction extends DataboxActionBase
     {
         return $this->run($request, $response, function (int $sid) use ($request, $response, $args): Response {
             $body = $this->body($request);
-            $fields = array_intersect_key($body, array_flip(['label', 'is_active', 'allow_delivering_sync']));
+            $fields = array_intersect_key($body, array_flip(['label', 'is_active', 'allow_delivering_sync', 'accountant_visible']));
             $box = $this->service->update($sid, (int) $args['id'], $fields);
             $this->audit($request, 'databox.updated', $box['id'], array_diff_key($fields, ['label' => 1]));
             return Json::ok($response, $box);

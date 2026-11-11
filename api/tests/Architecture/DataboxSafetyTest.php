@@ -67,17 +67,108 @@ final class DataboxSafetyTest extends TestCase
         self::assertStringContainsString('token_endpoint_forbidden', (string) $response->getBody());
     }
 
-    #[DataProvider('databoxRoutes')]
-    public function testOnlyAdminsReachTheDataBoxRoutes(string $method, string $path): void
+    /**
+     * The only data box routes the accountant role may reach (read-only; the Action layer narrows them to the boxes
+     * the owner flagged for her). Every other route above stays admin-only.
+     *
+     * @return array<string, array{string, string}>
+     */
+    public static function accountantReadRoutes(): array
+    {
+        return [
+            'list boxes' => ['GET', '/api/databox/boxes'],
+            'one box' => ['GET', '/api/databox/boxes/4'],
+            'messages of one box' => ['GET', '/api/databox/boxes/4/messages'],
+            'messages of all boxes' => ['GET', '/api/databox/messages'],
+            'message detail' => ['GET', '/api/databox/messages/12'],
+            'attachment' => ['GET', '/api/databox/messages/12/attachments/0'],
+            'stored ZFO' => ['GET', '/api/databox/messages/12/zfo'],
+        ];
+    }
+
+    /** @return array<string, array{string, string}> routes that change something or talk to ISDS - admin only, in every form */
+    public static function adminOnlyRoutes(): array
+    {
+        $read = array_values(self::accountantReadRoutes());
+        $routes = self::databoxRoutes() + [
+            'edit a box' => ['PUT', '/api/databox/boxes/4'],
+            'remove a box' => ['DELETE', '/api/databox/boxes/4'],
+            'verify a box' => ['POST', '/api/databox/boxes/4/verify'],
+            'sync a box' => ['POST', '/api/databox/boxes/4/sync'],
+            'lookup a recipient' => ['GET', '/api/databox/boxes/4/lookup'],
+            'replace a login' => ['PUT', '/api/databox/boxes/4/credentials/sync'],
+            'acknowledge a message' => ['POST', '/api/databox/messages/12/acknowledge'],
+            'refresh a receipt' => ['POST', '/api/databox/messages/12/receipt'],
+            'links of filings' => ['GET', '/api/databox/submissions/links'],
+        ];
+        return array_filter($routes, static fn (array $route): bool => !in_array($route, $read, true));
+    }
+
+    private function roleStatus(string $role, string $method, string $path): int
     {
         $resolver = $this->createStub(\MyInvoice\Service\Tenant\SupplierAccessResolver::class);
         $resolver->method('resolve')->willReturn(new \MyInvoice\Service\Tenant\SupplierAccess(0, false, null));
-        $middleware = new RoleMiddleware(new ResponseFactory(), $resolver);
-        foreach (['readonly' => 403, 'accountant' => 403, 'admin' => 204] as $role => $expected) {
-            $request = (new ServerRequestFactory())->createServerRequest($method, $path)
-                ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => 1, 'role' => $role]);
-            self::assertSame($expected, $middleware->process($request, $this->ok())->getStatusCode(), "{$role} {$method} {$path}");
+        $request = (new ServerRequestFactory())->createServerRequest($method, $path)
+            ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => 1, 'role' => $role]);
+        return (new RoleMiddleware(new ResponseFactory(), $resolver))->process($request, $this->ok())->getStatusCode();
+    }
+
+    #[DataProvider('databoxRoutes')]
+    public function testOnlyAdminsReachTheDataBoxRoutes(string $method, string $path): void
+    {
+        $accountantMayRead = in_array([$method, $path], array_values(self::accountantReadRoutes()), true);
+        foreach (['readonly' => 403, 'accountant' => $accountantMayRead ? 204 : 403, 'admin' => 204] as $role => $expected) {
+            self::assertSame($expected, $this->roleStatus($role, $method, $path), "{$role} {$method} {$path}");
         }
+    }
+
+    #[DataProvider('adminOnlyRoutes')]
+    public function testEverythingThatChangesOrTalksToIsdsStaysAdminOnly(string $method, string $path): void
+    {
+        self::assertSame(403, $this->roleStatus('accountant', $method, $path), "accountant {$method} {$path}");
+        self::assertSame(403, $this->roleStatus('readonly', $method, $path), "readonly {$method} {$path}");
+        self::assertSame(204, $this->roleStatus('admin', $method, $path), "admin {$method} {$path}");
+    }
+
+    #[DataProvider('accountantReadRoutes')]
+    public function testTheReadRoutesOfTheAccountantAreClosedToReadonlyUsers(string $method, string $path): void
+    {
+        self::assertSame(204, $this->roleStatus('accountant', $method, $path));
+        self::assertSame(204, $this->roleStatus('admin', $method, $path));
+        self::assertSame(403, $this->roleStatus('readonly', $method, $path), 'the owner opens a box to the accountant, not to every read-only user');
+    }
+
+    #[DataProvider('accountantReadRoutes')]
+    public function testAnApiTokenCanNeverReachTheAccountantReadRoutes(string $method, string $path): void
+    {
+        $request = (new ServerRequestFactory())->createServerRequest($method, $path)
+            ->withAttribute(AuthMiddleware::ATTR_METHOD, 'bearer')
+            ->withAttribute(AuthMiddleware::ATTR_API_TOKEN, ['scope' => 'read_write']);
+        self::assertSame(403, (new ApiScopeMiddleware(new ResponseFactory()))->process($request, $this->ok())->getStatusCode());
+    }
+
+    /** Only the four read actions may use the accountant-capable guard; a new action defaults to admin-only. */
+    public function testOnlyTheReadActionsUseTheAccountantCapableGuard(): void
+    {
+        $users = [];
+        foreach (glob(self::SRC . '/Action/Databox/*.php') ?: [] as $file) {
+            $source = (string) file_get_contents($file);
+            preg_match_all('/public function (\w+)\([^{]*\{\s*return \$this->(run|runRead)\(/', $source, $m, PREG_SET_ORDER);
+            foreach ($m as [, $function, $guard]) {
+                if ($guard === 'runRead') {
+                    $users[] = basename($file, '.php') . '::' . $function;
+                }
+            }
+        }
+        sort($users);
+        self::assertSame([
+            'DataboxBoxAction::get',
+            'DataboxBoxAction::list',
+            'DataboxMessageAction::attachment',
+            'DataboxMessageAction::get',
+            'DataboxMessageAction::list',
+            'DataboxMessageAction::zfo',
+        ], $users);
     }
 
     /** @return array<string, array{string, bool}> */

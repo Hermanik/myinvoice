@@ -43,6 +43,38 @@ final class DataboxService
         return array_map($this->present(...), $this->boxes->listForSupplier($supplierId));
     }
 
+    /**
+     * The boxes the owner opened to the accountant role, in the reduced view {@see presentForAccountant()}.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function listForAccountant(int $supplierId): array
+    {
+        return array_map($this->presentForAccountant(...), $this->boxes->listAccountantVisible($supplierId));
+    }
+
+    /**
+     * What the accountant may know about a box: what it is, never how the application logs in to it (no logins,
+     * rights, sync state or error texts).
+     *
+     * @param array<string,mixed> $box
+     * @return array<string,mixed>
+     */
+    public function presentForAccountant(array $box): array
+    {
+        return [
+            'id' => $box['id'],
+            'label' => $box['label'],
+            'environment' => $box['environment'],
+            'connection_mode' => $box['connection_mode'] ?? self::MODE_ISDS,
+            'db_id' => $box['db_id'],
+            'db_type' => $box['db_type'],
+            'owner_name' => $box['owner_name'],
+            'is_active' => $box['is_active'],
+            'accountant_visible' => true,
+        ];
+    }
+
     /** @param array<string,mixed> $box @return array<string,mixed> public view of a box and its logins */
     public function present(array $box): array
     {
@@ -76,6 +108,7 @@ final class DataboxService
             'owner_name' => $box['owner_name'],
             'is_active' => $box['is_active'],
             'allow_delivering_sync' => $box['allow_delivering_sync'],
+            'accountant_visible' => $box['accountant_visible'],
             'last_sync_at' => $box['last_sync_at'],
             'last_sync_status' => $box['last_sync_status'],
             'last_sync_message' => $box['last_sync_message'],
@@ -333,7 +366,7 @@ final class DataboxService
     }
 
     /**
-     * @param array{label?:string, is_active?:bool, allow_delivering_sync?:bool} $fields
+     * @param array{label?:string, is_active?:bool, allow_delivering_sync?:bool, accountant_visible?:bool} $fields
      * @return array<string,mixed> public view
      */
     public function update(int $supplierId, int $boxId, array $fields): array
@@ -349,6 +382,9 @@ final class DataboxService
         }
         if (isset($fields['is_active'])) {
             $update['is_active'] = (bool) $fields['is_active'];
+        }
+        if (isset($fields['accountant_visible'])) {
+            $update['accountant_visible'] = (bool) $fields['accountant_visible'];
         }
         if (isset($fields['allow_delivering_sync'])) {
             $this->requireIsdsMode($box);
@@ -580,11 +616,15 @@ final class DataboxService
         return new IsdsCredentials($username, $password);
     }
 
-    /** @return array<string,mixed> the box of this supplier with its logins @throws DataboxException */
-    public function requireBox(int $supplierId, int $boxId): array
+    /**
+     * @param bool $accountantView the caller is the accountant role: a box not opened to her does not exist for her (404)
+     * @return array<string,mixed> the box of this supplier with its logins
+     * @throws DataboxException
+     */
+    public function requireBox(int $supplierId, int $boxId, bool $accountantView = false): array
     {
         $box = $this->boxes->find($boxId, $supplierId);
-        if ($box === null) {
+        if ($box === null || ($accountantView && !$box['accountant_visible'])) {
             throw new DataboxException('not_found', 'Datová schránka nenalezena.', 404);
         }
         return $box;

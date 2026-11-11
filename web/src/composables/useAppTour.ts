@@ -18,6 +18,8 @@ export interface TourHost {
   /** Opens or closes the slide-in menu of the narrow layout. */
   setDrawer: (open: boolean) => void
   isDrawerOpen: () => boolean
+  /** Resolves once the menu items that depend on a request are on the screen (the steps are picked right after). */
+  menuReady?: () => Promise<void>
 }
 
 /**
@@ -37,6 +39,8 @@ export function useAppTour(host: TourHost) {
   let disposed = false
 
   async function start(): Promise<void> {
+    if (running.value || disposed) return
+    await host.menuReady?.().catch(() => {})
     if (running.value || disposed) return
     const audience = audienceFor(auth.user?.role)
     const defs = resolveSteps(TOUR_STEPS[audience], findTourTarget)

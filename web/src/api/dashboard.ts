@@ -226,6 +226,24 @@ export interface AccountantVatForm {
   submission_id: number | null
 }
 
+/** One of the newest received messages in a data box the owner opened to the accountant. */
+export interface AccountantDataboxMessage {
+  id: number
+  databox_id: number
+  received_at: string | null
+  sender_name: string | null
+  annotation: string | null
+  is_tax_office: boolean
+  /** The owner has not marked the message as dealt with yet. */
+  unhandled: boolean
+}
+
+/** Data box card of the accountant dashboard; `null` in the summary when no box is open to her. */
+export interface AccountantDatabox {
+  unhandled: number
+  latest: AccountantDataboxMessage[]
+}
+
 /** The last closed VAT period; without `applicable` the supplier was not a payer in it and only `period` / `payer_since` are set. */
 export interface AccountantVat {
   applicable: boolean
@@ -264,6 +282,8 @@ export interface AccountantSummary {
   }
   /** The last closed month - the preset of the monthly export. */
   export: { year: number; month: number }
+  /** Null when the owner has not opened any data box to the accountant. */
+  databox: AccountantDatabox | null
 }
 
 export const dashboardApi = {
