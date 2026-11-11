@@ -55,6 +55,46 @@ const hasPasskey = computed(() =>
 )
 const needsStepUp = computed(() => needsTotp.value || hasPasskey.value)
 
+// A user in email mode owns no passkey/TOTP: the step-up is a fresh code from their mailbox.
+const needsEmailStepUp = computed(() => auth.user?.mfa_mode === 'email' && !needsStepUp.value)
+const emailCode = ref('')
+const emailCodeSent = ref(false)
+const emailStepUpToken = ref('')
+const emailBusy = ref(false)
+
+async function sendEmailCode() {
+  emailBusy.value = true
+  createError.value = ''
+  try {
+    await authApi.emailStepUpRequest('api_token.create', emailCodeSent.value)
+    emailCodeSent.value = true
+  } catch (e: any) {
+    createError.value = e?.response?.data?.error?.message || t('common.error')
+  } finally {
+    emailBusy.value = false
+  }
+}
+
+async function verifyEmailCode() {
+  if (!/^\d{6}$/.test(emailCode.value)) return
+  emailBusy.value = true
+  createError.value = ''
+  try {
+    emailStepUpToken.value = await authApi.emailStepUpVerify('api_token.create', emailCode.value)
+    emailCode.value = ''
+  } catch (e: any) {
+    createError.value = e?.response?.data?.error?.message || t('common.error')
+  } finally {
+    emailBusy.value = false
+  }
+}
+
+function resetEmailStepUp() {
+  emailCode.value = ''
+  emailCodeSent.value = false
+  emailStepUpToken.value = ''
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -77,6 +117,7 @@ function openCreate() {
   }
   createError.value = ''
   passkeyStepUpToken.value = ''
+  resetEmailStepUp()
   showCreate.value = true
 }
 
@@ -107,6 +148,7 @@ async function verifyWithPasskey() {
 function closeCreate() {
   if (createBusy.value || passkeyBusy.value) return
   passkeyStepUpToken.value = ''
+  resetEmailStepUp()
   form.value.totp_code = ''
   showCreate.value = false
 }
@@ -121,9 +163,13 @@ async function submitCreate() {
     createError.value = t('api_tokens.step_up_required')
     return
   }
+  if (needsEmailStepUp.value && !emailStepUpToken.value) {
+    createError.value = t('api_tokens.step_up_required')
+    return
+  }
   createBusy.value = true
   createError.value = ''
-  const proof = passkeyStepUpToken.value
+  const proof = passkeyStepUpToken.value || emailStepUpToken.value
   try {
     const res = await tokensApi.create({
       name: form.value.name.trim(),
@@ -134,6 +180,7 @@ async function submitCreate() {
       step_up_token: proof || undefined,
     })
     passkeyStepUpToken.value = ''
+    resetEmailStepUp()
     showCreate.value = false
     revealed.value = res
     confirmCopied.value = false
@@ -146,6 +193,7 @@ async function submitCreate() {
     // always consumed.
     if (e?.response?.data?.error?.code === 'step_up_proof_invalid') {
       passkeyStepUpToken.value = ''
+      resetEmailStepUp()
     }
     form.value.totp_code = ''
     createError.value = e?.response?.data?.error?.message || t('common.error')
@@ -369,6 +417,29 @@ onMounted(load)
               {{ passkeyBusy ? t('auth.passkey_verifying') : t('api_tokens.verify_passkey') }}
             </button>
             <p v-else class="text-sm text-warning-700">{{ t('api_tokens.passkey_unsupported') }}</p>
+          </div>
+
+          <div v-if="needsEmailStepUp" class="rounded-md border border-neutral-200 bg-neutral-50 p-3" data-testid="email-step-up">
+            <p class="text-sm text-neutral-700 mb-2">{{ t('user_invite.step_up_hint') }}</p>
+            <div v-if="emailStepUpToken" class="text-sm font-medium text-success-600">✓ {{ t('user_invite.step_up_verified') }}</div>
+            <template v-else>
+              <button type="button" @click="sendEmailCode" :disabled="emailBusy || createBusy"
+                class="cursor-pointer h-10 px-4 border border-primary-600 text-primary-700 hover:bg-primary-50 disabled:border-neutral-300 disabled:text-neutral-400 rounded-md font-medium">
+                {{ emailCodeSent ? t('user_invite.step_up_resend') : t('user_invite.step_up_send') }}
+              </button>
+              <div v-if="emailCodeSent" class="mt-3">
+                <p class="text-xs text-neutral-500 mb-1">{{ t('user_invite.step_up_sent') }}</p>
+                <div class="flex gap-2">
+                  <input v-model="emailCode" type="text" inputmode="numeric" maxlength="6" pattern="\d{6}" autocomplete="one-time-code"
+                    :aria-label="t('user_invite.step_up_code')" placeholder="000000"
+                    class="flex-1 min-w-0 h-10 px-3 border border-neutral-300 rounded-md font-mono text-lg tracking-widest text-center" />
+                  <button type="button" @click="verifyEmailCode" :disabled="emailBusy || !/^\d{6}$/.test(emailCode)"
+                    class="cursor-pointer h-10 px-4 bg-primary-600 hover:bg-primary-700 disabled:bg-neutral-300 text-white font-medium rounded-md">
+                    {{ t('user_invite.step_up_verify') }}
+                  </button>
+                </div>
+              </div>
+            </template>
           </div>
 
           <label v-if="needsTotp && !passkeyStepUpToken" class="block text-sm">

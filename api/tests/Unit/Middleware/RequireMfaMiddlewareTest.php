@@ -122,6 +122,50 @@ final class RequireMfaMiddlewareTest extends TestCase
         self::assertSame(204, $middleware->process($bearer, $this->handler())->getStatusCode());
     }
 
+    public function testStrongSessionFromTheMailboxHoldsOnlyWhileTheUserIsInEmailMode(): void
+    {
+        $middleware = $this->middleware(required: true);
+        $mailboxMethods = ['email_otp', 'trusted_device', 'invite'];
+
+        foreach ($mailboxMethods as $authMethod) {
+            self::assertSame(204, $middleware->process(
+                $this->mailboxSessionRequest($authMethod, 'accountant', 'email'),
+                $this->handler(),
+            )->getStatusCode(), $authMethod);
+
+            // Mode switched off, or the user promoted to admin since the session was issued.
+            foreach ([['accountant', 'default'], ['admin', 'email'], ['admin', 'default']] as [$role, $mode]) {
+                $response = $middleware->process(
+                    $this->mailboxSessionRequest($authMethod, $role, $mode),
+                    $this->handler(),
+                );
+                self::assertSame(401, $response->getStatusCode(), "{$authMethod} {$role}/{$mode}");
+                self::assertSame(
+                    'mfa_reauthentication_required',
+                    json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR)['error']['code'],
+                );
+            }
+        }
+    }
+
+    public function testStrongTotpSessionIsNotAffectedByTheMailboxRule(): void
+    {
+        $request = $this->mailboxSessionRequest('totp', 'admin', 'default');
+        self::assertSame(204, $this->middleware(required: true)->process($request, $this->handler())->getStatusCode());
+    }
+
+    private function mailboxSessionRequest(string $authMethod, string $role, string $mode): ServerRequestInterface
+    {
+        return (new ServerRequestFactory())
+            ->createServerRequest('GET', '/api/invoices')
+            ->withAttribute(AuthMiddleware::ATTR_METHOD, 'session')
+            ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => 17, 'role' => $role, 'mfa_mode' => $mode])
+            ->withAttribute(AuthMiddleware::ATTR_SESSION, [
+                'assurance_level' => 'strong',
+                'auth_method' => $authMethod,
+            ]);
+    }
+
     private function middleware(bool $required): RequireMfaMiddleware
     {
         $policy = new MfaPolicyService(new Config([

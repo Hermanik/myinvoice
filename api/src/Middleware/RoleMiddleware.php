@@ -49,6 +49,8 @@ final class RoleMiddleware implements MiddlewareInterface
         '/api/auth/me',
         '/api/auth/forgot',
         '/api/auth/reset',
+        '/api/auth/invite',
+        '/api/auth/invite/accept',
         '/api/auth/change-password',
         '/api/auth/totp/status',
         '/api/auth/totp/setup',
@@ -60,6 +62,8 @@ final class RoleMiddleware implements MiddlewareInterface
         '/api/auth/webauthn/step-up/verify',
         '/api/auth/mfa/step-up/totp',
         '/api/auth/mfa/step-up/recovery',
+        '/api/auth/mfa/step-up/email/request',
+        '/api/auth/mfa/step-up/email',
         // Vlastní záložní kódy spravuje jen jejich majitel — generování si navíc
         // vynucuje čerstvý step-up skutečným faktorem (MfaRecoveryCodeAction).
         '/api/auth/mfa/recovery-codes',

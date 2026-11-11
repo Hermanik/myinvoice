@@ -15,7 +15,18 @@ final class MfaStepUpService
     /** Vygenerování nové sady záložních kódů — stará se tím nevratně zahodí. */
     public const OPERATION_RECOVERY_CODES = 'mfa.recovery_codes';
 
-    private const METHODS = ['passkey', 'totp', 'recovery'];
+    /**
+     * Fresh emailed code - the step-up of a user in `email` mode (UserMfaMode), who has no passkey / TOTP.
+     * Proof of mailbox possession is exactly as strong as their login factor, so it is accepted only for
+     * the operations below; it never replaces a real passkey/TOTP proof for anyone who owns one (the
+     * issuing action refuses it for them).
+     */
+    public const METHOD_EMAIL = 'email_otp';
+
+    /** Operations an emailed code may authorise. Passkey/recovery-code management needs a real factor. */
+    private const EMAIL_OPERATIONS = [self::OPERATION_API_TOKEN_CREATE];
+
+    private const METHODS = ['passkey', 'totp', 'recovery', self::METHOD_EMAIL];
 
     /**
      * Co smí autorizovat ZÁLOŽNÍ KÓD. Úmyslně užší množina než u skutečných faktorů:
@@ -56,6 +67,15 @@ final class MfaStepUpService
             if (!$isRevoke && !in_array($operation, self::RECOVERY_OPERATIONS, true)) {
                 throw new StepUpOperationException('Záložní kód tuhle operaci potvrdit nemůže.');
             }
+        }
+
+        if ($authMethod === self::METHOD_EMAIL) {
+            if (!in_array($operation, self::EMAIL_OPERATIONS, true)) {
+                throw new StepUpOperationException('E-mailový kód tuhle operaci potvrdit nemůže.');
+            }
+            // Like the recovery code it does not go through `allowed_mfa_methods`: that list says what
+            // satisfies a required login MFA, the per-user email mode is decided by the issuing action.
+            return $operation;
         }
 
         if (isset($matches[1])) {

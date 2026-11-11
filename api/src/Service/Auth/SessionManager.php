@@ -159,6 +159,7 @@ final class SessionManager
                     u.name AS account_name, u.role AS account_role,
                     u.locale AS account_locale, u.is_active AS account_is_active,
                     u.totp_enabled AS account_totp_enabled,
+                    u.mfa_mode AS account_mfa_mode,
                     u.session_lock_after_minutes AS account_session_lock_after_minutes
                FROM sessions s
                JOIN users u ON u.id = s.user_id
@@ -182,6 +183,7 @@ final class SessionManager
             'locale' => (string) $row['account_locale'],
             'is_active' => (int) $row['account_is_active'] === 1,
             'totp_enabled' => (int) ($row['account_totp_enabled'] ?? 0) === 1,
+            'mfa_mode' => (string) ($row['account_mfa_mode'] ?? 'default'),
             'session_lock_after_minutes' => $row['account_session_lock_after_minutes'] !== null
                 ? (int) $row['account_session_lock_after_minutes']
                 : null,

@@ -115,6 +115,15 @@ final class ErrorCatalog
         'Pro toto datum už záznam existuje. Smažte ho a vytvořte znovu.' => 'An entry for this date already exists. Delete it and create it again.',
         'Záznam nenalezen.' => 'Entry not found.',
         'V zvoleném období nebyl dodavatel plátcem DPH ani identifikovanou osobou — výkaz nelze vygenerovat. Plátcovství DPH se nastavuje v Nastavení → Plátcovství DPH.' => 'The supplier was neither a VAT payer nor a VAT-identified person in the selected period — the statement cannot be generated. The VAT status is set in Settings → VAT status.',
+        // User invitations + per-user second-factor mode
+        'Odkaz už neplatí, požádejte správce o nový.' => 'This link is no longer valid, ask the administrator for a new one.',
+        'Neplatný režim druhého ověření.' => 'Invalid second-factor mode.',
+        'Správce nemůže používat druhé ověření kódem e-mailem.' => 'An administrator cannot use the emailed-code second factor.',
+        'Neaktivního uživatele nelze pozvat.' => 'An inactive user cannot be invited.',
+        'Pozvánku se nepodařilo odeslat e-mailem. Zkontroluj nastavení SMTP nebo použij odkaz.' => 'The invitation could not be e-mailed. Check the SMTP settings or use the link instead.',
+        'Ověření kódem z e-mailu není pro tento účet dostupné.' => 'Verification by an emailed code is not available for this account.',
+        'E-mailový kód tuhle operaci potvrdit nemůže.' => 'An emailed code cannot confirm this operation.',
+        'Neplatný nebo expirovaný kód.' => 'Invalid or expired code.',
     ];
 
     /**

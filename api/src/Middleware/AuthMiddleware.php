@@ -49,6 +49,8 @@ final class AuthMiddleware implements MiddlewareInterface
         '/api/auth/webauthn/login/verify',
         '/api/auth/forgot',
         '/api/auth/reset',
+        '/api/auth/invite',
+        '/api/auth/invite/accept',
     ];
 
     /**
@@ -61,11 +63,13 @@ final class AuthMiddleware implements MiddlewareInterface
     private const SESSION_IGNORED_PATHS = [
         'GET' => [
             '/api/auth/setup-status',
+            '/api/auth/invite',
         ],
         'POST' => [
             '/api/auth/login',
             '/api/auth/webauthn/login/options',
             '/api/auth/webauthn/login/verify',
+            '/api/auth/invite/accept',
         ],
     ];
 
@@ -192,7 +196,7 @@ final class AuthMiddleware implements MiddlewareInterface
     private function loadUser(int $userId): ?array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT id, email, name, role, locale, is_active, totp_enabled,
+            'SELECT id, email, name, role, locale, is_active, totp_enabled, mfa_mode,
                     session_lock_after_minutes
                FROM users
               WHERE id = ?'

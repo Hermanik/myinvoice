@@ -13,6 +13,7 @@ use MyInvoice\Repository\PasskeyCredentialRepository;
 use MyInvoice\Service\Auth\MfaPolicyService;
 use MyInvoice\Service\Auth\NavFavoritesService;
 use MyInvoice\Service\Auth\SessionLockPolicy;
+use MyInvoice\Service\Auth\UserMfaMode;
 use MyInvoice\Service\Vat\VatStatusService;
 use Psr\Clock\ClockInterface;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -90,7 +91,9 @@ final class MeAction
 
         $totpEnabled  = (bool) ($user['totp_enabled'] ?? false);
         $requireTotp  = (bool) $this->config->get('auth.require_totp', false);
-        $mustSetupTotp = $requireTotp && !$totpEnabled;
+        $mfaMode = UserMfaMode::effective($user);
+        // An email-mode user satisfies the (legacy) TOTP requirement with the emailed code.
+        $mustSetupTotp = $requireTotp && !$totpEnabled && $mfaMode !== UserMfaMode::EMAIL;
         $userId = (int) ($user['id'] ?? 0);
         $passkeyCount = $userId > 0 ? $this->credentials->countActiveForUser($userId) : 0;
         $mfaMethods = [];
@@ -127,6 +130,7 @@ final class MeAction
                 'locale'          => $user['locale'] ?? 'cs',
                 'totp_enabled'    => $totpEnabled,
                 'must_setup_totp' => $mustSetupTotp,
+                'mfa_mode'        => $mfaMode,
                 'mfa_enabled'     => $mfaMethods !== [],
                 'mfa_methods'     => $mfaMethods,
                 'passkey_count'   => $passkeyCount,

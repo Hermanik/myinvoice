@@ -235,6 +235,9 @@ final class Routes
             $g->post('/change-password', ChangePasswordAction::class);
             $g->post('/forgot',          ForgotPasswordAction::class);
             $g->post('/reset',           ResetPasswordAction::class);
+            // Invitation link: the user sets their own password and is signed in (public, token-based)
+            $g->get ('/invite',          [\MyInvoice\Action\Auth\InviteAction::class, 'show']);
+            $g->post('/invite/accept',   [\MyInvoice\Action\Auth\InviteAction::class, 'accept']);
             // TOTP (2FA)
             $g->get ('/totp/status',     [TotpAction::class, 'status']);
             $g->post('/totp/setup',      [TotpAction::class, 'setup']);
@@ -250,6 +253,8 @@ final class Routes
             $g->delete('/webauthn/credentials/{id:[0-9]+}',   [PasskeyAction::class, 'revoke']);
             $g->post  ('/mfa/step-up/totp',                   [MfaStepUpAction::class, 'totp']);
             $g->post  ('/mfa/step-up/recovery',               [MfaStepUpAction::class, 'recovery']);
+            $g->post  ('/mfa/step-up/email/request',          [MfaStepUpAction::class, 'emailRequest']);
+            $g->post  ('/mfa/step-up/email',                  [MfaStepUpAction::class, 'email']);
             $g->get   ('/mfa/recovery-codes',                 [\MyInvoice\Action\Auth\MfaRecoveryCodeAction::class, 'status']);
             $g->post  ('/mfa/recovery-codes',                 [\MyInvoice\Action\Auth\MfaRecoveryCodeAction::class, 'generate']);
             $g->get   ('/session/status',                     [SessionAction::class, 'status']);
@@ -645,6 +650,7 @@ final class Routes
         $app->delete ('/api/admin/imports/{id:[0-9]+}',         \MyInvoice\Action\Admin\Import\DeleteImportJobAction::class);
         $app->get    ('/api/admin/users',           [UserAdminAction::class, 'list']);
         $app->post   ('/api/admin/users',           [UserAdminAction::class, 'create']);
+        $app->post   ('/api/admin/users/{id:[0-9]+}/invite', [\MyInvoice\Action\Admin\UserInviteAdminAction::class, 'issue']);
         $app->put    ('/api/admin/users/{id:[0-9]+}', [UserAdminAction::class, 'update']);
         $app->delete ('/api/admin/users/{id:[0-9]+}', [UserAdminAction::class, 'delete']);
         // Membership uživatel ↔ supplier (jemný tenant přístup, migrace 0148)

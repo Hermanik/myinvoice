@@ -18,6 +18,7 @@ use MyInvoice\Service\Auth\OneTimeTokenException;
 use MyInvoice\Service\Auth\SecretEncryption;
 use MyInvoice\Service\Auth\StepUpOperationException;
 use MyInvoice\Service\Auth\TotpService;
+use MyInvoice\Service\Auth\UserMfaMode;
 use MyInvoice\Service\IpMatcher;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -112,7 +113,7 @@ final class CreateTokenAction
 
         // Účelový step-up: jednorázový passkey/TOTP proof, nebo kompatibilní
         // přímé TOTP ověření v tomto requestu.
-        $stmt = $this->db->pdo()->prepare('SELECT totp_secret, totp_enabled FROM users WHERE id = ?');
+        $stmt = $this->db->pdo()->prepare('SELECT totp_secret, totp_enabled, role, mfa_mode FROM users WHERE id = ?');
         $stmt->execute([$userId]);
         $u = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
         // Zaregistrovaný TOTP je step-up požadavek bez ohledu na allowed_mfa_methods.
@@ -122,6 +123,10 @@ final class CreateTokenAction
             && !empty($u['totp_secret']);
         $passkeyAvailable = $this->mfaPolicy->isMethodAllowed('passkey')
             && $this->credentials->countActiveForUser($userId) > 0;
+
+        // A user in `email` mode owns no passkey / TOTP, yet must not get a token from the session alone:
+        // they re-prove mailbox possession with a fresh emailed code (/auth/mfa/step-up/email).
+        $emailStepUp = !$totpAvailable && !$passkeyAvailable && UserMfaMode::usesEmail($u);
 
         $out = null;
         if ($stepUpToken !== '') {
@@ -180,6 +185,14 @@ final class CreateTokenAction
                 'Pro vytvoření tokenu je vyžadováno nové ověření.',
                 401,
                 ['methods' => ['passkey']],
+            );
+        } elseif ($emailStepUp) {
+            return Json::error(
+                $response,
+                'step_up_required',
+                'Pro vytvoření tokenu je vyžadováno nové ověření.',
+                401,
+                ['methods' => ['email']],
             );
         }
 

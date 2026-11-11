@@ -19,6 +19,7 @@ use Slim\Psr7\Factory\ResponseFactory;
  *
  *   login_per_min_per_ip      → 60s window, key = "rl:login:ip:{ip/24}"
  *   forgot_per_hour_per_email → 3600s window, key = "rl:forgot:email:{sha1}"
+ *   invite_per_min_per_ip     → 60s window, key = "rl:invite:ip:{ip/24}" (invitation page + accept)
  *   ares_per_min_per_user     → 60s window, key = "rl:ares:user:{id}"
  *   ai_per_5min_per_user      → 300s window, key = "rl:ai:user:{id}" (AI extract + inbox scan)
  *   setup_per_hour_per_ip     → 3600s window, key = "rl:setup:ip:{ip}"
@@ -153,6 +154,12 @@ final class RateLimitMiddleware implements MiddlewareInterface
             if ($email !== '') {
                 return ['rl:forgot:email:' . sha1($email), (int) ($rl['forgot_per_hour_per_email'] ?? 3), 3600];
             }
+        }
+
+        // Invitation links (anonymous, the token is the credential) — IP bucket against token probing
+        if (($path === '/api/auth/invite' && $method === 'GET')
+            || ($path === '/api/auth/invite/accept' && $method === 'POST')) {
+            return ['rl:invite:ip:' . $this->ipBucket($ip), (int) ($rl['invite_per_min_per_ip'] ?? 20), 60];
         }
 
         // Setup

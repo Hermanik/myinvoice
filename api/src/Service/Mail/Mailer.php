@@ -932,6 +932,7 @@ final class Mailer
         $subjects = [
             'cs' => [
                 'password_reset'    => 'Obnova hesla — MyInvoice.cz',
+                'user_invite'       => 'Pozvánka do aplikace — MyInvoice.cz',
                 'login_otp'         => 'Ověřovací kód pro přihlášení — MyInvoice.cz',
                 'email_profile_test'=> 'Test odesílacího profilu — MyInvoice.cz',
                 'invoice_send'      => 'Faktura — MyInvoice.cz',
@@ -944,6 +945,7 @@ final class Mailer
             ],
             'en' => [
                 'password_reset'    => 'Password reset — MyInvoice.cz',
+                'user_invite'       => 'Invitation to MyInvoice.cz',
                 'login_otp'         => 'Sign-in verification code — MyInvoice.cz',
                 'email_profile_test'=> 'Sending profile test — MyInvoice.cz',
                 'invoice_send'      => 'Invoice — MyInvoice.cz',

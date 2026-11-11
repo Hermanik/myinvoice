@@ -20,6 +20,7 @@ use MyInvoice\Service\Auth\SessionAuthContext;
 use MyInvoice\Service\Auth\StoredPasskeyCredential;
 use MyInvoice\Service\Auth\TotpService;
 use MyInvoice\Service\Auth\TrustedDeviceService;
+use MyInvoice\Service\Auth\UserMfaMode;
 use MyInvoice\Service\Auth\WebAuthnCeremonyStore;
 use MyInvoice\Service\Captcha\TurnstileVerifier;
 use MyInvoice\Service\IpMatcher;
@@ -159,7 +160,7 @@ final class LoginAction
         // Načti usera (vždy zavolej dummyVerify pokud user neexistuje → konstantní timing)
         $stmt = $this->db->pdo()->prepare(
             'SELECT id, email, name, role, locale, password_hash, is_active,
-                    totp_secret, totp_enabled, session_lock_after_minutes
+                    totp_secret, totp_enabled, mfa_mode, session_lock_after_minutes
                FROM users
               WHERE email = ?
               LIMIT 1'
@@ -186,6 +187,8 @@ final class LoginAction
 
         $totpActive = (int) $user['totp_enabled'] === 1 && !empty($user['totp_secret']);
         $totpAllowed = $this->mfaPolicy->isMethodAllowed('totp');
+        // Per-user mailbox factor (admins are always downgraded to the default mode here).
+        $emailMode = UserMfaMode::usesEmail($user);
 
         // Záložní kód se uplatní PŘED výběrem faktoru. Je to break-glass pro člověka,
         // který zrovna žádný faktor po ruce nemá, takže nesmí být schovaný za výzvou
@@ -287,6 +290,7 @@ final class LoginAction
         if (!$passkeysUsable
             && !$totpActive
             && !$emailOtpOn
+            && !$emailMode
             && $this->credentials->countActiveForUser((int) $user['id']) > 0
         ) {
             $this->rehashPasswordIfNeeded($user, $password);
@@ -329,7 +333,9 @@ final class LoginAction
             $authContext = $totpAllowed
                 ? SessionAuthContext::strong('totp', $this->clock->now())
                 : SessionAuthContext::basic('totp');
-        } elseif ($emailOtpOn) {
+        } elseif ($emailOtpOn || $emailMode) {
+            // Emailed code. Global `auth.email_otp.enabled` makes it a (basic) fallback for everybody
+            // without TOTP; a user in `email` mode always gets it and it counts as their strong factor.
             $tdCookieName = $this->trustedDevices->cookieName();
             $tdToken = $request->getCookieParams()[$tdCookieName] ?? null;
             $deviceTrusted = $this->trustedDevices->verify(is_string($tdToken) ? $tdToken : null, (int) $user['id']);
@@ -364,9 +370,14 @@ final class LoginAction
                 }
                 $this->bf->recordEmailOtpSuccess((int) $user['id']);
                 $issueTrustedTd = $rememberDevice;
-                $authContext = SessionAuthContext::basic('email_otp');
+                $authContext = $emailMode
+                    ? SessionAuthContext::strong('email_otp', $this->clock->now())
+                    : SessionAuthContext::basic('email_otp');
             } else {
-                $authContext = SessionAuthContext::basic('trusted_device');
+                // A trusted device already proved control of the mailbox (emailed code or invitation).
+                $authContext = $emailMode
+                    ? SessionAuthContext::strong('trusted_device', $this->clock->now())
+                    : SessionAuthContext::basic('trusted_device');
             }
         }
 
