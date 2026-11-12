@@ -12,7 +12,7 @@ import { dashboardApi, type AccountantSummary } from '@/api/dashboard'
 import { apiErrorMessage } from '@/api/errors'
 import { formatMoney, formatMonth } from '@/composables/useFormat'
 import { useSupplierStore } from '@/stores/supplier'
-import { monthKey, periodQuery } from '@/utils/accountantDashboard'
+import { incomeTaxYear, monthKey, periodQuery, yearlyExportQuery } from '@/utils/accountantDashboard'
 import AccountantDataboxCard from './AccountantDataboxCard.vue'
 import AccountantMonthsCard, { type MonthsCardAlert } from './AccountantMonthsCard.vue'
 import AccountantObligationsCard from './AccountantObligationsCard.vue'
@@ -37,6 +37,9 @@ onMounted(async () => {
 
 const exportMonth = computed(() => (summary.value ? formatMonth(monthKey(summary.value.export.year, summary.value.export.month)) : ''))
 const exportTo = computed(() => (summary.value ? `/reports/monthly-export?${periodQuery(summary.value.export.year, summary.value.export.month)}` : '/reports/monthly-export'))
+// The income tax return of the previous year is prepared until June, then the running year is the one being collected.
+const taxYear = incomeTaxYear()
+const taxYearExportTo = `/reports/monthly-export?${yearlyExportQuery(taxYear)}`
 
 const issuedAlerts = computed<MonthsCardAlert[]>(() => {
   const overdue = summary.value?.issued.overdue
@@ -74,15 +77,26 @@ const purchaseAlerts = computed<MonthsCardAlert[]>(() => {
           <span v-if="summary"> · {{ t('accountant_dashboard.subtitle') }}</span>
         </p>
       </div>
-      <RouterLink
-        v-if="summary" :to="exportTo" data-testid="accountant-export"
-        class="inline-flex items-center gap-2 h-10 px-4 rounded-md bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium"
-      >
-        <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-        </svg>
-        {{ t('accountant_dashboard.export_cta', { month: exportMonth }) }}
-      </RouterLink>
+      <div v-if="summary" class="flex flex-wrap items-center gap-2">
+        <RouterLink
+          :to="exportTo" data-testid="accountant-export"
+          class="inline-flex items-center gap-2 h-10 px-4 rounded-md bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium"
+        >
+          <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          {{ t('accountant_dashboard.export_cta', { month: exportMonth }) }}
+        </RouterLink>
+        <RouterLink
+          :to="taxYearExportTo" data-testid="accountant-export-year"
+          class="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-primary-600 text-primary-700 hover:bg-primary-50 text-sm font-medium"
+        >
+          <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          {{ t('accountant_dashboard.export_year_cta', { year: taxYear }) }}
+        </RouterLink>
+      </div>
     </header>
 
     <div v-if="loading" class="text-center text-neutral-500 py-12">{{ t('dashboard.loading_data') }}</div>

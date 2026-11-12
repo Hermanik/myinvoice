@@ -4335,11 +4335,19 @@
     },
     "monthly_export": {
       "title": "Bulk export",
-      "subtitle": "Downloads a single ZIP with the selected exports for the chosen period (month or whole quarter), sorted into named folders.",
+      "subtitle": "Downloads a single ZIP with the selected exports for the chosen period (month, quarter or whole year), sorted into named folders.",
       "period_label": "Period",
       "period_month": "Month",
       "period_quarter": "Quarter",
+      "period_year": "Year",
+      "basis_label": "Assign documents by",
+      "basis": {
+        "duzp": "Tax date (DUZP) – for VAT",
+        "payment": "Payment date – for income tax"
+      },
       "period_rule_note": "Documents are assigned to the period in a tax-correct way, consistent with the VAT ledger and VAT return: issued by tax date (DUZP), received by the later of tax date / issue date (input VAT cannot be deducted before you hold the document), statements by statement date.",
+      "period_rule_note_payment": "Assigned by payment date: the export contains issued and received documents paid in full in the chosen period. For income tax a sole trader's income and expenses count on the day they are paid, so a December invoice paid in January belongs to the next year. Unpaid documents and documents paid outside the period are listed in the CSV summaries. The VAT ledger is always by tax date (DUZP), only for months in which you were a VAT payer; statements are by statement date.",
+      "outside_note": "{sales} issued and {purchase} received documents with a tax date in the period stay out of the export because they are not paid in it (unpaid or paid at another time). They are listed in the second section of the CSV summaries.",
       "parts_label": "What to include",
       "download": "Download ZIP",
       "downloading": "Preparing ZIP…",
@@ -4360,6 +4368,8 @@
         "new": "New export",
         "history": "Recent exports",
         "in_progress": "An export is already running — wait for it to finish.",
+        "basis_duzp": "by tax date",
+        "basis_payment": "by payment date",
         "delete_confirm": "Really delete this finished export from the list? The ZIP file will be removed and can no longer be downloaded.",
         "status": {
           "queued": "Queued",
@@ -4376,7 +4386,8 @@
         "purchase_isdoc": "Received invoices — ISDOC",
         "bank_pdf": "Bank statements — PDF",
         "bank_gpc": "Bank statements — GPC",
-        "dph_book": "VAT ledger — PDF"
+        "dph_book": "VAT ledger — PDF",
+        "summary_csv": "Invoice summaries — CSV (Excel)"
       }
     },
     "dph": {
@@ -5769,6 +5780,7 @@
     "title": "Accountant overview",
     "subtitle": "documents and deadlines in one place",
     "export_cta": "Download documents for {month}",
+    "export_year_cta": "Documents for {year} (income tax)",
     "no_documents": "There are no documents in the last two months.",
     "count": "Documents",
     "base": "Base without VAT",
