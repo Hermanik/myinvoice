@@ -2,42 +2,48 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { reportsApi, type MonthlyExportPreview, type MonthlyExportPart, type MonthlyExportJob, type ExportPeriodArg } from '@/api/reports'
+import { reportsApi, type MonthlyExportPreview, type MonthlyExportPart, type MonthlyExportJob, type ExportPeriodArg, type ExportBasis } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
 import { useToast } from '@/composables/useToast'
 import { useYearOptions } from '@/composables/useYearOptions'
 import { useSessionAwarePolling } from '@/composables/useSessionAwarePolling'
-import { periodFromQuery } from '@/utils/reportPeriod'
+import { defaultExportBasis, exportFromQuery, type ExportPeriodType } from '@/utils/reportPeriod'
 
 const { t, locale } = useI18n()
 const toast = useToast()
 
-// Default = předchozí měsíc: hromadný export se dělá po uzávěrce právě skončeného
-// měsíce, ne rozpracovaného aktuálního. Date konstruktor normalizuje leden → prosinec
-// předchozího roku (getMonth() - 1 = -1).
-type PeriodType = 'monthly' | 'quarterly'
-const now = new Date()
-const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-const periodType = ref<PeriodType>('monthly')
-// The accountant's dashboard links here with ?year=&month= (the last closed month, which is also the default).
-const initialPeriod = periodFromQuery(useRoute().query, prevMonth)
-const year = ref(initialPeriod.year)
-const month = ref(initialPeriod.month)
-const quarter = ref(Math.ceil(initialPeriod.month / 3))
+// Default = the previous month: the bulk export is taken after the month has closed, not for the
+// month in progress (exportFromQuery handles January → December of the previous year).
+// The accountant's dashboard links here with ?year=&month= (the last closed month, which is also the default)
+// or ?period=yearly&year=&basis=payment (the whole year for the income tax return).
+const initial = exportFromQuery(useRoute().query)
+const periodType = ref<ExportPeriodType>(initial.type)
+const year = ref(initial.year)
+const month = ref(initial.month)
+const quarter = ref(initial.quarter)
 const quarterOptions = [1, 2, 3, 4]
+// The basis follows the period type (year → payment date, otherwise DUZP) until the user picks one.
+const basis = ref<ExportBasis>(initial.basis)
 
-const exportPeriod = computed<ExportPeriodArg>(() =>
-  periodType.value === 'quarterly'
-    ? { type: 'quarterly', year: year.value, quarter: quarter.value }
-    : { type: 'monthly', year: year.value, month: month.value },
-)
+function selectPeriodType(type: ExportPeriodType) {
+  periodType.value = type
+  basis.value = defaultExportBasis(type)
+}
 
-// Pořadí částí v UI = pořadí, ve kterém je uživatel zmínil.
+const exportPeriod = computed<ExportPeriodArg>(() => {
+  switch (periodType.value) {
+    case 'quarterly': return { type: 'quarterly', year: year.value, quarter: quarter.value }
+    case 'yearly': return { type: 'yearly', year: year.value }
+    default: return { type: 'monthly', year: year.value, month: month.value }
+  }
+})
+
+// Order of the parts in the UI.
 const ALL_PARTS: MonthlyExportPart[] = [
   'sales_pdf', 'sales_isdoc',
   'purchase_pdf', 'purchase_isdoc',
   'bank_pdf', 'bank_gpc',
-  'dph_book',
+  'dph_book', 'summary_csv',
 ]
 const selected = ref<Set<MonthlyExportPart>>(new Set(ALL_PARTS))
 
@@ -57,7 +63,7 @@ async function loadPreview() {
   loading.value = true
   error.value = ''
   try {
-    preview.value = await reportsApi.monthlyExportPreview(exportPeriod.value)
+    preview.value = await reportsApi.monthlyExportPreview(exportPeriod.value, basis.value)
   } catch (e) {
     error.value = apiErrorMessage(e)
   } finally {
@@ -71,7 +77,7 @@ async function loadJobs(signal?: AbortSignal) {
   try {
     const prev = jobs.value
     jobs.value = await reportsApi.monthlyExportJobs(signal)
-    // Toast při přechodu running → completed/failed (jen za běhu polling).
+    // Toast on the transition running → completed/failed (only while polling).
     for (const j of jobs.value) {
       const old = prev.find(p => p.id === j.id)
       if (old && ['queued', 'running'].includes(old.status) && old.status !== j.status) {
@@ -79,7 +85,7 @@ async function loadJobs(signal?: AbortSignal) {
         else if (j.status === 'failed') toast.error(j.last_error || t('reports.monthly_export.download_failed'))
       }
     }
-  } catch { /* ponech předchozí stav */ }
+  } catch { /* keep the previous state */ }
   jobsPollingEnabled.value = anyActive.value
 }
 
@@ -109,7 +115,7 @@ async function startExport() {
   starting.value = true
   error.value = ''
   try {
-    const r = await reportsApi.monthlyExportStart(exportPeriod.value, selectedList.value)
+    const r = await reportsApi.monthlyExportStart(exportPeriod.value, basis.value, selectedList.value)
     toast.success(t('reports.monthly_export.job.started', { jobId: r.job_id }))
     await loadJobs()
   } catch (e) {
@@ -148,9 +154,14 @@ function downloadJob(j: MonthlyExportJob) {
 function periodLabel(j: MonthlyExportJob): string {
   const p = j.params as { period?: string; year?: number; month?: number; quarter?: number } | null
   if (!p?.year) return ''
+  if (p.period === 'yearly') return String(p.year)
   if (p.period === 'quarterly' && p.quarter) return `Q${p.quarter} ${p.year}`
   if (p.month) return new Date(p.year, p.month - 1, 1).toLocaleDateString(locale.value === 'en' ? 'en-US' : 'cs-CZ', { month: 'long', year: 'numeric' })
   return String(p.year)
+}
+/** Jobs started before the basis existed have none; they were all by DUZP. */
+function basisOf(j: MonthlyExportJob): ExportBasis {
+  return (j.params as { basis?: string } | null)?.basis === 'payment' ? 'payment' : 'duzp'
 }
 function fmtSize(bytes: number | null): string {
   if (!bytes) return ''
@@ -179,9 +190,12 @@ const groups = computed(() => [
   { key: 'invoices', parts: ['sales_pdf', 'sales_isdoc', 'purchase_pdf', 'purchase_isdoc'] as MonthlyExportPart[] },
   { key: 'bank',     parts: ['bank_pdf', 'bank_gpc'] as MonthlyExportPart[] },
   { key: 'dph',      parts: ['dph_book'] as MonthlyExportPart[] },
+  { key: 'summary',  parts: ['summary_csv'] as MonthlyExportPart[] },
 ])
 
-watch([year, month, quarter, periodType], loadPreview)
+const outsideTotal = computed(() => (preview.value?.outside.sales ?? 0) + (preview.value?.outside.purchase ?? 0))
+
+watch([year, month, quarter, periodType, basis], loadPreview)
 onMounted(() => { loadPreview() })
 </script>
 
@@ -195,21 +209,26 @@ onMounted(() => { loadPreview() })
       </div>
       <div class="flex items-center gap-2 flex-wrap">
         <div class="flex rounded-md border border-neutral-300 overflow-hidden text-sm">
-          <button type="button" @click="periodType = 'monthly'" :disabled="anyActive"
+          <button type="button" @click="selectPeriodType('monthly')" :disabled="anyActive"
             :class="periodType === 'monthly' ? 'bg-primary-600 text-white' : 'bg-surface text-neutral-700 hover:bg-neutral-50'"
             class="cursor-pointer h-9 px-3 disabled:opacity-60">
             {{ t('reports.monthly_export.period_month') }}
           </button>
-          <button type="button" @click="periodType = 'quarterly'" :disabled="anyActive"
+          <button type="button" @click="selectPeriodType('quarterly')" :disabled="anyActive"
             :class="periodType === 'quarterly' ? 'bg-primary-600 text-white' : 'bg-surface text-neutral-700 hover:bg-neutral-50'"
             class="cursor-pointer h-9 px-3 border-l border-neutral-300 disabled:opacity-60">
             {{ t('reports.monthly_export.period_quarter') }}
+          </button>
+          <button type="button" @click="selectPeriodType('yearly')" :disabled="anyActive" data-testid="period-yearly"
+            :class="periodType === 'yearly' ? 'bg-primary-600 text-white' : 'bg-surface text-neutral-700 hover:bg-neutral-50'"
+            class="cursor-pointer h-9 px-3 border-l border-neutral-300 disabled:opacity-60">
+            {{ t('reports.monthly_export.period_year') }}
           </button>
         </div>
         <select v-if="periodType === 'monthly'" v-model.number="month" :disabled="anyActive" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm disabled:bg-neutral-100">
           <option v-for="(label, i) in monthOptions" :key="i + 1" :value="i + 1">{{ label }}</option>
         </select>
-        <select v-else v-model.number="quarter" :disabled="anyActive" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm disabled:bg-neutral-100">
+        <select v-else-if="periodType === 'quarterly'" v-model.number="quarter" :disabled="anyActive" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm disabled:bg-neutral-100">
           <option v-for="q in quarterOptions" :key="q" :value="q">Q{{ q }}</option>
         </select>
         <select v-model.number="year" :disabled="anyActive" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm disabled:bg-neutral-100">
@@ -223,13 +242,26 @@ onMounted(() => { loadPreview() })
     </div>
 
     <div class="bg-surface border border-neutral-200 rounded-lg p-5 shadow-sm space-y-5">
-      <!-- Daňově korektní zařazení dokladů do období -->
-      <div class="flex items-start gap-2 rounded-md bg-primary-50 border border-primary-200 px-3 py-2.5 text-sm text-primary-800">
-        <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
-        <span>{{ t('reports.monthly_export.period_rule_note') }}</span>
+      <!-- Assignment basis: DUZP (VAT) or payment date (income tax) -->
+      <div>
+        <label for="export-basis" class="block text-sm font-medium text-neutral-700 mb-1">{{ t('reports.monthly_export.basis_label') }}</label>
+        <select id="export-basis" v-model="basis" :disabled="anyActive" data-testid="export-basis"
+          class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm disabled:bg-neutral-100">
+          <option value="duzp">{{ t('reports.monthly_export.basis.duzp') }}</option>
+          <option value="payment">{{ t('reports.monthly_export.basis.payment') }}</option>
+        </select>
       </div>
 
-      <!-- Výběr částí -->
+      <!-- Tax-correct assignment of documents to the period -->
+      <div class="flex items-start gap-2 rounded-md bg-primary-50 border border-primary-200 px-3 py-2.5 text-sm text-primary-800" data-testid="basis-hint">
+        <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+        <span>{{ basis === 'payment' ? t('reports.monthly_export.period_rule_note_payment') : t('reports.monthly_export.period_rule_note') }}</span>
+      </div>
+      <div v-if="basis === 'payment' && outsideTotal > 0 && !loading" class="flex items-start gap-2 rounded-md bg-warning-50 border border-warning-500/40 px-3 py-2.5 text-sm text-warning-700" data-testid="outside-note">
+        <span>{{ t('reports.monthly_export.outside_note', { sales: preview?.outside.sales ?? 0, purchase: preview?.outside.purchase ?? 0 }) }}</span>
+      </div>
+
+      <!-- Part selection -->
       <div>
         <div class="flex items-center justify-between mb-2">
           <label class="block text-sm font-medium text-neutral-700">{{ t('reports.monthly_export.parts_label') }}</label>
@@ -288,7 +320,7 @@ onMounted(() => { loadPreview() })
       </div>
     </div>
 
-    <!-- Historie exportů (zůstávají ke stažení) -->
+    <!-- Export history (they stay downloadable) -->
     <div v-if="jobs.length" class="bg-surface border border-neutral-200 rounded-lg shadow-sm">
       <div class="px-5 py-3 border-b border-neutral-200 text-sm font-medium text-neutral-700">
         {{ t('reports.monthly_export.job.history') }}
@@ -300,6 +332,7 @@ onMounted(() => { loadPreview() })
               {{ t('reports.monthly_export.job.status.' + j.status) }}
             </span>
             <span class="text-sm font-medium text-neutral-800 capitalize">{{ periodLabel(j) }}</span>
+            <span class="text-xs text-neutral-500">{{ t('reports.monthly_export.job.basis_' + basisOf(j)) }}</span>
             <span v-if="j.status === 'completed'" class="text-xs text-neutral-500">
               {{ t('reports.monthly_export.job.ready', { count: j.created_count }) }}<template v-if="j.result_size"> · {{ fmtSize(j.result_size) }}</template>
             </span>
@@ -322,7 +355,7 @@ onMounted(() => { loadPreview() })
             </div>
           </div>
 
-          <!-- Progress (aktivní) -->
+          <!-- Progress (active) -->
           <div v-if="isActive(j)" class="mt-2">
             <div class="h-1.5 w-full rounded-full bg-neutral-200 overflow-hidden">
               <div class="h-full bg-primary-500 transition-all" :style="{ width: progressPct(j) + '%' }"></div>

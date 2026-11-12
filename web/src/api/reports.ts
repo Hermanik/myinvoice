@@ -42,11 +42,11 @@ export interface DphPriznaniPreview {
     supplementary?: DphSupplementaryInfo
   }
   warnings: string[]
-  /** Chybějící POVINNÁ pole EPO identifikace — náhled neblokují, stažení XML ano. */
+  /** Missing MANDATORY EPO identification fields — they do not block the preview, they do block the XML download. */
   missing?: EpoMissingField[]
 }
 
-/** Pole identifikace daňového subjektu, které chybí v Nastavení → Daňové nastavení. */
+/** Taxpayer identification fields missing in Settings → Tax settings. */
 export interface EpoMissingField {
   field: string
   label: string
@@ -56,7 +56,7 @@ export interface EpoMissingField {
 export interface DphSettings {
   vat_period: 'monthly' | 'quarterly' | null
   is_vat_payer: boolean
-  /** Identifikovaná osoba (§ 6g–6l, issue #94) — přiznání typu I, vždy měsíčně. */
+  /** Identified person (§ 6g–6l, issue #94) — return type I, always monthly. */
   is_identified?: boolean
   taxpayer_type: 'fo' | 'po' | null
   has_financial_office: boolean
@@ -91,7 +91,7 @@ export interface KhPreview {
     submission_deadline: string
   }
   warnings: string[]
-  /** Chybějící POVINNÁ pole EPO identifikace — náhled neblokují, stažení XML ano. */
+  /** Missing MANDATORY EPO identification fields — they do not block the preview, they do block the XML download. */
   missing?: EpoMissingField[]
 }
 
@@ -252,17 +252,24 @@ export interface OssPreview {
 
 export type MonthlyExportPart =
   | 'sales_pdf' | 'sales_isdoc' | 'purchase_pdf' | 'purchase_isdoc'
-  | 'bank_pdf' | 'bank_gpc' | 'dph_book'
+  | 'bank_pdf' | 'bank_gpc' | 'dph_book' | 'summary_csv'
 
-/** Období hromadného exportu — měsíc nebo celé čtvrtletí. */
+/** Period of the bulk export — a month, a quarter or a whole year. */
 export type ExportPeriodArg =
   | { type: 'monthly'; year: number; month: number }
   | { type: 'quarterly'; year: number; quarter: number }
+  | { type: 'yearly'; year: number }
+
+/** How documents are assigned to the period: DUZP (VAT) or payment date (income tax). */
+export type ExportBasis = 'duzp' | 'payment'
 
 export interface MonthlyExportPreview {
   period: string
-  period_type: 'monthly' | 'quarterly'
+  period_type: 'monthly' | 'quarterly' | 'yearly'
+  basis: ExportBasis
   counts: Record<MonthlyExportPart, number>
+  /** Documents with a DUZP in the period that are not paid in it (payment basis only). */
+  outside: { sales: number; purchase: number }
 }
 
 export interface MonthlyExportJob {
@@ -283,11 +290,13 @@ export interface MonthlyExportJob {
   finished_at: string | null
 }
 
-/** Query/body parametry období pro hromadný export (period + year + month|quarter). */
-function monthlyExportPeriodParams(period: ExportPeriodArg): Record<string, string | number> {
-  return period.type === 'quarterly'
-    ? { period: 'quarterly', year: period.year, quarter: period.quarter }
-    : { period: 'monthly', year: period.year, month: period.month }
+/** Query/body period parameters of the bulk export (period + year + month|quarter) and the assignment basis. */
+function monthlyExportPeriodParams(period: ExportPeriodArg, basis: ExportBasis): Record<string, string | number> {
+  switch (period.type) {
+    case 'quarterly': return { period: 'quarterly', year: period.year, quarter: period.quarter, basis }
+    case 'yearly': return { period: 'yearly', year: period.year, basis }
+    default: return { period: 'monthly', year: period.year, month: period.month, basis }
+  }
 }
 
 /** Query params of the return form: B is the default and is never sent. */
@@ -331,7 +340,7 @@ export const reportsApi = {
       params: { year, month, ...(period ? { period } : {}), ...khFormQuery(formParams) },
     }).then(r => r.data),
 
-  // Souhrnné hlášení (EU dodání) — plátci i identifikované osoby; lze kvartálně pro služby
+  // EC Sales List (EU supplies) — payers and identified persons; quarterly is possible for services
   shvPreview: (year: number, month: number, period?: 'monthly' | 'quarterly') =>
     api.get<{
       summary: {
@@ -349,7 +358,7 @@ export const reportsApi = {
         submission_deadline: string
       }
       warnings: string[]
-      /** Chybějící POVINNÁ pole EPO identifikace — náhled neblokují, stažení XML ano. */
+      /** Missing MANDATORY EPO identification fields — they do not block the preview, they do block the XML download. */
       missing?: EpoMissingField[]
     }>('/reports/dphshv/preview', { params: { year, month, ...(period ? { period } : {}) } }).then(r => r.data),
 
@@ -370,7 +379,7 @@ export const reportsApi = {
         exempt_revenue_orientacni?: number
         costs_orientacni: number
         profit_orientacni: number
-        /** Electronic filing (§ 136 odst. 2 písm. a) DŘ). */
+        /** Electronic filing (§ 136(2)(a) DŘ). */
         submission_deadline: string
         /** Paper filing (§ 136 odst. 1 DŘ). */
         paper_deadline: string
@@ -392,13 +401,13 @@ export const reportsApi = {
     const params = new URLSearchParams({ year: String(year), month: String(month) })
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     if (period) params.set('period', period)
-    // Forma podání (B řádné / O opravné / N následné) + datum zjištění důvodů
-    // pro následné KH (DD.MM.YYYY, povinné u N) — viz KontrolniHlaseniAction.
+    // Filing form (B regular / O corrective / N subsequent) + date the reasons were found
+    // for a subsequent KH (DD.MM.YYYY, mandatory for N) — see KontrolniHlaseniAction.
     for (const [k, v] of Object.entries(khFormQuery(formParams))) params.set(k, v)
     return `/api/reports/dphkh1?${params.toString()}`
   },
 
-  // Kniha DPH (interní VAT žurnál — NE EPO podání)
+  // VAT book (internal VAT journal — NOT an EPO submission)
   dphBookPreview: (year: number, month: number, period?: 'monthly' | 'quarterly') =>
     api.get<DphBookPreview>('/reports/dph-book/preview', {
       params: period ? { year, month, period } : { year, month },
@@ -422,22 +431,22 @@ export const reportsApi = {
     return `/api/reports/dph-book?${params.toString()}`
   },
 
-  // Hromadný export — background job (počty per část pro UI checkboxy)
-  monthlyExportPreview: (period: ExportPeriodArg) =>
-    api.get<MonthlyExportPreview>('/reports/monthly-export/preview', { params: monthlyExportPeriodParams(period) })
+  // Bulk export — background job (counts per part for the UI checkboxes)
+  monthlyExportPreview: (period: ExportPeriodArg, basis: ExportBasis) =>
+    api.get<MonthlyExportPreview>('/reports/monthly-export/preview', { params: monthlyExportPeriodParams(period, basis) })
       .then(r => r.data),
 
-  /** Spustí export job na pozadí → vrátí job_id. */
-  monthlyExportStart: (period: ExportPeriodArg, parts: string[]) =>
+  /** Starts the export job in the background → returns job_id. */
+  monthlyExportStart: (period: ExportPeriodArg, basis: ExportBasis, parts: string[]) =>
     api.post<{ job_id: number; status: string; params: Record<string, unknown> }>(
-      '/reports/monthly-export/start', { ...monthlyExportPeriodParams(period), parts },
+      '/reports/monthly-export/start', { ...monthlyExportPeriodParams(period, basis), parts },
     ).then(r => r.data),
 
-  /** Stav jobu (polling). */
+  /** Job status (polling). */
   monthlyExportJob: (id: number) =>
     api.get<MonthlyExportJob>(`/reports/monthly-export/jobs/${id}`).then(r => r.data),
 
-  /** Poslední exporty (historie — zůstávají ke stažení dokud nejsou smazané / uklizené). */
+  /** Recent exports (history — they stay downloadable until deleted / cleaned up). */
   monthlyExportJobs: (signal?: AbortSignal) =>
     api.get<MonthlyExportJob[]>('/reports/monthly-export/jobs', { signal }).then(r => r.data),
 
@@ -447,7 +456,7 @@ export const reportsApi = {
   monthlyExportDeleteJob: (id: number) =>
     api.delete<{ ok: boolean; deleted: boolean }>(`/reports/monthly-export/jobs/${id}`).then(r => r.data),
 
-  /** URL ke stažení hotového ZIPu — otevírá se přímou navigací (cookie auth + supplier_id query). */
+  /** URL of the finished ZIP — opened by direct navigation (cookie auth + supplier_id query). */
   monthlyExportDownloadUrl: (id: number) => {
     const sid = localStorage.getItem('myinvoice.current_supplier_id')
     const params = new URLSearchParams()
@@ -456,7 +465,7 @@ export const reportsApi = {
     return `/api/reports/monthly-export/jobs/${id}/download${qs ? `?${qs}` : ''}`
   },
 
-  /** URL na download endpoint — frontend ho otevírá v novém okně */
+  /** URL of the download endpoint — the frontend opens it in a new window */
   dphDownloadUrl: (year: number, month: number, period?: 'monthly' | 'quarterly', formParams: DphFormParams = {}) => {
     const sid = localStorage.getItem('myinvoice.current_supplier_id')
     const params = new URLSearchParams({ year: String(year), month: String(month) })

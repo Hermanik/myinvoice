@@ -9,6 +9,7 @@ use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\ImportJobRepository;
 use MyInvoice\Service\ActivityLogger;
+use MyInvoice\Service\Export\ExportBasis;
 use MyInvoice\Service\Export\ExportPeriod;
 use MyInvoice\Service\Export\ExportPeriodResolver;
 use MyInvoice\Service\Export\MonthlyExportService;
@@ -18,20 +19,22 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\Psr7\Stream;
 
 /**
- * Měsíční export — background job (import_jobs, source='monthly_export'), který do
- * pojmenovaných složek sbalí existující exporty za měsíc (VF/PF PDF+ISDOC, výpisy
- * PDF+GPC, Kniha DPH). Běží na pozadí jako Fakturoid import, protože renderování
- * PDF u hodně faktur může přesáhnout web timeout.
+ * Bulk export — a background job (import_jobs, source='monthly_export') that packs the existing
+ * exports for a month, quarter or year into named folders (issued/received invoices PDF+ISDOC,
+ * bank statements PDF+GPC, VAT book, summary CSVs). It runs in the background like the Fakturoid
+ * import, because rendering the PDFs of many invoices can exceed the web timeout.
  *
- *   GET    /api/reports/monthly-export/preview?period=monthly&year=&month= → počty per část
+ *   GET    /api/reports/monthly-export/preview?period=monthly&year=&month= → counts per part
  *   GET    /api/reports/monthly-export/preview?period=quarterly&year=&quarter=1..4
- *   POST   /api/reports/monthly-export/start                    → vytvoří job + spawn worker
- *   GET    /api/reports/monthly-export/jobs/{id}                → stav jobu (polling)
- *   GET    /api/reports/monthly-export/jobs/{id}/download       → stáhne hotový ZIP
- *   POST   /api/reports/monthly-export/jobs/{id}/cancel         → zruší job
- *   DELETE /api/reports/monthly-export/jobs/{id}                → smaže job + soubor
+ *   GET    /api/reports/monthly-export/preview?period=yearly&year=
+ *         optional &basis=duzp|payment (how documents are assigned; default duzp, payment for yearly)
+ *   POST   /api/reports/monthly-export/start                    → creates the job + spawns the worker
+ *   GET    /api/reports/monthly-export/jobs/{id}                → job status (polling)
+ *   GET    /api/reports/monthly-export/jobs/{id}/download       → downloads the finished ZIP
+ *   POST   /api/reports/monthly-export/jobs/{id}/cancel         → cancels the job
+ *   DELETE /api/reports/monthly-export/jobs/{id}                → deletes the job + file
  *
- * Přístup: admin / accountant / readonly (export = čtení).
+ * Access: admin / accountant / readonly (an export is a read).
  */
 final class MonthlyExportAction
 {
@@ -43,33 +46,36 @@ final class MonthlyExportAction
         private readonly ExportPeriodResolver $periodResolver,
     ) {}
 
-    /** GET /preview — počty dostupných položek per část. */
+    /** GET /preview — counts of the available items per part. */
     public function preview(Request $request, Response $response): Response
     {
         if (($err = $this->guard($request, $response)) !== null) return $err;
-        [$period, $errResp] = $this->parsePeriod($request, $response);
+        [$period, $basis, $errResp] = $this->parsePeriod($request, $response);
         if ($errResp !== null) return $errResp;
         $sid = SupplierGuard::currentId($request);
 
+        $preview = $this->export->previewCounts($sid, $period, $basis);
         return Json::ok($response, [
             'period' => $period->label,
             'period_type' => $period->type,
-            'counts' => $this->export->previewCounts($sid, $period),
+            'basis' => $basis->value,
+            'counts' => $preview['counts'],
+            'outside' => $preview['outside'],
         ]);
     }
 
-    /** POST /start — vytvoří job a spustí worker na pozadí. */
+    /** POST /start — creates the job and spawns the background worker. */
     public function start(Request $request, Response $response): Response
     {
         if (($err = $this->guard($request, $response)) !== null) return $err;
-        [$period, $errResp] = $this->parsePeriod($request, $response);
+        [$period, $basis, $errResp] = $this->parsePeriod($request, $response);
         if ($errResp !== null) return $errResp;
         $sid = SupplierGuard::currentId($request);
         if ($sid === 0) {
             return Json::error($response, 'no_supplier', 'Chybí supplier kontext.', 400);
         }
 
-        // Ukliď zaseknuté joby (mrtvý worker), jinak by blokovaly nový start.
+        // Reap stuck jobs (dead worker), otherwise they would block a new start.
         $this->jobs->reapStale($sid, 'monthly_export');
         foreach ($this->jobs->listForTenant($sid, 'monthly_export', limit: 5) as $existing) {
             if (in_array($existing['status'], ['queued', 'running'], true)) {
@@ -89,6 +95,7 @@ final class MonthlyExportAction
             'year'    => $period->year,
             'month'   => $period->month,
             'quarter' => $period->quarter,
+            'basis'   => $basis->value,
             'parts'   => $parts,
         ];
 
@@ -104,7 +111,7 @@ final class MonthlyExportAction
         return Json::ok($response, ['job_id' => $jobId, 'status' => 'queued', 'params' => $params], 201);
     }
 
-    /** GET /jobs — historie posledních exportů (zůstávají ke stažení dokud nejsou uklizené). */
+    /** GET /jobs — history of the latest exports (downloadable until cleaned up). */
     public function list(Request $request, Response $response): Response
     {
         if (($err = $this->guard($request, $response)) !== null) return $err;
@@ -139,7 +146,7 @@ final class MonthlyExportAction
         return Json::ok($response, $job);
     }
 
-    /** GET /jobs/{id}/download — stáhne hotový ZIP. */
+    /** GET /jobs/{id}/download — downloads the finished ZIP. */
     public function download(Request $request, Response $response, array $args): Response
     {
         if (($err = $this->guard($request, $response)) !== null) return $err;
@@ -155,7 +162,7 @@ final class MonthlyExportAction
         $absReal = realpath($abs);
         $baseReal = realpath($this->export->storageBaseDir());
         $isWindows = DIRECTORY_SEPARATOR === '\\';
-        // Path-traversal guard (result_path je systémový, ale guard pro jistotu).
+        // Path-traversal guard (result_path is system-generated, the guard is belt and braces).
         if ($absReal === false || !is_file($absReal) || $baseReal === false
             || !str_starts_with(
                 $isWindows ? strtolower($absReal) : $absReal,
@@ -180,7 +187,7 @@ final class MonthlyExportAction
             ->withHeader('X-Content-Type-Options', 'nosniff');
     }
 
-    /** POST /jobs/{id}/cancel — zruší běžící/čekající job. */
+    /** POST /jobs/{id}/cancel — cancels a running/queued job. */
     public function cancel(Request $request, Response $response, array $args): Response
     {
         if (($err = $this->guard($request, $response)) !== null) return $err;
@@ -193,7 +200,7 @@ final class MonthlyExportAction
         return Json::ok($response, ['ok' => $ok, 'cancel_requested' => true]);
     }
 
-    /** DELETE /jobs/{id} — smaže job i jeho soubor. */
+    /** DELETE /jobs/{id} — deletes the job and its file. */
     public function delete(Request $request, Response $response, array $args): Response
     {
         if (($err = $this->guard($request, $response)) !== null) return $err;
@@ -203,7 +210,7 @@ final class MonthlyExportAction
         if ($job === null) {
             return Json::error($response, 'not_found', 'Export job nenalezen.', 404);
         }
-        // Smaž i vygenerovaný ZIP (jen v rámci storage base — guard).
+        // Delete the generated ZIP too (only within the storage base — guarded).
         if (!empty($job['result_path'])) {
             $absReal = realpath($this->export->resolveResultPath((string) $job['result_path']));
             $baseReal = realpath($this->export->storageBaseDir());
@@ -231,18 +238,19 @@ final class MonthlyExportAction
         return null;
     }
 
-    /** @return array{0:?ExportPeriod,1:?Response} [period, errorResponse] */
+    /** @return array{0:?ExportPeriod,1:?ExportBasis,2:?Response} [period, basis, errorResponse] */
     private function parsePeriod(Request $request, Response $response): array
     {
-        // Preview čte z query, start z těla; sjednotíme (tělo má přednost).
+        // Preview reads the query, start reads the body; merge them (the body wins).
         $merged = array_merge(
             (array) $request->getQueryParams(),
             (array) ($request->getParsedBody() ?? []),
         );
         try {
-            return [$this->periodResolver->resolve($merged), null];
+            $period = $this->periodResolver->resolve($merged);
+            return [$period, $this->periodResolver->resolveBasis($merged, $period), null];
         } catch (\InvalidArgumentException $e) {
-            return [null, Json::error($response, 'validation_failed', $e->getMessage(), 400)];
+            return [null, null, Json::error($response, 'validation_failed', $e->getMessage(), 400)];
         }
     }
 

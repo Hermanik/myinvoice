@@ -4335,11 +4335,19 @@
     },
     "monthly_export": {
       "title": "Hromadný export",
-      "subtitle": "Stáhne jeden ZIP se zvolenými exporty za zvolené období (měsíc nebo celé čtvrtletí), roztříděný do pojmenovaných složek.",
+      "subtitle": "Stáhne jeden ZIP se zvolenými exporty za zvolené období (měsíc, čtvrtletí nebo celý rok), roztříděný do pojmenovaných složek.",
       "period_label": "Období",
       "period_month": "Měsíc",
       "period_quarter": "Čtvrtletí",
+      "period_year": "Rok",
+      "basis_label": "Zařadit doklady podle",
+      "basis": {
+        "duzp": "DUZP – pro DPH",
+        "payment": "Data úhrady – pro daň z příjmů"
+      },
       "period_rule_note": "Doklady se do období zařazují daňově korektně, shodně s Knihou DPH a přiznáním DPH: vystavené podle DUZP, přijaté podle pozdějšího z dat DUZP / vystavení (odpočet nelze uplatnit dříve, než máte daňový doklad), výpisy podle data výpisu.",
+      "period_rule_note_payment": "Zařazení podle data úhrady: do exportu patří vystavené i přijaté doklady zaplacené v plné výši ve zvoleném období. Pro daň z příjmů se příjmy a výdaje OSVČ počítají ke dni zaplacení, takže prosincová faktura uhrazená v lednu patří do dalšího roku. Neuhrazené doklady a doklady uhrazené mimo období najdete v přehledech CSV. Kniha DPH je vždy podle DUZP, jen za měsíce, kdy jste byli plátcem DPH; výpisy podle data výpisu.",
+      "outside_note": "Mimo export zůstává {sales} vystavených a {purchase} přijatých dokladů s DUZP v období, které v něm nejsou uhrazené (neuhrazené nebo uhrazené jindy). Najdete je ve druhé části souhrnných přehledů CSV.",
       "parts_label": "Co zahrnout do exportu",
       "download": "Stáhnout ZIP",
       "downloading": "Připravuji ZIP…",
@@ -4360,6 +4368,8 @@
         "new": "Nový export",
         "history": "Poslední exporty",
         "in_progress": "Export už běží — počkej na dokončení.",
+        "basis_duzp": "podle DUZP",
+        "basis_payment": "podle data úhrady",
         "delete_confirm": "Opravdu smazat tento hotový export ze seznamu? ZIP soubor se odstraní a nepůjde znovu stáhnout.",
         "status": {
           "queued": "Ve frontě",
@@ -4376,7 +4386,8 @@
         "purchase_isdoc": "Přijaté faktury — ISDOC",
         "bank_pdf": "Výpisy z účtu — PDF",
         "bank_gpc": "Výpisy z účtu — GPC",
-        "dph_book": "Kniha DPH — PDF"
+        "dph_book": "Kniha DPH — PDF",
+        "summary_csv": "Souhrnné přehledy faktur — CSV (Excel)"
       }
     },
     "dph": {
@@ -5778,6 +5789,7 @@
     "title": "Přehled pro účetní",
     "subtitle": "podklady a termíny na jednom místě",
     "export_cta": "Stáhnout podklady za {month}",
+    "export_year_cta": "Podklady za rok {year} (daň z příjmů)",
     "no_documents": "Za poslední dva měsíce nejsou žádné doklady.",
     "count": "Počet dokladů",
     "base": "Základ bez DPH",

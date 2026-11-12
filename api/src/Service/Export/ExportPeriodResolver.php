@@ -18,8 +18,11 @@ final class ExportPeriodResolver
         if ($period === 'monthly') {
             return $this->resolveMonthly($query);
         }
+        if ($period === 'yearly') {
+            return $this->resolveYearly($query);
+        }
         if ($period !== '') {
-            throw new \InvalidArgumentException('Parametr period musí být monthly nebo quarterly.');
+            throw new \InvalidArgumentException('Parametr period musí být monthly, quarterly nebo yearly.');
         }
 
         $legacyMonth = (string) ($query['month'] ?? '');
@@ -72,6 +75,45 @@ final class ExportPeriodResolver
             dateToExclusive: $to->format('Y-m-d'),
             label: sprintf('%04d-Q%d', $year, $quarter),
         );
+    }
+
+    /**
+     * @param array<string,mixed> $query
+     */
+    private function resolveYearly(array $query): ExportPeriod
+    {
+        $year = (int) ($query['year'] ?? 0);
+        $this->assertYear($year);
+
+        return new ExportPeriod(
+            type: 'yearly',
+            year: $year,
+            month: null,
+            quarter: null,
+            dateFrom: sprintf('%04d-01-01', $year),
+            dateToExclusive: sprintf('%04d-01-01', $year + 1),
+            label: sprintf('%04d', $year),
+        );
+    }
+
+    /**
+     * How documents are assigned to the period: an explicit `basis` wins, otherwise the
+     * year defaults to the payment date (income tax) and month/quarter to the DUZP (VAT).
+     *
+     * @param array<string,mixed> $query
+     */
+    public function resolveBasis(array $query, ExportPeriod $period): ExportBasis
+    {
+        $raw = $query['basis'] ?? null;
+        if ($raw === null || $raw === '') {
+            return ExportBasis::defaultFor($period);
+        }
+        $basis = is_string($raw) ? ExportBasis::tryFrom($raw) : null;
+        if ($basis === null) {
+            throw new \InvalidArgumentException('Parametr basis musí být duzp nebo payment.');
+        }
+
+        return $basis;
     }
 
     private function monthPeriod(int $year, int $month): ExportPeriod

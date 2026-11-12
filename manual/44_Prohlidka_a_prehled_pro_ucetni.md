@@ -32,7 +32,7 @@ v prohlídce vynechá.
 
 | Role | Prohlídka |
 |---|---|
-| **Účetní** | Podrobná: přehled, Harmonogram, vydané a přijaté faktury, přiznání k DPH, kontrolní a souhrnné hlášení, archiv podání, hromadný export (měsíční ZIP s PDF a ISDOC pro program EKONOM), datové schránky (jen když jí je administrátor zpřístupnil), banka, účet uživatele (heslo, zabezpečení) a nápověda. |
+| **Účetní** | Podrobná: přehled, Harmonogram, vydané a přijaté faktury, přiznání k DPH, kontrolní a souhrnné hlášení, archiv podání, hromadný export (ZIP s PDF a ISDOC pro program EKONOM za měsíc, čtvrtletí nebo rok), datové schránky (jen když jí je administrátor zpřístupnil), banka, účet uživatele (heslo, zabezpečení) a nápověda. |
 | **Administrátor** | Kratší přehled: přehled, vydané a přijaté faktury, banka, daně a výkazy, Harmonogram, nastavení, účet uživatele a nápověda. |
 | **Jen pro čtení** | Totéž bez částí, které nevidí (Harmonogram, Nastavení). |
 
@@ -48,9 +48,15 @@ v prohlídce vynechá.
 Uživatel s rolí **účetní** vidí na úvodní obrazovce místo obratů a grafů vlastní
 přehled s tím, co při práci potřebuje. **Přehled administrátora se nemění.**
 
-Tlačítko **Stáhnout podklady za …** vpravo nahoře otevře
-[Hromadný export](34_Hromadny_export.md) rovnou nastavený na **poslední uzavřený
-měsíc**, takže stačí spustit stažení.
+Dvě tlačítka vpravo nahoře otevřou [Hromadný export](34_Hromadny_export.md) rovnou
+nastavený, takže stačí spustit stažení:
+
+- **Stáhnout podklady za …** — **poslední uzavřený měsíc**, doklady zařazené podle
+  DUZP (podklady pro DPH).
+- **Podklady za rok … (daň z příjmů)** — **celý rok** pro roční daň z příjmů, doklady
+  zařazené podle **data úhrady**. Rok je do června minulý (daňové přiznání za něj se
+  podává na jaře), od července aktuální. Součástí ZIPu jsou i přehledy faktur v CSV
+  s neuhrazenými doklady, ať je vidět, co do příjmů roku ještě nepatří.
 
 ### DPH za poslední uzavřený měsíc
 

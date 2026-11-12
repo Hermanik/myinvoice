@@ -17,28 +17,34 @@ use MyInvoice\Service\Report\DphBookBuilder;
 use ZipArchive;
 
 /**
- * Hromadný export — sbalí existující exporty za zvolené období (měsíc nebo celé
- * čtvrtletí) do jednoho ZIPu s pojmenovanými složkami. Běží jako background job
- * (import_jobs, source='monthly_export'), protože renderování PDF u hodně faktur
- * může přesáhnout web timeout.
+ * Bulk export — packs the existing exports for the chosen period (a month, a whole quarter or a
+ * whole year) into one ZIP with named folders. It runs as a background job (import_jobs,
+ * source='monthly_export') because rendering the PDFs of many invoices can exceed the web timeout.
  *
- * Zařazení dokladů do období (shodné s VatLedgerService → Kniha DPH i přiznání DPH):
- *   - vystavené: dle DUZP (daň na výstupu),
- *   - přijaté: dle pozdějšího z (DUZP, vystavení) — odpočet nelze uplatnit dřív, než
- *     plátce drží daňový doklad (§ 73 ZDPH),
- *   - výpisy: dle data výpisu.
+ * Assignment of documents to the period ({@see ExportBasis}):
+ *   - DUZP (default for a month and a quarter; same as VatLedgerService → VAT book and VAT return):
+ *       issued by DUZP (output VAT), received by the later of (DUZP, issue date) — input VAT
+ *       cannot be deducted before the payer holds the tax document (§ 73 ZDPH),
+ *   - payment date (default for a year; a sole trader's income tax follows the day of payment):
+ *       issued and received documents paid in full within the period,
+ *   - bank statements: always by statement date, VAT book: always by DUZP, for payer months.
  *
  * Struktura ZIPu:
  *   Vystavene-faktury/PDF|ISDOC/…   Prijate-faktury/PDF|ISDOC/…
  *   Vypisy-z-uctu/PDF|GPC/…         Kniha-DPH/kniha-dph-YYYY-MM.pdf   README.txt
- *   (kvartálně je Kniha DPH per měsíc — tři PDF.)
+ *   Prehled-vydanych-faktur.csv     Prehled-prijatych-faktur.csv
+ *   (The VAT book is per month, only for months in which the supplier was a VAT payer.)
+ *
+ * Memory: content generated on the fly (ISDOC, reconstructed PDFs, statements from the DB, CSV) is
+ * written to temporary files and added to the ZIP by reference, so memory does not grow with the
+ * number of documents; the temporary directory is removed once the ZIP is closed.
  */
 final class MonthlyExportService
 {
-    /** Všechny podporované části (a zároveň default, když uživatel nic nezvolí). */
+    /** All supported parts (and the default when the user selects nothing). */
     public const ALL_PARTS = [
         'sales_pdf', 'sales_isdoc', 'purchase_pdf', 'purchase_isdoc',
-        'bank_pdf', 'bank_gpc', 'dph_book',
+        'bank_pdf', 'bank_gpc', 'dph_book', 'summary_csv',
     ];
 
     public function __construct(
@@ -54,9 +60,10 @@ final class MonthlyExportService
         private readonly DphBookBuilder $dphBookBuilder,
         private readonly DphBookPdfRenderer $dphBookRenderer,
         private readonly ExportPeriodResolver $periodResolver,
+        private readonly ExportDocumentSelector $selector,
     ) {}
 
-    /** Absolutní základ úložiště ZIPů (pod data_dir, jinak repo root). */
+    /** Absolute base of the ZIP storage (under data_dir, otherwise the repo root). */
     public function storageBaseDir(): string
     {
         $base = ($this->config->dataDir() ?? \MyInvoice\Bootstrap::rootDir())
@@ -64,7 +71,7 @@ final class MonthlyExportService
         return $base;
     }
 
-    /** Absolutní cesta k souboru z relativního result_path (sup-N/file.zip). */
+    /** Absolute path of a file from the relative result_path (sup-N/file.zip). */
     public function resolveResultPath(string $relative): string
     {
         return $this->storageBaseDir() . DIRECTORY_SEPARATOR
@@ -72,23 +79,57 @@ final class MonthlyExportService
     }
 
     /**
-     * Počty dostupných položek per část (pro UI checkboxy / preview).
+     * Counts of the available items per part (for the UI checkboxes / preview) and the number of
+     * documents that fall into the period by DUZP but are not paid in it (payment basis only).
      *
-     * @return array<string,int>
+     * @return array{counts: array<string,int>, outside: array{sales:int, purchase:int}}
      */
-    public function previewCounts(int $supplierId, ExportPeriod $period): array
+    public function previewCounts(int $supplierId, ExportPeriod $period, ExportBasis $basis = ExportBasis::Duzp): array
     {
-        $sales    = count($this->findSalesInvoiceIds($supplierId, $period));
-        $purchase = count($this->findPurchaseInvoices($supplierId, $period));
+        $duzpSales    = $this->findSalesInvoiceIds($supplierId, $period);
+        $duzpPurchase = $this->findPurchaseInvoices($supplierId, $period);
+        $salesIds     = $basis === ExportBasis::Duzp ? $duzpSales : $this->selector->paidSalesIds($supplierId, $period);
+        $purchaseIds  = $basis === ExportBasis::Duzp
+            ? array_map(static fn (array $r): int => (int) $r['id'], $duzpPurchase)
+            : $this->selector->paidPurchaseIds($supplierId, $period);
+        [$outsideSales, $outsidePurchase] = $this->outsideIds($supplierId, $period, $basis, $salesIds, $purchaseIds);
         [$bankPdf, $bankGpc] = $this->countStatementFiles($supplierId, $period);
+
+        // The VAT book is always by DUZP, whatever the document basis is.
+        $vatMonths = $this->selector->vatBookMonths($supplierId, $period);
+        $vatBook = ($duzpSales !== [] || $duzpPurchase !== []) ? count($vatMonths) : 0;
+
         return [
-            'sales_pdf'      => $sales,
-            'sales_isdoc'    => $sales,
-            'purchase_pdf'   => $purchase,
-            'purchase_isdoc' => $purchase,
-            'bank_pdf'       => $bankPdf,
-            'bank_gpc'       => $bankGpc,
-            'dph_book'       => ($sales + $purchase) > 0 ? 1 : 0,
+            'counts' => [
+                'sales_pdf'      => count($salesIds),
+                'sales_isdoc'    => count($salesIds),
+                'purchase_pdf'   => count($purchaseIds),
+                'purchase_isdoc' => count($purchaseIds),
+                'bank_pdf'       => $bankPdf,
+                'bank_gpc'       => $bankGpc,
+                'dph_book'       => $vatBook,
+                'summary_csv'    => count($salesIds) + count($purchaseIds) + count($outsideSales) + count($outsidePurchase),
+            ],
+            'outside' => ['sales' => count($outsideSales), 'purchase' => count($outsidePurchase)],
+        ];
+    }
+
+    /**
+     * Documents with a VAT date in the period that were not paid in it (payment basis only,
+     * the DUZP basis has nothing "outside").
+     *
+     * @param list<int> $salesIds
+     * @param list<int> $purchaseIds
+     * @return array{0:list<int>,1:list<int>} [sales ids, purchase ids]
+     */
+    private function outsideIds(int $supplierId, ExportPeriod $period, ExportBasis $basis, array $salesIds, array $purchaseIds): array
+    {
+        if ($basis !== ExportBasis::Payment) {
+            return [[], []];
+        }
+        return [
+            $this->selector->outsideSalesIds($supplierId, $period, $salesIds),
+            $this->selector->outsidePurchaseIds($supplierId, $period, $purchaseIds),
         ];
     }
 
@@ -103,14 +144,14 @@ final class MonthlyExportService
     }
 
     /**
-     * Worker entrypoint — vyrobí ZIP a uloží ho jako výsledek jobu.
-     * Vlastní try/catch → markFailed; cancel přes cancel_requested flag.
+     * Worker entrypoint — builds the ZIP and stores it as the job result.
+     * Has its own try/catch → markFailed; cancellation via the cancel_requested flag.
      */
     public function run(int $jobId): void
     {
         $job = $this->findJob($jobId);
         if ($job === null) return;
-        // Atomický queued → running (jiný worker nás nemohl předběhnout).
+        // Atomic queued → running (no other worker could have beaten us to it).
         if (!$this->jobs->markRunning($jobId)) return;
 
         $supplierId = (int) $job['supplier_id'];
@@ -118,30 +159,40 @@ final class MonthlyExportService
         $params = is_array($job['params'] ?? null) ? $job['params'] : [];
         $parts = self::normalizeParts(array_map('strval', (array) ($params['parts'] ?? [])));
 
-        // Období z params (period/year/month/quarter). Selhání → fail jobu rovnou.
+        // Period from params (period/year/month/quarter). A failure fails the job right away.
         try {
             $period = $this->periodResolver->resolve($params);
+            $basis = $this->periodResolver->resolveBasis($params, $period);
         } catch (\InvalidArgumentException $e) {
             $this->jobs->markFailed($jobId, 'Neplatné období: ' . $e->getMessage());
             $this->logFinished($jobId, $userId, $supplierId, '?', 'failed', ['error' => $e->getMessage()]);
             return;
         }
-        $month = $period->label;  // jen pro logy / názvy souborů (YYYY-MM nebo YYYY-Qn)
+        $month = $period->label;  // jen pro logy / názvy souborů (YYYY-MM, YYYY-Qn nebo YYYY)
+        $tmpDir = null;
 
         try {
             $companyName = $this->supplierCompanyName($supplierId);
 
-            // Připrav cílovou cestu (sup-N/<jobId>-<firma>-hromadny-export-<obdobi>.zip).
+            // Prepare the target path (sup-N/<jobId>-<company>-hromadny-export-<period>.zip).
             $relDir = 'sup-' . $supplierId;
             $absDir = $this->storageBaseDir() . DIRECTORY_SEPARATOR . $relDir;
             if (!is_dir($absDir) && !@mkdir($absDir, 0775, true) && !is_dir($absDir)) {
                 throw new \RuntimeException('Nelze vytvořit úložiště exportů.');
             }
-            // Název firmy (bez diakritiky) v názvu ZIPu — ať jdou exporty víc dodavatelů rozlišit.
+            // Temporary files of generated content (see the class header); removed in finally.
+            $tmpDir = $absDir . DIRECTORY_SEPARATOR . 'tmp-' . $jobId;
+            if (!is_dir($tmpDir) && !@mkdir($tmpDir, 0775, true) && !is_dir($tmpDir)) {
+                throw new \RuntimeException('Nelze vytvořit dočasný adresář exportu.');
+            }
+            // Company name (without diacritics) in the ZIP name — so exports of several suppliers can be told apart.
             $companySlug = $this->asciiSlug($companyName);
+            // A basis other than the period's default shows in the name (a year by DUZP vs. by payment date).
+            $basisSuffix = $basis === ExportBasis::defaultFor($period) ? ''
+                : ($basis === ExportBasis::Payment ? '-podle-uhrady' : '-podle-duzp');
             $fileName = $companySlug !== ''
-                ? sprintf('%s-hromadny-export-%s.zip', $companySlug, $month)
-                : sprintf('myinvoice-hromadny-export-%s.zip', $month);
+                ? sprintf('%s-hromadny-export-%s%s.zip', $companySlug, $month, $basisSuffix)
+                : sprintf('myinvoice-hromadny-export-%s%s.zip', $month, $basisSuffix);
             $relPath  = $relDir . '/' . $jobId . '-' . $fileName;
             $absPath  = $this->storageBaseDir() . DIRECTORY_SEPARATOR
                 . str_replace('/', DIRECTORY_SEPARATOR, $relPath);
@@ -150,28 +201,39 @@ final class MonthlyExportService
             if ($zip->open($absPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
                 throw new \RuntimeException('Nelze vytvořit ZIP.');
             }
+            // Generated content → temporary file → added to the ZIP by reference (ZipArchive would
+            // otherwise keep every string in memory until close()).
+            $put = function (string $entry, string $content) use ($zip, $tmpDir): void {
+                $tmp = tempnam($tmpDir, 'z');
+                if ($tmp === false || file_put_contents($tmp, $content) === false) {
+                    throw new \RuntimeException('Nelze zapsat dočasný soubor exportu.');
+                }
+                $zip->addFile($tmp, $entry);
+            };
 
-            // Předpočítej zdroje + total pro progress bar.
-            $salesIds   = array_intersect(['sales_pdf', 'sales_isdoc'], $parts) ? $this->findSalesInvoiceIds($supplierId, $period) : [];
-            $purchRows  = array_intersect(['purchase_pdf', 'purchase_isdoc'], $parts) ? $this->findPurchaseInvoices($supplierId, $period) : [];
-            $statements = array_intersect(['bank_pdf', 'bank_gpc'], $parts) ? $this->findStatements($supplierId, $period) : [];
-
+            // Precompute the sources + the total for the progress bar.
+            $wantSummary = in_array('summary_csv', $parts, true);
             $salesParts = count(array_intersect(['sales_pdf', 'sales_isdoc'], $parts));
             $purchParts = count(array_intersect(['purchase_pdf', 'purchase_isdoc'], $parts));
+            $salesIds   = ($salesParts > 0 || $wantSummary) ? $this->salesIdsFor($supplierId, $period, $basis) : [];
+            $purchRows  = ($purchParts > 0 || $wantSummary) ? $this->purchaseRowsFor($supplierId, $period, $basis) : [];
+            $statements = array_intersect(['bank_pdf', 'bank_gpc'], $parts) ? $this->findStatements($supplierId, $period) : [];
+
             $bankFiles  = 0;
             foreach ($statements as $s) {
-                if (in_array('bank_pdf', $parts, true) && $this->hasContent($s['pdf_content'] ?? null)) $bankFiles++;
-                if (in_array('bank_gpc', $parts, true) && $this->hasContent($s['file_content'] ?? null)) $bankFiles++;
+                if (in_array('bank_pdf', $parts, true) && $s['has_pdf']) $bankFiles++;
+                if (in_array('bank_gpc', $parts, true) && $s['has_gpc']) $bankFiles++;
             }
-            $dphMonths = $this->monthsInPeriod($period);
+            $dphMonths = in_array('dph_book', $parts, true) ? $this->selector->vatBookMonths($supplierId, $period) : [];
             $total = count($salesIds) * $salesParts + count($purchRows) * $purchParts + $bankFiles
-                + (in_array('dph_book', $parts, true) ? count($dphMonths) : 0);
+                + count($dphMonths) + ($wantSummary ? 2 : 0);
             $this->jobs->updateProgress($jobId, ['total_items' => $total, 'current_step' => 'Příprava…']);
 
             $added = 0;
             $processed = 0;
             $summary = [];
             $warnings = [];
+            $outsideStats = null;
 
             $bump = function (string $step) use (&$processed, $jobId): void {
                 $processed++;
@@ -180,8 +242,8 @@ final class MonthlyExportService
                 }
             };
 
-            // 1) Vystavené faktury
-            if ($salesIds !== []) {
+            // 1) Issued invoices
+            if ($salesIds !== [] && $salesParts > 0) {
                 $this->ensureNotCancelled($jobId, $zip, $absPath);
                 $this->jobs->appendLog($jobId, 'Vystavené faktury: ' . count($salesIds) . ' ks');
                 foreach ($salesIds as $id) {
@@ -205,7 +267,7 @@ final class MonthlyExportService
                     }
                     if (in_array('sales_isdoc', $parts, true)) {
                         try {
-                            $zip->addFromString("Vystavene-faktury/ISDOC/{$base}.isdoc", $this->isdoc->buildXml($inv));
+                            $put("Vystavene-faktury/ISDOC/{$base}.isdoc", $this->isdoc->buildXml($inv));
                             $added++; $summary['sales_isdoc'] = ($summary['sales_isdoc'] ?? 0) + 1;
                         } catch (\Throwable $e) { $warnings[] = "VF {$base} ISDOC: " . $e->getMessage(); }
                         $bump('Vystavené faktury — ISDOC');
@@ -213,8 +275,8 @@ final class MonthlyExportService
                 }
             }
 
-            // 2) Přijaté faktury (originál > rekonstrukce)
-            if ($purchRows !== []) {
+            // 2) Received invoices (original > reconstruction)
+            if ($purchRows !== [] && $purchParts > 0) {
                 $this->ensureNotCancelled($jobId, $zip, $absPath);
                 $this->jobs->appendLog($jobId, 'Přijaté faktury: ' . count($purchRows) . ' ks');
                 $archiveRoot = $this->resolveArchiveRoot();
@@ -242,7 +304,7 @@ final class MonthlyExportService
                             $added++; $summary['purchase_pdf'] = ($summary['purchase_pdf'] ?? 0) + 1;
                         } else {
                             try {
-                                $zip->addFromString("Prijate-faktury/PDF/Prijata-{$entryBase}-rekonstrukce.pdf", $this->purchasePdf->render($id, $supplierId));
+                                $put("Prijate-faktury/PDF/Prijata-{$entryBase}-rekonstrukce.pdf", $this->purchasePdf->render($id, $supplierId));
                                 $added++; $summary['purchase_pdf'] = ($summary['purchase_pdf'] ?? 0) + 1;
                             } catch (\Throwable $e) { $warnings[] = "PF {$vs} PDF: " . $e->getMessage(); }
                         }
@@ -250,7 +312,7 @@ final class MonthlyExportService
                     }
                     if (in_array('purchase_isdoc', $parts, true)) {
                         try {
-                            $zip->addFromString("Prijate-faktury/ISDOC/Prijata-{$entryBase}.isdoc", $this->purchaseExport->toIsdocXml($id, $supplierId));
+                            $put("Prijate-faktury/ISDOC/Prijata-{$entryBase}.isdoc", $this->purchaseExport->toIsdocXml($id, $supplierId));
                             $added++; $summary['purchase_isdoc'] = ($summary['purchase_isdoc'] ?? 0) + 1;
                         } catch (\Throwable $e) { $warnings[] = "PF {$vs} ISDOC: " . $e->getMessage(); }
                         $bump('Přijaté faktury — ISDOC');
@@ -258,40 +320,52 @@ final class MonthlyExportService
                 }
             }
 
-            // 3) Výpisy z účtu
+            // 3) Bank statements (content is read one statement at a time, not all at once)
             if ($statements !== []) {
                 $this->ensureNotCancelled($jobId, $zip, $absPath);
                 $this->jobs->appendLog($jobId, 'Výpisy z účtu: ' . count($statements) . ' ks');
                 foreach ($statements as $s) {
                     $id = (int) $s['id'];
-                    if (in_array('bank_pdf', $parts, true) && $this->hasContent($s['pdf_content'] ?? null)) {
+                    if (in_array('bank_pdf', $parts, true) && $s['has_pdf']) {
                         $name = $this->statementFilename((string) ($s['pdf_name'] ?? ''), (string) ($s['account_number'] ?? ''), $id, 'pdf');
-                        $zip->addFromString("Vypisy-z-uctu/PDF/{$name}", (string) $s['pdf_content']);
+                        $put("Vypisy-z-uctu/PDF/{$name}", $this->statementBlob($id, 'pdf_content'));
                         $added++; $summary['bank_pdf'] = ($summary['bank_pdf'] ?? 0) + 1;
                         $bump('Výpisy z účtu — PDF');
                     }
-                    if (in_array('bank_gpc', $parts, true) && $this->hasContent($s['file_content'] ?? null)) {
+                    if (in_array('bank_gpc', $parts, true) && $s['has_gpc']) {
                         $name = $this->statementFilename((string) ($s['file_name'] ?? ''), (string) ($s['account_number'] ?? ''), $id, 'gpc');
-                        $zip->addFromString("Vypisy-z-uctu/GPC/{$name}", (string) $s['file_content']);
+                        $put("Vypisy-z-uctu/GPC/{$name}", $this->statementBlob($id, 'file_content'));
                         $added++; $summary['bank_gpc'] = ($summary['bank_gpc'] ?? 0) + 1;
                         $bump('Výpisy z účtu — GPC');
                     }
                 }
             }
 
-            // 4) Kniha DPH — měsíční žurnál; kvartálně tři PDF (per měsíc kvartálu).
-            if (in_array('dph_book', $parts, true)) {
+            // 4) VAT book — monthly journal, always by DUZP, only for payer months.
+            if ($dphMonths !== []) {
                 foreach ($dphMonths as [$bookYear, $bookMon]) {
                     $this->ensureNotCancelled($jobId, $zip, $absPath);
                     try {
                         $data = $this->dphBookBuilder->build($supplierId, $bookYear, $bookMon);
                         if (!empty($data['sections'])) {
-                            $zip->addFromString(sprintf('Kniha-DPH/kniha-dph-%04d-%02d.pdf', $bookYear, $bookMon), $this->dphBookRenderer->render($data));
+                            $put(sprintf('Kniha-DPH/kniha-dph-%04d-%02d.pdf', $bookYear, $bookMon), $this->dphBookRenderer->render($data));
                             $added++; $summary['dph_book'] = ($summary['dph_book'] ?? 0) + 1;
                         }
                     } catch (\Throwable $e) { $warnings[] = sprintf('Kniha DPH %04d-%02d: %s', $bookYear, $bookMon, $e->getMessage()); }
                     $bump('Kniha DPH');
                 }
+            }
+
+            // 5) Summary overviews (CSV for Excel): issued and received invoices
+            if ($wantSummary) {
+                $this->ensureNotCancelled($jobId, $zip, $absPath);
+                $outsideStats = $this->addSummaryCsvs(
+                    $put, $supplierId, $period, $basis, $salesIds,
+                    array_map(static fn (array $r): int => (int) $r['id'], $purchRows),
+                    $summary, $warnings, $added,
+                );
+                $processed += 2;
+                $this->jobs->updateProgress($jobId, ['processed' => $processed, 'current_step' => 'Souhrnné přehledy']);
             }
 
             if ($added === 0) {
@@ -303,8 +377,10 @@ final class MonthlyExportService
                 return;
             }
 
-            $zip->addFromString('README.txt', $this->buildReadme($companyName, $month, $summary, $warnings));
-            $zip->close();
+            $put('README.txt', $this->buildReadme($companyName, $month, $basis, $summary, $warnings, $outsideStats));
+            if (!$zip->close()) {
+                throw new \RuntimeException('Nelze dokončit ZIP.');
+            }
 
             $size = (int) (@filesize($absPath) ?: 0);
             $this->jobs->setResult($jobId, $relPath, $fileName, $size, 'application/zip');
@@ -320,22 +396,25 @@ final class MonthlyExportService
             $this->jobs->appendLog($jobId, "Export dokončen — {$added} souborů (" . $this->humanSize($size) . ').');
             $this->jobs->markCompleted($jobId);
             $this->logFinished($jobId, $userId, $supplierId, $month, 'completed', [
-                'files' => $added, 'size_bytes' => $size, 'warnings' => count($warnings),
+                'basis' => $basis->value, 'files' => $added, 'size_bytes' => $size, 'warnings' => count($warnings),
             ]);
         } catch (CancelledException) {
-            // úklid řeší ensureNotCancelled (zavřel + smazal zip), tady jen status
+            // cleanup is done by ensureNotCancelled (closed + deleted the zip), only the status is set here
             $this->jobs->markCancelled($jobId);
             $this->logFinished($jobId, $userId, $supplierId, $month, 'cancelled', []);
         } catch (\Throwable $e) {
+            if (isset($zip)) $this->discardZip($zip);
             if (isset($absPath) && is_file($absPath)) @unlink($absPath);
             $this->jobs->markFailed($jobId, $e->getMessage());
             $this->logFinished($jobId, $userId, $supplierId, $month, 'failed', ['error' => $e->getMessage()]);
+        } finally {
+            if ($tmpDir !== null) $this->removeDir($tmpDir);
         }
     }
 
     // ── helpers ────────────────────────────────────────────────────────────
 
-    /** Throws CancelledException (po úklidu zipu) když uživatel požádal o zrušení. */
+    /** Throws CancelledException (after the zip cleanup) when the user asked for cancellation. */
     private function ensureNotCancelled(int $jobId, ZipArchive $zip, string $absPath): void
     {
         if ($this->jobs->isCancelRequested($jobId)) {
@@ -345,14 +424,107 @@ final class MonthlyExportService
         }
     }
 
-    private function hasContent(mixed $v): bool
+    /** Drop pending changes so closing the archive writes nothing (it may already be closed). */
+    private function discardZip(ZipArchive $zip): void
     {
-        return $v !== null && $v !== '';
+        try {
+            $zip->unchangeAll();
+            $zip->close();
+        } catch (\Throwable) {
+            // already closed
+        }
+    }
+
+    private function removeDir(string $dir): void
+    {
+        foreach (glob($dir . DIRECTORY_SEPARATOR . '*') ?: [] as $file) {
+            @unlink($file);
+        }
+        @rmdir($dir);
+    }
+
+    /** Content of one bank statement column, read on demand (statements can be megabytes). */
+    private function statementBlob(int $statementId, string $column): string
+    {
+        if (!in_array($column, ['pdf_content', 'file_content'], true)) {
+            throw new \InvalidArgumentException('Neplatný sloupec výpisu.');
+        }
+        $stmt = $this->db->pdo()->prepare("SELECT {$column} FROM bank_statements WHERE id = ?");
+        $stmt->execute([$statementId]);
+        return (string) $stmt->fetchColumn();
+    }
+
+    /** @return list<int> */
+    private function salesIdsFor(int $sid, ExportPeriod $period, ExportBasis $basis): array
+    {
+        return $basis === ExportBasis::Payment
+            ? $this->selector->paidSalesIds($sid, $period)
+            : $this->findSalesInvoiceIds($sid, $period);
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function purchaseRowsFor(int $sid, ExportPeriod $period, ExportBasis $basis): array
+    {
+        return $basis === ExportBasis::Payment
+            ? $this->selector->paidPurchaseRows($sid, $period)
+            : $this->findPurchaseInvoices($sid, $period);
     }
 
     /**
-     * Zaloguj dokončení jobu do activity_log (páruje se s 'reports.monthly_export_started').
-     * Běží v CLI workeru → ip/ua null.
+     * Writes Prehled-vydanych-faktur.csv and Prehled-prijatych-faktur.csv. With the payment basis
+     * each file gets a second section: documents of the period that were not paid in it.
+     *
+     * @param callable(string,string):void $put
+     * @param list<int> $salesIds
+     * @param list<int> $purchaseIds
+     * @param array<string,int> $summary
+     * @param list<string> $warnings
+     * @return array{sales:array{total:int,unpaid:int},purchase:array{total:int,unpaid:int}}|null counts of the
+     *         documents outside the payment period (null for the DUZP basis)
+     */
+    private function addSummaryCsvs(
+        callable $put, int $sid, ExportPeriod $period, ExportBasis $basis,
+        array $salesIds, array $purchaseIds, array &$summary, array &$warnings, int &$added,
+    ): ?array {
+        $payment = $basis === ExportBasis::Payment;
+        $outsideSales = $payment ? $this->selector->outsideSalesIds($sid, $period, $salesIds) : [];
+        $outsidePurchase = $payment ? $this->selector->outsidePurchaseIds($sid, $period, $purchaseIds) : [];
+
+        $files = [
+            'Prehled-vydanych-faktur.csv' => [
+                $this->selector->salesSummaryRows($sid, $salesIds, $period),
+                $payment ? $this->selector->salesSummaryRows($sid, $outsideSales, $period, true) : null,
+                'vydané', 'sales',
+            ],
+            'Prehled-prijatych-faktur.csv' => [
+                $this->selector->purchaseSummaryRows($sid, $purchaseIds, $period),
+                $payment ? $this->selector->purchaseSummaryRows($sid, $outsidePurchase, $period, true) : null,
+                'přijaté', 'purchase',
+            ],
+        ];
+        $stats = [];
+        foreach ($files as $entry => [$rows, $outside, $label, $statKey]) {
+            $missingRate = ExportSummaryCsv::unconvertibleCount($rows);
+            if ($missingRate > 0) {
+                $warnings[] = "Přehled ({$label} faktury): {$missingRate} dokladů v cizí měně bez kurzu není v součtech.";
+            }
+            $stats[$statKey] = [
+                'total'  => count($outside ?? []),
+                'unpaid' => count(array_filter($outside ?? [], static fn (ExportSummaryRow $r): bool => $r->paidAt === null)),
+            ];
+            if ($rows === [] && ($outside ?? []) === []) continue;
+            $put($entry, ExportSummaryCsv::render(
+                $rows, $outside, 'Doklady s DUZP v období, které nejsou v období uhrazené (neuhrazené nebo uhrazené mimo období)',
+            ));
+            $added++; $summary['summary_csv'] = ($summary['summary_csv'] ?? 0) + 1;
+        }
+
+        return $payment ? $stats : null;
+    }
+
+    /**
+     * Log the job completion to activity_log (pairs with 'reports.monthly_export_started').
+     * Runs in the CLI worker → ip/ua null.
      *
      * @param array<string,mixed> $extra
      */
@@ -362,7 +534,7 @@ final class MonthlyExportService
             array_merge(['month' => $month, 'status' => $status], $extra), null, null, $supplierId);
     }
 
-    /** Načte job řádek cross-tenant (worker). */
+    /** Loads the job row cross-tenant (worker). */
     private function findJob(int $id): ?array
     {
         $stmt = $this->db->pdo()->prepare('SELECT supplier_id, created_by, params, status FROM import_jobs WHERE id = ?');
@@ -376,27 +548,10 @@ final class MonthlyExportService
         return $row;
     }
 
-    /**
-     * Měsíce spadající do období [from, toExclusive). Měsíčně 1 prvek, kvartálně 3.
-     *
-     * @return list<array{0:int,1:int}> [[year, month], …]
-     */
-    private function monthsInPeriod(ExportPeriod $period): array
-    {
-        $out = [];
-        $cur = new \DateTimeImmutable($period->dateFrom);
-        $end = new \DateTimeImmutable($period->dateToExclusive);
-        while ($cur < $end) {
-            $out[] = [(int) $cur->format('Y'), (int) $cur->format('n')];
-            $cur = $cur->modify('+1 month');
-        }
-        return $out;
-    }
-
     /** @return int[] */
     private function findSalesInvoiceIds(int $sid, ExportPeriod $period): array
     {
-        // Vystavené dle DUZP (daň na výstupu vzniká k DUZP). Shodné s VatLedgerService.
+        // Issued by DUZP (output VAT arises at the DUZP). Same as VatLedgerService.
         $sql = "SELECT id FROM invoices
                  WHERE supplier_id = ?
                    AND COALESCE(tax_date, issue_date) >= ?
@@ -411,15 +566,9 @@ final class MonthlyExportService
     /** @return list<array<string,mixed>> */
     private function findPurchaseInvoices(int $sid, ExportPeriod $period): array
     {
-        // Přijaté dle pozdějšího z (DUZP, vystavení) — § 73/1/a ZDPH; zahraniční
-        // reverse charge dle DUZP (§ 25, § 73/1/b — issue #117). Shodné s VatLedgerService.
-        // CASE místo GREATEST kvůli přenositelnosti (SQLite GREATEST nemá).
-        $dateExpr = 'CASE'
-            . " WHEN pi.reverse_charge = 1 AND COALESCE(co.iso2, 'CZ') <> 'CZ'"
-            . ' THEN COALESCE(pi.tax_date, pi.issue_date)'
-            . ' WHEN pi.tax_date IS NULL THEN pi.issue_date'
-            . ' WHEN pi.issue_date IS NULL THEN pi.tax_date'
-            . ' WHEN pi.tax_date >= pi.issue_date THEN pi.tax_date ELSE pi.issue_date END';
+        // Received by the later of (DUZP, issue date) — § 73(1)(a) ZDPH; foreign
+        // reverse charge by DUZP (§ 25, § 73(1)(b) — issue #117). Same as VatLedgerService.
+        $dateExpr = ExportDocumentSelector::purchaseVatDateExpr();
         $sql = "SELECT pi.id, pi.varsymbol, pi.vendor_invoice_number, pi.pdf_path,
                        c.company_name AS vendor_company_name
                   FROM purchase_invoices pi
@@ -435,10 +584,12 @@ final class MonthlyExportService
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
-    /** @return list<array<string,mixed>> výpisy za období vč. blob obsahů */
+    /** @return list<array<string,mixed>> statements of the period; the content (blob) is read on write, see statementBlob() */
     private function findStatements(int $sid, ExportPeriod $period): array
     {
-        $sql = "SELECT bs.id, bs.account_number, bs.file_name, bs.file_content, bs.pdf_name, bs.pdf_content
+        $sql = "SELECT bs.id, bs.account_number, bs.file_name, bs.pdf_name,
+                       (bs.pdf_content IS NOT NULL AND LENGTH(bs.pdf_content) > 0) AS has_pdf,
+                       (bs.file_content IS NOT NULL AND LENGTH(bs.file_content) > 0) AS has_gpc
                   FROM bank_statements bs
                  WHERE bs.statement_date >= ?
                    AND bs.statement_date <  ?
@@ -452,10 +603,14 @@ final class MonthlyExportService
                  ORDER BY bs.statement_date, bs.id";
         $stmt = $this->db->pdo()->prepare($sql);
         $stmt->execute([$period->dateFrom, $period->dateToExclusive, $sid]);
-        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        return array_map(static function (array $r): array {
+            $r['has_pdf'] = (bool) $r['has_pdf'];
+            $r['has_gpc'] = (bool) $r['has_gpc'];
+            return $r;
+        }, $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
-    /** @return array{0:int,1:int} [bankPdfCount, bankGpcCount] bez načítání blobů */
+    /** @return array{0:int,1:int} [bankPdfCount, bankGpcCount] without loading the blobs */
     private function countStatementFiles(int $sid, ExportPeriod $period): array
     {
         $sql = "SELECT SUM(bs.pdf_content IS NOT NULL) AS pdf_count, SUM(bs.file_content IS NOT NULL) AS gpc_count
@@ -486,11 +641,11 @@ final class MonthlyExportService
 
     private function sanitize(string $s): string
     {
-        // Diakritiku přepíšeme na ASCII (č→c, ě→e, …) místo nahrazení podtržítkem.
+        // Transliterate diacritics to ASCII (č→c, ě→e, …) instead of replacing them with an underscore.
         return ExportFilename::sanitize($s);
     }
 
-    /** Název firmy dodavatele (pro README i název ZIPu). Prázdný string = nenalezeno. */
+    /** Supplier company name (for the README and the ZIP name). Empty string = not found. */
     private function supplierCompanyName(int $sid): string
     {
         $stmt = $this->db->pdo()->prepare('SELECT company_name FROM supplier WHERE id = ?');
@@ -499,8 +654,8 @@ final class MonthlyExportService
     }
 
     /**
-     * Název firmy → ASCII slug pro název souboru: ořízne českou/slovenskou diakritiku
-     * (č→c, ž→z, …), zbytek nealfanumerických znaků nahradí pomlčkou. Délku omezí na 60.
+     * Company name → ASCII slug for the file name: strips Czech/Slovak diacritics
+     * (č→c, ž→z, …), replaces other non-alphanumeric characters with a hyphen, limits to 60 chars.
      */
     private function asciiSlug(string $s): string
     {
@@ -533,14 +688,16 @@ final class MonthlyExportService
     /**
      * @param array<string,int> $summary
      * @param list<string> $warnings
+     * @param array{sales:array{total:int,unpaid:int},purchase:array{total:int,unpaid:int}}|null $outside
+     *        documents of the period not paid in it (payment basis only)
      */
-    private function buildReadme(string $companyName, string $month, array $summary, array $warnings): string
+    private function buildReadme(string $companyName, string $month, ExportBasis $basis, array $summary, array $warnings, ?array $outside): string
     {
         $labels = [
             'sales_pdf' => 'Vystavené faktury (PDF)', 'sales_isdoc' => 'Vystavené faktury (ISDOC)',
             'purchase_pdf' => 'Přijaté faktury (PDF)', 'purchase_isdoc' => 'Přijaté faktury (ISDOC)',
             'bank_pdf' => 'Výpisy z účtu (PDF)', 'bank_gpc' => 'Výpisy z účtu (GPC)',
-            'dph_book' => 'Kniha DPH (PDF)',
+            'dph_book' => 'Kniha DPH (PDF)', 'summary_csv' => 'Souhrnné přehledy (CSV)',
         ];
         $lines = [
             'Hromadný export MyInvoice.cz', '============================',
@@ -548,16 +705,48 @@ final class MonthlyExportService
         if (trim($companyName) !== '') {
             $lines[] = 'Firma: ' . $companyName;
         }
+        $lines = array_merge($lines, ['Období: ' . $month, 'Vygenerováno: ' . date('Y-m-d H:i:s'), '']);
+
+        if ($basis === ExportBasis::Payment) {
+            $lines = array_merge($lines, [
+                'Zařazení dokladů do období: podle DATA ÚHRADY (podklady pro daň z příjmů).',
+                '  Příjmy a výdaje OSVČ se pro daň z příjmů počítají ke dni zaplacení, ne podle DUZP —',
+                '  prosincová faktura zaplacená v lednu patří do příjmů následujícího roku.',
+                '  - Vystavené faktury: doklady zaplacené v plné výši, jejichž datum úhrady spadá do období.',
+                '  - Přijaté faktury: totéž podle data úhrady.',
+                '  - Proformy se do příjmů nepočítají (záloha se eviduje daňovým dokladem k přijaté platbě).',
+                '  - Neuhrazené doklady a doklady uhrazené mimo období v exportu nejsou; jsou vypsané',
+                '    ve druhé části souborů Prehled-*.csv (doklady s DUZP v období), ať je vidět, co chybí.',
+                '  - Výpisy z účtu: podle data výpisu.',
+                '  - Kniha DPH: vždy podle DUZP (nezávisle na úhradě), po měsících, ve kterých byl',
+                '    dodavatel plátcem DPH; za měsíce mimo plátcovství se nevytváří.',
+            ]);
+        } else {
+            $lines = array_merge($lines, [
+                'Zařazení dokladů do období: podle DUZP (shodné s Knihou DPH a přiznáním DPH):',
+                '  - Vystavené faktury: podle data zdanitelného plnění (DUZP).',
+                '  - Přijaté faktury: podle pozdějšího z dat DUZP / vystavení',
+                '    (nárok na odpočet nelze uplatnit dříve než podle daňového dokladu).',
+                '  - Výpisy z účtu: podle data výpisu.',
+                '  - Kniha DPH: po měsících, ve kterých byl dodavatel plátcem DPH.',
+            ]);
+        }
         $lines = array_merge($lines, [
-            'Období: ' . $month, 'Vygenerováno: ' . date('Y-m-d H:i:s'), '',
-            'Zařazení dokladů do období (shodné s Knihou DPH a přiznáním DPH):',
-            '  - Vystavené faktury: podle data zdanitelného plnění (DUZP).',
-            '  - Přijaté faktury: podle pozdějšího z dat DUZP / vystavení',
-            '    (nárok na odpočet nelze uplatnit dříve než podle daňového dokladu).',
-            '  - Výpisy z účtu: podle data výpisu.', '', 'Obsah:',
+            '',
+            'Soubory Prehled-vydanych-faktur.csv a Prehled-prijatych-faktur.csv: jeden řádek na doklad,',
+            'UTF-8, oddělovač ";", desetinná čárka (otevřou se přímo v Excelu). Poslední řádek sekce je',
+            'součet v CZK (cizí měna kurzem dokladu); proformy a zálohy vyúčtované fakturou se vypisují,',
+            'ale do součtu se nepočítají.',
+            '', 'Obsah:',
         ]);
         foreach ($labels as $key => $label) {
             if (isset($summary[$key])) $lines[] = sprintf('  - %s: %d', $label, $summary[$key]);
+        }
+        if ($outside !== null) {
+            $lines[] = '';
+            $lines[] = 'Doklady s DUZP v období, které nejsou uhrazené v období (jen v přehledech CSV):';
+            $lines[] = sprintf('  - Vystavené: %d (z toho zcela neuhrazené %d)', $outside['sales']['total'], $outside['sales']['unpaid']);
+            $lines[] = sprintf('  - Přijaté: %d (z toho zcela neuhrazené %d)', $outside['purchase']['total'], $outside['purchase']['unpaid']);
         }
         if (!empty($warnings)) {
             $lines[] = '';

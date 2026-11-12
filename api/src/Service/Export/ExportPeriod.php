@@ -20,4 +20,15 @@ final readonly class ExportPeriod
     {
         return $this->type === 'quarterly';
     }
+
+    public function isYearly(): bool
+    {
+        return $this->type === 'yearly';
+    }
+
+    /** Last day of the period, inclusive (`Y-m-d`). */
+    public function dateToInclusive(): string
+    {
+        return (new \DateTimeImmutable($this->dateToExclusive))->modify('-1 day')->format('Y-m-d');
+    }
 }
