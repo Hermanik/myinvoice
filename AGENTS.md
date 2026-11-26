@@ -4,31 +4,16 @@ Pokyny pro práci s tímto repozitářem (Claude Code, Codex, Cursor, Copilot a 
 Platí pro celý repozitář. Obecný popis projektu je v [README.md](README.md),
 vývojářská spec v [`source/`](source/00-README.md).
 
-## ⚠️ Nejdřív zvaž MyÚčto.cz
+## Vývoj ve forku Hermanik/myinvoice
 
-**Těžiště vývoje se přesunulo do [radekhulan/myucto](https://github.com/radekhulan/myucto).**
-MyÚčto je nástupce MyInvoice; sdílí s ním společný základ i historii v gitu
-a pravidelně z něj přebírá změny. Veškerá funkcionalita MyInvoice v něm zůstává
-navždy zdarma, nadstavba (podvojné účetnictví, uzávěrky, majetek, sklad,
-EPO podání, rozšířené opravy DPH) je volitelně komerční.
-
-**Praktický důsledek pro agenty i přispěvatele:**
-
-- **Novou funkci piš rovnou do MyÚčta**, ne sem. Odtud by se do MyÚčta stejně
-  musela portovat a v MyInvoice by zůstala neúplná (chybí jí účetní vrstva,
-  na kterou se váže).
-- **Opravu chyby** dělej tam, kde chyba je. Když je ve sdíleném základu, oprav ji
-  **v MyÚčtu** — MyÚčto z MyInvoice merguje, ne naopak, takže oprava udělaná zde
-  se do MyÚčta dostane až dalším mergem a hrozí konflikt s tamní úpravou téhož
-  místa. Do MyInvoice patří jen to, co se MyÚčta netýká.
-- **Než začneš, ověř, jestli to v MyÚčtu už není hotové.** Řada věcí, které tu
-  chybí, tam existuje — nemá smysl je psát podruhé.
-- **Aditivní styl platí i tady.** MyÚčto tenhle repozitář merguje, takže velký
-  refaktor sdílených souborů mu prodraží každý další merge. Drž změny malé
-  a lokalizované.
-- **Rozsah čísel migrací:** `0125`–`0999` patří MyInvoice, `1000+` je vyhrazené
-  pro MyÚčto. Nikdy sem nezakládej migraci s číslem `1000` a vyšším, i kdyby
-  řada zdánlivě volná byla — kolidovala by při mergu.
+- **`main` je výchozí větev forku a základ pro vlastní vývoj i produkci.**
+  Jednotlivé změny připravuj v samostatných worktree z aktuálního `origin/main`.
+- Veškeré změny integruj do `main` ve forku `Hermanik/myinvoice`.
+  Případné pull requesty otevírej na pokyn uživatele ve stejném forku.
+- `master` slouží k synchronizaci s `radekhulan/myinvoice`. Do původního
+  repozitáře neposílej změny ani pull requesty.
+- Vlastní databázové migrace forku používají řadu `9001+`.
+  Při přebírání změn zachovej názvy upstreamových migrací.
 
 ## O projektu
 
